@@ -1,0 +1,14 @@
+[
+  {
+    "username": "admin",
+    "password": "pbkdf2$10000$f15bde21d1c500e231f2e82346568730$ea886355abdeee4161dfe618b3d4b291543d67b4837706f8dc1f96cf943154622c631779ce7957b99c587c03bacf879116899c21515b18ec84a1c8a605830e94",
+    "name": "Admin Account",
+    "role": "Administrator"
+  },
+  {
+    "username": "viethieu123",
+    "password": "pbkdf2$10000$cf9a1d700dfadc07bd8c8e75b87531fd$46c4a19421f82680c6ac6658a31135404759748e778785383f8e83ca5e491e9b6e966ff0f6250eb1d72465541ef79443a75346912c02c285d5ac9b7d4090a30a",
+    "name": "VH",
+    "role": "User"
+  }
+]
