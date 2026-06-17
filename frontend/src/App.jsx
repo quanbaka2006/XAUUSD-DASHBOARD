@@ -285,6 +285,26 @@ function App() {
         <div className="aurora-orb-3" />
         <div className="aurora-orb-4" />
         <div className="aurora-orb-5" />
+
+        {/* Nebula Gradient Blobs — large soft breathing gradients */}
+        <div className="nebula-blob-1" />
+        <div className="nebula-blob-2" />
+        <div className="nebula-blob-3" />
+
+        {/* Shooting Streaks — horizontal light trails */}
+        <div className="shooting-streak shooting-streak-1" />
+        <div className="shooting-streak shooting-streak-2" />
+        <div className="shooting-streak shooting-streak-3" />
+
+        {/* Firefly Luminous Particles — glowing floating dots */}
+        <div className="firefly-1 absolute w-[3px] h-[3px] rounded-full pointer-events-none" style={{bottom:'12%',left:'15%',background:'radial-gradient(circle,rgba(251,191,36,0.9),rgba(251,191,36,0.3))',boxShadow:'0 0 8px rgba(251,191,36,0.6), 0 0 20px rgba(251,191,36,0.3)'}} />
+        <div className="firefly-2 absolute w-[2px] h-[2px] rounded-full pointer-events-none" style={{bottom:'25%',left:'45%',background:'radial-gradient(circle,rgba(255,255,255,0.9),rgba(255,255,255,0.2))',boxShadow:'0 0 6px rgba(255,255,255,0.5), 0 0 16px rgba(255,255,255,0.2)'}} />
+        <div className="firefly-3 absolute w-[4px] h-[4px] rounded-full pointer-events-none" style={{bottom:'8%',left:'70%',background:'radial-gradient(circle,rgba(168,85,247,0.9),rgba(168,85,247,0.3))',boxShadow:'0 0 10px rgba(168,85,247,0.6), 0 0 25px rgba(168,85,247,0.3)'}} />
+        <div className="firefly-4 absolute w-[2.5px] h-[2.5px] rounded-full pointer-events-none" style={{bottom:'35%',left:'85%',background:'radial-gradient(circle,rgba(6,182,212,0.9),rgba(6,182,212,0.3))',boxShadow:'0 0 8px rgba(6,182,212,0.5), 0 0 18px rgba(6,182,212,0.2)'}} />
+        <div className="firefly-5 absolute w-[3px] h-[3px] rounded-full pointer-events-none" style={{bottom:'50%',left:'30%',background:'radial-gradient(circle,rgba(251,191,36,0.8),rgba(251,191,36,0.2))',boxShadow:'0 0 8px rgba(251,191,36,0.5), 0 0 20px rgba(251,191,36,0.2)'}} />
+        <div className="firefly-6 absolute w-[2px] h-[2px] rounded-full pointer-events-none" style={{bottom:'18%',left:'55%',background:'radial-gradient(circle,rgba(255,255,255,0.8),rgba(255,255,255,0.2))',boxShadow:'0 0 6px rgba(255,255,255,0.4), 0 0 14px rgba(255,255,255,0.15)'}} />
+        <div className="firefly-7 absolute w-[3.5px] h-[3.5px] rounded-full pointer-events-none" style={{bottom:'5%',left:'92%',background:'radial-gradient(circle,rgba(168,85,247,0.85),rgba(168,85,247,0.2))',boxShadow:'0 0 10px rgba(168,85,247,0.5), 0 0 22px rgba(168,85,247,0.2)'}} />
+        <div className="firefly-8 absolute w-[2.5px] h-[2.5px] rounded-full pointer-events-none" style={{bottom:'40%',left:'8%',background:'radial-gradient(circle,rgba(6,182,212,0.85),rgba(6,182,212,0.25))',boxShadow:'0 0 8px rgba(6,182,212,0.5), 0 0 18px rgba(6,182,212,0.2)'}} />
       
         {/* Container */}
         <div className="w-full max-w-[1680px] flex flex-col gap-6 relative z-10">
