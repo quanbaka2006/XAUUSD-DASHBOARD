@@ -662,14 +662,19 @@ setInterval(() => {
 }, 1000);
 
 // ==========================================
-// Authentication & User DB
+// Authentication & User DB (MongoDB + Local Fallback)
 // ==========================================
+const { MongoClient } = require('mongodb');
 const usersFilePath = path.join(__dirname, 'users.json');
 
-function loadUsers() {
+const MONGODB_URI = process.env.MONGODB_URI;
+let db = null;
+let useMongoDB = false;
+
+// Synchronous helper for local file load (used as fallback or for migration seed)
+function loadUsersFromFile() {
   try {
     if (!fs.existsSync(usersFilePath)) {
-      // Store default admin user with hashed password (migrated from plain-text 'gold123')
       const defaultAdminPassword = hashPassword('gold123');
       const defaultUsers = [{ username: 'admin', password: defaultAdminPassword, name: 'Admin Account', role: 'Administrator' }];
       fs.writeFileSync(usersFilePath, JSON.stringify(defaultUsers, null, 2), 'utf8');
@@ -679,8 +684,67 @@ function loadUsers() {
   } catch (e) { return []; }
 }
 
-function saveUsers(users) {
+function saveUsersToFile(users) {
   try { fs.writeFileSync(usersFilePath, JSON.stringify(users, null, 2), 'utf8'); } catch (e) {}
+}
+
+async function connectDB() {
+  if (!MONGODB_URI) {
+    console.log('[Database] MONGODB_URI not set. Running with local users.json fallback.');
+    return;
+  }
+  try {
+    const client = new MongoClient(MONGODB_URI, {
+      serverSelectionTimeoutMS: 5000
+    });
+    await client.connect();
+    db = client.db();
+    useMongoDB = true;
+    console.log('[MongoDB] Connected successfully to the remote database.');
+
+    // Auto-Migration: Seed MongoDB from users.json if empty
+    const mongoCount = await db.collection('users').countDocuments();
+    if (mongoCount === 0) {
+      const localUsers = loadUsersFromFile();
+      if (localUsers.length > 0) {
+        console.log(`[MongoDB] Database is empty. Migrating ${localUsers.length} users from users.json...`);
+        await db.collection('users').insertMany(localUsers);
+        console.log('[MongoDB] Migration completed successfully.');
+      }
+    }
+  } catch (err) {
+    console.error('[MongoDB] Connection failed on startup. Falling back to local file. Error:', err.message);
+  }
+}
+connectDB();
+
+async function loadUsers() {
+  if (useMongoDB) {
+    try {
+      return await db.collection('users').find({}).toArray();
+    } catch (e) {
+      console.error('[MongoDB] Load failed, using users.json fallback:', e.message);
+      return loadUsersFromFile();
+    }
+  }
+  return loadUsersFromFile();
+}
+
+async function saveUsers(users) {
+  if (useMongoDB) {
+    try {
+      await db.collection('users').deleteMany({});
+      if (users.length > 0) {
+        await db.collection('users').insertMany(users);
+      }
+      return;
+    } catch (e) {
+      console.error('[MongoDB] Save failed, saving locally to users.json:', e.message);
+      saveUsersToFile(users);
+    }
+  } else {
+    saveUsersToFile(users);
+  }
 }
 
 // ==========================================
@@ -688,7 +752,7 @@ function saveUsers(users) {
 // ==========================================
 
 // Login endpoint with rate limiter and slow down
-app.post('/api/login', authLimiter, speedLimiter, (req, res) => {
+app.post('/api/login', authLimiter, speedLimiter, async (req, res) => {
   const { username, password } = req.body;
   if (!username || !password || typeof username !== 'string' || typeof password !== 'string') {
     return res.status(400).json({ success: false, error: 'Vui lòng nhập đầy đủ thông tin.' });
@@ -698,7 +762,7 @@ app.post('/api/login', authLimiter, speedLimiter, (req, res) => {
     return res.status(400).json({ success: false, error: 'Thông tin đăng nhập quá dài.' });
   }
 
-  const users = loadUsers();
+  const users = await loadUsers();
   const foundIdx = users.findIndex(u => u.username.toLowerCase() === username.toLowerCase());
   
   if (foundIdx === -1) {
@@ -723,7 +787,7 @@ app.post('/api/login', authLimiter, speedLimiter, (req, res) => {
       console.log(`[Security] Migrating plaintext password to secure pbkdf2 hash for: ${found.username}`);
       found.password = hashPassword(password);
       users[foundIdx] = found;
-      saveUsers(users);
+      await saveUsers(users);
     }
     
     const token = generateToken({ username: found.username, name: found.name, role: found.role });
@@ -867,14 +931,14 @@ app.post('/api/drawings/:symbol', requireAuth, (req, res) => {
 // Admin User Management API Routes
 // ==========================================
 
-app.get('/api/admin/users', requireAdmin, (req, res) => {
-  const users = loadUsers();
+app.get('/api/admin/users', requireAdmin, async (req, res) => {
+  const users = await loadUsers();
   // Map users to exclude passwords
   const sanitizedUsers = users.map(({ username, name, role, expiresAt }) => ({ username, name, role, expiresAt }));
-  res.json({ success: true, users: sanitizedUsers });
+  res.json({ success: true, users: sanitizedUsers, useMongoDB });
 });
 
-app.post('/api/admin/users', requireAdmin, (req, res) => {
+app.post('/api/admin/users', requireAdmin, async (req, res) => {
   const { username, password, name, role, expiresAt } = req.body;
   if (!username || !password || !name || !role ||
       typeof username !== 'string' || typeof password !== 'string' || typeof name !== 'string' || typeof role !== 'string') {
@@ -898,7 +962,7 @@ app.post('/api/admin/users', requireAdmin, (req, res) => {
     return res.status(400).json({ success: false, error: 'Họ tên phải từ 2 đến 50 ký tự.' });
   }
 
-  const users = loadUsers();
+  const users = await loadUsers();
   if (users.some(u => u.username.toLowerCase() === cleanUsername)) {
     return res.status(400).json({ success: false, error: 'Tên đăng nhập đã tồn tại!' });
   }
@@ -911,12 +975,12 @@ app.post('/api/admin/users', requireAdmin, (req, res) => {
     role: targetRole,
     expiresAt: expiresAt ? new Date(expiresAt).toISOString() : null
   });
-  saveUsers(users);
+  await saveUsers(users);
 
   res.json({ success: true, message: 'Tạo tài khoản mới thành công!' });
 });
 
-app.put('/api/admin/users/:username/password', requireAdmin, (req, res) => {
+app.put('/api/admin/users/:username/password', requireAdmin, async (req, res) => {
   const targetUsername = req.params.username.toLowerCase();
   const { password } = req.body;
   
@@ -927,19 +991,19 @@ app.put('/api/admin/users/:username/password', requireAdmin, (req, res) => {
     return res.status(400).json({ success: false, error: 'Mật khẩu phải từ 6 đến 50 ký tự.' });
   }
 
-  const users = loadUsers();
+  const users = await loadUsers();
   const idx = users.findIndex(u => u.username.toLowerCase() === targetUsername);
   if (idx === -1) {
     return res.status(404).json({ success: false, error: 'Không tìm thấy người dùng này.' });
   }
 
   users[idx].password = hashPassword(password);
-  saveUsers(users);
+  await saveUsers(users);
 
   res.json({ success: true, message: `Đổi mật khẩu cho tài khoản ${targetUsername} thành công!` });
 });
 
-app.put('/api/admin/users/:username/role', requireAdmin, (req, res) => {
+app.put('/api/admin/users/:username/role', requireAdmin, async (req, res) => {
   const targetUsername = req.params.username.toLowerCase();
   const { role } = req.body;
 
@@ -947,7 +1011,7 @@ app.put('/api/admin/users/:username/role', requireAdmin, (req, res) => {
     return res.status(400).json({ success: false, error: 'Quyền (role) không hợp lệ.' });
   }
 
-  const users = loadUsers();
+  const users = await loadUsers();
   const idx = users.findIndex(u => u.username.toLowerCase() === targetUsername);
   if (idx === -1) {
     return res.status(404).json({ success: false, error: 'Không tìm thấy người dùng này.' });
@@ -959,35 +1023,35 @@ app.put('/api/admin/users/:username/role', requireAdmin, (req, res) => {
   }
 
   users[idx].role = role;
-  saveUsers(users);
+  await saveUsers(users);
 
   res.json({ success: true, message: `Cập nhật quyền cho tài khoản ${targetUsername} thành công!` });
 });
 
-app.delete('/api/admin/users/:username', requireAdmin, (req, res) => {
+app.delete('/api/admin/users/:username', requireAdmin, async (req, res) => {
   const targetUsername = req.params.username.toLowerCase();
 
   if (targetUsername === req.user.username.toLowerCase()) {
     return res.status(400).json({ success: false, error: 'Bạn không thể tự xóa tài khoản của chính mình!' });
   }
 
-  const users = loadUsers();
+  const users = await loadUsers();
   const idx = users.findIndex(u => u.username.toLowerCase() === targetUsername);
   if (idx === -1) {
     return res.status(404).json({ success: false, error: 'Không tìm thấy người dùng này.' });
   }
 
   users.splice(idx, 1);
-  saveUsers(users);
+  await saveUsers(users);
 
   res.json({ success: true, message: `Xóa tài khoản ${targetUsername} thành công!` });
 });
 
-app.put('/api/admin/users/:username/edit', requireAdmin, (req, res) => {
+app.put('/api/admin/users/:username/edit', requireAdmin, async (req, res) => {
   const targetUsername = req.params.username.toLowerCase();
   const { name, role, expiresAt } = req.body;
   
-  const users = loadUsers();
+  const users = await loadUsers();
   const idx = users.findIndex(u => u.username.toLowerCase() === targetUsername);
   if (idx === -1) {
     return res.status(404).json({ success: false, error: 'Không tìm thấy người dùng này.' });
@@ -1008,7 +1072,7 @@ app.put('/api/admin/users/:username/edit', requireAdmin, (req, res) => {
     users[idx].expiresAt = expiresAt ? new Date(expiresAt).toISOString() : null;
   }
 
-  saveUsers(users);
+  await saveUsers(users);
   res.json({ success: true, message: `Cập nhật thông tin tài khoản ${targetUsername} thành công!` });
 });
 
@@ -1032,7 +1096,7 @@ setInterval(() => {
 // ==========================================
 // Socket.IO Connection & Auth Middleware
 // ==========================================
-io.use((socket, next) => {
+io.use(async (socket, next) => {
   const token = socket.handshake.auth?.token;
   if (!token) {
     console.warn(`[Socket Security] Connection rejected from socket ID ${socket.id}: No token provided.`);
@@ -1046,7 +1110,7 @@ io.use((socket, next) => {
   }
   
   // Security check: Verify user expiration status
-  const users = loadUsers();
+  const users = await loadUsers();
   const foundUser = users.find(u => u.username.toLowerCase() === decoded.username.toLowerCase());
   if (foundUser && foundUser.expiresAt) {
     const expTime = new Date(foundUser.expiresAt).getTime();

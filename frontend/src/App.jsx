@@ -31,7 +31,6 @@ function App() {
   const { t, language, setLanguage } = useTranslation();
   // Mobile tab state: 'chart' | 'signal' | 'manage'
   const [activeMobileTab, setActiveMobileTab] = useState('chart');
-  // Authentication & Global Store
   const {
     isLoggedIn,
     user,
@@ -62,7 +61,9 @@ function App() {
     setAdminSuccess,
     showConfigPanel,
     toggleConfigPanel,
-    connectionStatus
+    connectionStatus,
+    useMongoDB,
+    fetchAdminUsers
   } = useTradeStore();
 
   // Local form input states (kept local for performance & scoping)
@@ -74,6 +75,13 @@ function App() {
   useEffect(() => {
     checkAuth();
   }, [checkAuth]);
+
+  // Auto-fetch admin users to resolve database connection status
+  useEffect(() => {
+    if (isLoggedIn && user?.role === 'Administrator') {
+      fetchAdminUsers();
+    }
+  }, [isLoggedIn, user, fetchAdminUsers]);
 
   // URL routing synchronization & popstate listener
   useEffect(() => {
@@ -413,6 +421,29 @@ function App() {
               </div>
             </div>
           </div>
+
+          {/* Database connection warning for Administrators */}
+          {isLoggedIn && user?.role === 'Administrator' && !useMongoDB && (
+            <div className="w-full bg-red-950/40 border border-red-500/40 rounded-2xl p-5 relative overflow-hidden flex flex-col md:flex-row items-center gap-4 text-left shadow-[0_0_30px_rgba(239,68,68,0.1)] mb-4">
+              <div className="absolute top-0 left-0 bottom-0 w-1 bg-red-500 animate-pulse" />
+              <div className="h-12 w-12 rounded-xl bg-red-500/15 border border-red-500/30 flex items-center justify-center text-red-500 flex-shrink-0 animate-bounce">
+                <Zap className="h-6 w-6" />
+              </div>
+              <div className="flex-1 space-y-1">
+                <h4 className="text-sm font-black text-red-400 uppercase tracking-wider">
+                  ⚠️ CẢNH BÁO BẢO MẬT & MẤT TÀI KHOẢN (CỰC KỲ QUAN TRỌNG)
+                </h4>
+                <p className="text-xs text-slate-300 font-medium leading-relaxed">
+                  Hệ thống đang chạy trên cơ sở dữ liệu tạm thời (<span className="text-red-400 font-mono font-bold">users.json</span>). 
+                  Do Render tự động xóa đĩa cứng tạm thời sau mỗi lần khởi động lại (12-24 giờ) hoặc khi cập nhật code, 
+                  <strong className="text-white"> mọi tài khoản thành viên mới tạo/chỉnh sửa sẽ bị MẤT HOÀN TOÀN</strong>.
+                </p>
+                <p className="text-xs text-amber-500 font-semibold">
+                  👉 Vui lòng cấu hình biến môi trường <span className="font-mono bg-white/[0.06] px-1.5 py-0.5 rounded text-amber-400">MONGODB_URI</span> trên Render ngay để lưu trữ vĩnh viễn dữ liệu người dùng.
+                </p>
+              </div>
+            </div>
+          )}
 
           {currentView === 'admin' ? (
             <AdminPanel />

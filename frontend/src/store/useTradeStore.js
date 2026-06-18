@@ -195,6 +195,7 @@ export const useTradeStore = create((set, get) => ({
   // Admin Panel States
   currentView: 'dashboard',
   adminUsers: [],
+  useMongoDB: true,
   adminLoading: false,
   adminError: '',
   adminSuccess: '',
@@ -472,7 +473,10 @@ export const useTradeStore = create((set, get) => ({
       });
       const data = await response.json();
       if (response.ok && data.success) {
-        set({ adminUsers: data.users });
+        set({ 
+          adminUsers: data.users,
+          useMongoDB: data.useMongoDB !== undefined ? data.useMongoDB : true
+        });
       } else {
         set({ adminError: data.error || 'Không thể tải danh sách tài khoản.' });
       }
