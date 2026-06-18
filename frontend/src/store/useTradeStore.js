@@ -10,7 +10,7 @@ import {
 
 export const SOCKET_URL = window.location.hostname === 'localhost' 
   ? 'http://localhost:5000' 
-  : window.location.origin;
+  : 'https://xauusd-dashboard-izrr.onrender.com';
 
 const initialSignals = {
   'XAUUSD': {
