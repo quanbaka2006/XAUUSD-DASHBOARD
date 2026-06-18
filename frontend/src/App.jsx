@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { 
   Zap, 
   User, 
@@ -42,7 +42,6 @@ function App() {
     selectedIndicatorSystem,
     marketSpread,
     marketVolume,
-    utcTime,
     isSidebarHovered,
     isMobileMenuOpen,
     setIsRegistering,
@@ -51,7 +50,6 @@ function App() {
     setCurrentView,
     setMarketSpread,
     setMarketVolume,
-    setUtcTime,
     setIsMobileMenuOpen,
     login,
     register,
@@ -65,6 +63,11 @@ function App() {
     useMongoDB,
     fetchAdminUsers
   } = useTradeStore();
+
+  // DOM ref for clock — avoids re-rendering App on every second tick
+  const clockDomRef = useRef(null);
+  const clockDomRef2 = useRef(null); // second clock in TradingChart header area (read from store)
+
 
   // Local form input states (kept local for performance & scoping)
   const [loginUsername, setLoginUsername] = useState('');
@@ -105,16 +108,20 @@ function App() {
     return () => window.removeEventListener('popstate', handlePopState);
   }, [setCurrentView]);
 
-  // Clock & market stats timer
+  // Clock — write directly to DOM ref, no React state update = no re-render
   useEffect(() => {
     if (!isLoggedIn) return;
 
     const updateClock = () => {
       const date = new Date();
-      const hours = String(date.getHours()).padStart(2, '0');
-      const minutes = String(date.getMinutes()).padStart(2, '0');
-      const seconds = String(date.getSeconds()).padStart(2, '0');
-      setUtcTime(`${hours}:${minutes}:${seconds} UTC+7`);
+      const hh = String(date.getHours()).padStart(2, '0');
+      const mm = String(date.getMinutes()).padStart(2, '0');
+      const ss = String(date.getSeconds()).padStart(2, '0');
+      const text = `${hh}:${mm}:${ss} UTC+7`;
+      // Update store (for TradingChart which reads utcTime)
+      useTradeStore.setState({ utcTime: text });
+      // Update DOM directly — zero React re-render cost
+      if (clockDomRef.current) clockDomRef.current.textContent = text;
     };
 
     updateClock();
@@ -129,7 +136,7 @@ function App() {
       clearInterval(clockTimer);
       clearInterval(statsTimer);
     };
-  }, [isLoggedIn, setUtcTime, setMarketSpread, setMarketVolume]);
+  }, [isLoggedIn, setMarketSpread, setMarketVolume]);
 
   // Auth Form Handlers
   const handleLoginSubmit = async (e) => {
@@ -340,7 +347,7 @@ function App() {
                 </div>
                 <div className="text-left leading-none">
                   <div className="text-[11px] text-sky-500/70 font-bold uppercase tracking-wider">{t('feeds')}</div>
-                  <div className="text-xs font-black text-sky-400 font-mono mt-0.5">{utcTime || '00:00:00'}</div>
+                  <div className="text-xs font-black text-sky-400 font-mono mt-0.5"><span ref={clockDomRef}>00:00:00 UTC+7</span></div>
                 </div>
               </div>
 

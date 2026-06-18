@@ -9,6 +9,8 @@ import {
   Activity,
   Zap,
   TrendingUp,
+  ChevronsUp,
+  ChevronsDown,
   Globe,
   Sliders,
   PenTool,
@@ -45,6 +47,78 @@ const SYMBOLS_DISPLAY = {
   'ETHUSD': 'Ethereum (ETHUSD)'
 };
 
+// ── Live signal status: compares the latest live price against SL/TP ──
+function computeSignalStatus(signal, livePrice) {
+  if (!signal || signal.action === 'stale' || !signal.entry) return 'none';
+  if (livePrice == null || isNaN(livePrice) || livePrice === 0) return 'running';
+  if (signal.action === 'sell') {
+    if (livePrice <= signal.tp) return 'tp';
+    if (livePrice >= signal.sl) return 'sl';
+  } else if (signal.action === 'buy') {
+    if (livePrice >= signal.tp) return 'tp';
+    if (livePrice <= signal.sl) return 'sl';
+  }
+  return 'running';
+}
+
+const STATUS_META = {
+  running: { vn: 'ĐANG CHẠY', en: 'ACTIVE', cls: 'text-emerald-200 bg-emerald-500/20 border-emerald-300/50 shadow-[0_0_20px_rgba(16,185,129,0.45)]', dot: 'bg-emerald-300' },
+  tp:      { vn: 'ĐÃ CHẠM TP', en: 'TP HIT', cls: 'text-emerald-100 bg-emerald-400/30 border-emerald-200/70 shadow-[0_0_26px_rgba(16,185,129,0.7)]', dot: 'bg-emerald-200' },
+  sl:      { vn: 'ĐÃ CHẠM SL', en: 'SL HIT', cls: 'text-rose-100 bg-rose-500/30 border-rose-200/70 shadow-[0_0_26px_rgba(244,63,94,0.7)]', dot: 'bg-rose-200' },
+  none:    { vn: 'HẾT HIỆU LỰC', en: 'EXPIRED', cls: 'text-slate-300 bg-slate-500/15 border-slate-400/30', dot: 'bg-slate-400' },
+};
+
+// Small isolated component: only THIS re-renders on each price tick (not the whole chart)
+function SignalStatusBadge({ signal }) {
+  const livePrice = useTradeStore(s => s.livePrice);
+  const { language } = useTranslation();
+  const status = computeSignalStatus(signal, livePrice);
+  const m = STATUS_META[status];
+  const running = status === 'running';
+  return (
+    <span className={`flex items-center gap-1.5 px-3 py-1 rounded-full text-[11px] font-black tracking-widest uppercase border ${m.cls}`}>
+      <span className={`w-1.5 h-1.5 rounded-full inline-block ${m.dot} ${running ? 'animate-ping' : ''}`} />
+      {language === 'en' ? m.en : m.vn}
+    </span>
+  );
+}
+
+// Live price position between SL and TP — vivid visual gauge
+function SignalProgressBar({ signal, symbol }) {
+  const livePrice = useTradeStore(s => s.livePrice);
+  const { language } = useTranslation();
+  if (!signal || signal.action === 'stale' || !signal.entry || !signal.sl || !signal.tp) return null;
+  const dec = symbol === 'XAGUSD' ? 4 : 2;
+  const lo = Math.min(signal.sl, signal.tp);
+  const hi = Math.max(signal.sl, signal.tp);
+  const span = (hi - lo) || 1;
+  const clamp = (v) => Math.max(0, Math.min(100, v));
+  const entryPct = clamp(((signal.entry - lo) / span) * 100);
+  const hasPrice = livePrice != null && !isNaN(livePrice) && livePrice !== 0;
+  const pricePct = hasPrice ? clamp(((livePrice - lo) / span) * 100) : entryPct;
+  const tpAtRight = signal.tp >= signal.sl; // buy: TP is the high end (right); sell: TP is the low end (left)
+  const trackGradient = tpAtRight
+    ? 'linear-gradient(90deg, rgba(244,63,94,0.55), rgba(148,163,184,0.18) 50%, rgba(16,185,129,0.6))'
+    : 'linear-gradient(90deg, rgba(16,185,129,0.6), rgba(148,163,184,0.18) 50%, rgba(244,63,94,0.55))';
+  const leftVal = tpAtRight ? signal.sl : signal.tp;
+  const rightVal = tpAtRight ? signal.tp : signal.sl;
+  return (
+    <div className="px-1 pt-1">
+      <div className="flex justify-between text-[10px] font-black tracking-wider mb-1.5">
+        <span className={tpAtRight ? 'text-rose-400' : 'text-emerald-400'}>{tpAtRight ? 'SL' : 'TP'} {leftVal.toFixed(dec)}</span>
+        <span className="text-amber-300/90 uppercase">{language === 'en' ? 'Live' : 'Giá hiện tại'}</span>
+        <span className={tpAtRight ? 'text-emerald-400' : 'text-rose-400'}>{tpAtRight ? 'TP' : 'SL'} {rightVal.toFixed(dec)}</span>
+      </div>
+      <div className="relative h-2.5 rounded-full" style={{ background: trackGradient }}>
+        {/* entry marker */}
+        <span className="absolute top-1/2 -translate-x-1/2 -translate-y-1/2 w-[3px] h-4 bg-white/80 rounded-full" style={{ left: `${entryPct}%` }} />
+        {/* live price marker */}
+        <span className="absolute top-1/2 -translate-x-1/2 -translate-y-1/2 w-3.5 h-3.5 rounded-full bg-white border-2 border-amber-400 shadow-[0_0_12px_rgba(251,191,36,0.95)]" style={{ left: `${pricePct}%` }} />
+      </div>
+    </div>
+  );
+}
+
 export function TradingChart({ mobileTab }) {
   const { t } = useTranslation();
   const {
@@ -63,11 +137,8 @@ export function TradingChart({ mobileTab }) {
     chandelierAtrMultiplier,
     trendlineLength,
     trendlineSlopeMult,
-    livePrice,
-    setLivePrice,
     connectionStatus,
     setConnectionStatus,
-    utcTime,
     ind1Type,
     ind1Period,
     ind1Color,
@@ -102,6 +173,11 @@ export function TradingChart({ mobileTab }) {
     updateRiskCalculator,
     showConfigPanel
   } = useTradeStore();
+
+  // DOM refs for live price and clock — bypass React re-render completely
+  const livePriceDomRef = React.useRef(null);
+  const chartClockDomRef = React.useRef(null);
+
 
   // Drawing Tools State
   const [showDrawingToolbar, setShowDrawingToolbar] = React.useState(true);
@@ -521,6 +597,8 @@ export function TradingChart({ mobileTab }) {
 
   const candlesHistoryRef = useRef([]);
   const socketRef = useRef(null);
+  // Throttle indicator recalculation — max once per 500ms regardless of tick rate
+  const lastIndicatorUpdateRef = useRef(0);
 
   // Premium UI Hover & Active Line refs
   const isHoveringRef = useRef(false);
@@ -576,11 +654,8 @@ export function TradingChart({ mobileTab }) {
   // Dynamic theme variables
   const currentTheme = selectedIndicatorSystem;
 
-  // Realtime Hours parsing for trading sessions
-  const localHour = useMemo(() => {
-    if (!utcTime) return new Date().getHours();
-    return parseInt(utcTime.split(':')[0]) || new Date().getHours();
-  }, [utcTime]);
+  // Trading session detection — read hour directly from Date, no store dependency
+  const localHour = new Date().getHours();
 
   const getSessionStatus = (session) => {
     switch (session) {
@@ -661,6 +736,16 @@ export function TradingChart({ mobileTab }) {
     }
   }, [candleColorTheme]);
 
+  // Subscribe to utcTime from store, write to DOM directly — no re-render
+  React.useEffect(() => {
+    const unsub = useTradeStore.subscribe((state) => {
+      if (chartClockDomRef.current && state.utcTime) {
+        chartClockDomRef.current.textContent = state.utcTime.split(' ')[0];
+      }
+    });
+    return unsub;
+  }, []);
+
   // Sockets feed
   useEffect(() => {
     if (!isLoggedIn) return;
@@ -715,7 +800,12 @@ export function TradingChart({ mobileTab }) {
       const state = useTradeStore.getState();
       const currentSelectedSymbol = state.selectedSymbol;
       if (data.ticker === currentSelectedSymbol) {
-        setLivePrice(data.currentPrice);
+        // Write to store for any other consumers (e.g. signal calc)
+        useTradeStore.setState({ livePrice: data.currentPrice });
+        // Update price DOM directly — NO React re-render
+        if (livePriceDomRef.current) {
+          livePriceDomRef.current.textContent = `$${data.currentPrice.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 3 })}`;
+        }
         requestAnimationFrame(() => updatePriceGlowLine(data.currentPrice));
       }
     });
@@ -744,13 +834,22 @@ export function TradingChart({ mobileTab }) {
           }
 
           if (updated) {
-            useTradeStore.getState().setCandlesHistory([...history]);
+            // Only sync Zustand store on new candle open (not every tick) — avoids re-renders
+            const isNewCandle = data.candle.time > (history[history.length - 2]?.time ?? 0);
+            if (isNewCandle) {
+              useTradeStore.getState().setCandlesHistory([...history]);
+              // Only bump historyCount on actual new candle (triggers signal recalc)
+              setHistoryCount(prev => prev + 1);
+            }
             candlestickSeriesRef.current.update(data.candle);
-            setHistoryCount(prev => prev + 1);
             if (!isHoveringRef.current) {
               showLatestCandleHUD();
             }
 
+            // PERFORMANCE: throttle indicator recalculation to max once per 500ms
+            const now = Date.now();
+            if (now - lastIndicatorUpdateRef.current < 500) return;
+            lastIndicatorUpdateRef.current = now;
 
             const activeState = useTradeStore.getState();
             const {
@@ -1684,42 +1783,37 @@ export function TradingChart({ mobileTab }) {
               <span className="px-2 py-0.5 bg-amber-500/10 border border-amber-500/20 text-amber-500 rounded text-[11px] font-mono font-black tracking-widest">{selectedTimeframe}</span>
             </div>
 
-            <span className={`flex items-center gap-1.5 px-3 py-1 rounded-full text-[11px] font-black tracking-widest uppercase border ${
-              currentSignal.action === 'stale'
-                ? 'text-red-400 bg-red-950/20 border-red-900/20'
-                : 'text-emerald-400 bg-emerald-950/20 border-emerald-900/20'
-            }`}>
-              <span className={`w-1 h-1 rounded-full inline-block ${
-                currentSignal.action === 'stale' ? 'bg-red-500' : 'bg-emerald-400 animate-pulse'
-              }`} />
-              {currentSignal.action === 'stale' ? t('expired') : t('activeFeed')}
-            </span>
+            <SignalStatusBadge signal={currentSignal} />
           </div>
 
           {/* ── HERO ZONE: Technical action arrow ── */}
           <div className="px-5 py-6 flex items-center gap-4">
             <div className={`h-14 w-14 rounded-2xl flex items-center justify-center border transition-all duration-500 relative group overflow-hidden ${
               currentSignal.action === 'buy'
-                ? 'bg-amber-500/5 border-amber-500/20 text-amber-400 shadow-[0_0_20px_rgba(234,179,8,0.1)]'
+                ? 'bg-gradient-to-br from-amber-500/10 to-yellow-600/5 border-amber-500/30 text-amber-400 shadow-[0_0_25px_rgba(234,179,8,0.2)]'
                 : currentSignal.action === 'sell'
-                ? 'bg-red-500/5 border-red-500/20 text-red-500 shadow-[0_0_20px_rgba(239,68,68,0.1)]'
+                ? 'bg-gradient-to-br from-red-500/10 to-rose-600/5 border-red-500/30 text-red-400 shadow-[0_0_25px_rgba(239,68,68,0.2)]'
                 : 'bg-slate-900 border-slate-800 text-slate-500'
             }`}>
               <div className="absolute inset-0 bg-gradient-to-tr from-transparent via-white/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-500" />
               {currentSignal.action === 'buy' ? (
-                <TrendingUp className="h-7 w-7 animate-pulse text-amber-400" />
+                <ChevronsUp className="h-7 w-7 animate-arrow-up-stream text-amber-400" />
               ) : currentSignal.action === 'sell' ? (
-                <TrendingUp className="h-7 w-7 rotate-180 animate-pulse text-red-500" />
+                <ChevronsDown className="h-7 w-7 animate-arrow-down-stream text-red-400" />
               ) : (
                 <Clock className="h-7 w-7 text-slate-500" />
               )}
             </div>
             <div className="text-left">
               <span className="text-[11px] font-black text-slate-500 uppercase tracking-widest block">{t('latestDetails')}</span>
-              <h2 className={`text-2xl font-black tracking-wider leading-none mt-1.5 uppercase ${
-                currentSignal.action === 'buy' ? 'text-amber-400' : currentSignal.action === 'sell' ? 'text-red-400' : 'text-slate-400'
+              <h2 className={`text-3xl font-black tracking-wider leading-none mt-1.5 uppercase bg-clip-text text-transparent animate-text-shimmer ${
+                currentSignal.action === 'buy'
+                  ? 'bg-gradient-to-r from-amber-200 via-yellow-400 to-orange-400 animate-glow-buy'
+                  : currentSignal.action === 'sell'
+                  ? 'bg-gradient-to-r from-rose-300 via-red-400 to-orange-500 animate-glow-sell'
+                  : 'bg-gradient-to-r from-slate-300 to-slate-500'
               }`}>
-                {currentSignal.action === 'buy' ? 'BUY LIMIT' : currentSignal.action === 'sell' ? 'SELL NOW' : t('waiting')}
+                {currentSignal.action === 'buy' ? 'BUY NOW' : currentSignal.action === 'sell' ? 'SELL NOW' : t('waiting')}
               </h2>
             </div>
           </div>
@@ -1754,6 +1848,13 @@ export function TradingChart({ mobileTab }) {
                 <span className="text-base font-mono font-black text-emerald-400 tracking-tighter">{formatPrice(currentSignal.tp)}</span>
               </div>
             </div>
+
+            {/* ── LIVE PRICE POSITION GAUGE (SL ↔ live ↔ TP) ── */}
+            {currentSignal.action !== 'stale' && (
+              <div className="panel-surface p-3 rounded-2xl">
+                <SignalProgressBar signal={currentSignal} symbol={selectedSymbol} />
+              </div>
+            )}
 
             {/* ── CONFIDENCE PROGRESS METER (Glow Led Indicator) ── */}
             <div className="space-y-2 text-left panel-surface p-3 rounded-2xl">
@@ -1956,9 +2057,7 @@ export function TradingChart({ mobileTab }) {
               {/* Live Spot Price Badge */}
               <div className="flex items-baseline gap-1.5 bg-amber-500/10 border border-amber-500/20 px-2 py-1 rounded-lg text-[11px] font-black text-amber-500 font-mono shadow-[0_0_10px_rgba(234,179,8,0.05)]">
                 <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wide">{t('spotPrice')}</span>
-                <span className="text-glow-gold">
-                  {livePrice !== null ? `$${livePrice.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 3 })}` : <span className="text-slate-650 animate-pulse">---</span>}
-                </span>
+                <span className="text-glow-gold" ref={livePriceDomRef}>---</span>
               </div>
 
               {/* Live status dot */}
@@ -1967,7 +2066,7 @@ export function TradingChart({ mobileTab }) {
                   <span className={`animate-ping absolute inline-flex h-full w-full rounded-full opacity-75 ${connectionStatus ? 'bg-sky-400' : 'bg-red-400'}`}></span>
                   <span className={`relative inline-flex rounded-full h-2 w-2 ${connectionStatus ? 'bg-sky-500' : 'bg-red-500'}`}></span>
                 </span>
-                <span className="text-[10px] font-black text-sky-400 font-mono">{utcTime ? utcTime.split(' ')[0] : '--:--:--'}</span>
+                <span className="text-[10px] font-black text-sky-400 font-mono" ref={chartClockDomRef}>--:--:--</span>
               </span>
             </div>
 

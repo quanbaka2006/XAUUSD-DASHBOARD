@@ -4,3 +4,7 @@ node_modules/
 *.log
 .DS_Store
 test_sync.txt
+
+# Local user store — must NOT be committed (contains account data / password hashes)
+backend/users.json
+users.json

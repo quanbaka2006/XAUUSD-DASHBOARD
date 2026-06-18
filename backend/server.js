@@ -16,23 +16,41 @@ const slowDown = require('express-slow-down');
 try { require('dotenv').config(); } catch(e) {}
 
 // ==========================================
-// API Keys — set via environment variables
+// API Keys & Secrets — MUST be set via environment variables (never hardcode)
 // ==========================================
-const FINNHUB_TOKEN = process.env.FINNHUB_TOKEN || 'd8iurppr01qmeaukalagd8iurppr01qmeaukalb0';
+const FINNHUB_TOKEN = process.env.FINNHUB_TOKEN || '';
 if (!FINNHUB_TOKEN) {
   console.warn('[Finnhub] WARNING: FINNHUB_TOKEN not set. Commodity prices will use Yahoo Finance fallback (higher delay).');
 }
 
-// Security Secrets
-const WEBHOOK_SECRET = process.env.WEBHOOK_SECRET || 'd8iurppr01qmeaukalagd8iurppr01qmeaukalb0';
+// Security Secrets — no hardcoded fallback. If WEBHOOK_SECRET is unset the webhook
+// fails closed (rejects everything) instead of trusting a publicly-known value.
+const WEBHOOK_SECRET = process.env.WEBHOOK_SECRET || '';
+if (!WEBHOOK_SECRET) {
+  console.warn('[Security] WARNING: WEBHOOK_SECRET not set — the TradingView webhook will reject all requests until it is configured.');
+}
 const JWT_SECRET = process.env.JWT_SECRET || crypto.randomBytes(32).toString('hex');
+if (!process.env.JWT_SECRET) {
+  console.warn('[Security] WARNING: JWT_SECRET not set — using a random secret. All users will be logged out on every restart/deploy. Set JWT_SECRET in Render for stable sessions.');
+}
+
+// Allowed browser origins for CORS (comma-separated env override supported)
+const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS ||
+  'https://alphagoldhub.com,https://www.alphagoldhub.com,https://xauusd-dashboard-izrr.onrender.com,http://localhost:5173')
+  .split(',').map(o => o.trim()).filter(Boolean);
+
+// Allow same-origin / server-to-server (no Origin header) + whitelisted origins
+function corsOriginCheck(origin, callback) {
+  if (!origin || ALLOWED_ORIGINS.includes(origin)) return callback(null, true);
+  return callback(null, false);
+}
 
 // ==========================================
 // Password Hashing (PBKDF2) & Token JWT Utils
 // ==========================================
 function hashPassword(password) {
   const salt = crypto.randomBytes(16).toString('hex');
-  const iterations = 10000;
+  const iterations = 100000; // raised from 10000; verifyPassword reads iterations from each stored hash so old hashes still work
   const keylen = 64;
   const digest = 'sha512';
   const hash = crypto.pbkdf2Sync(password, salt, iterations, keylen, digest).toString('hex');
@@ -116,9 +134,9 @@ app.use(hpp());
 // Disable Express identifier signature
 app.disable('x-powered-by');
 
-// CORS setup
+// CORS setup — restricted to known origins instead of wildcard
 app.use(cors({
-  origin: '*',
+  origin: corsOriginCheck,
   methods: ['GET', 'POST', 'PUT', 'DELETE']
 }));
 
@@ -188,7 +206,7 @@ function requireAdmin(req, res, next) {
 
 const server = http.createServer(app);
 const io = new Server(server, {
-  cors: { origin: '*', methods: ['GET', 'POST'] }
+  cors: { origin: ALLOWED_ORIGINS, methods: ['GET', 'POST'] }
 });
 
 const PORT = process.env.PORT || 5000;
@@ -587,11 +605,24 @@ connectFinnhub();
 // 1-Second Candle Tick Loop
 // Uses currentPrices (already synced by Binance WS or Yahoo)
 // No random simulation — pure real prices
+//
+// PERFORMANCE: candle_update is throttled per-timeframe:
+//   M1  → every 1s  (always)
+//   M5  → every 5s  (now % 5 === 0)
+//   M15 → every 15s (now % 15 === 0)
+//   H1  → every 60s (now % 60 === 0)
+// price_update only fires when price actually changed.
 // ==========================================
+
+// Track last broadcast second per timeframe to avoid redundant emits
+const lastCandleBroadcast = {};
+SYMBOLS.forEach(s => { lastCandleBroadcast[s] = {}; });
+
+// Track last emitted price to suppress duplicate price_update events
+const lastEmittedPrice = {};
+
 setInterval(() => {
   // Guard: candles aren't ready yet (waiting on seed prices / init timeout).
-  // Without this check, activeCandles[sym][tf] can still be null here and
-  // the tick below would crash the whole process on startup.
   if (!historyInitialized) return;
 
   const now = Math.floor(Date.now() / 1000);
@@ -614,8 +645,7 @@ setInterval(() => {
       const expectedTime = Math.floor(now / seconds) * seconds;
       const active = activeCandles[sym][tf];
 
-      // Defensive guard: self-heal if this specific candle slot is somehow
-      // still uninitialized (e.g. partial init state), instead of crashing.
+      // Defensive guard: self-heal if slot is somehow uninitialized
       if (!active) {
         activeCandles[sym][tf] = {
           time: expectedTime,
@@ -627,7 +657,9 @@ setInterval(() => {
         return;
       }
 
-      if (expectedTime > active.time) {
+      const isNewCandle = expectedTime > active.time;
+
+      if (isNewCandle) {
         // New candle: archive old one
         candleHistory[sym][tf].push({ ...active });
         if (candleHistory[sym][tf].length > 200) candleHistory[sym][tf].shift();
@@ -645,19 +677,31 @@ setInterval(() => {
         active.low   = Math.min(active.low,  price);
       }
 
-      // Broadcast active candle updates for this specific symbol and timeframe
-      io.emit('candle_update', {
-        ticker:       sym,
-        interval:     tf,
-        candle:       activeCandles[sym][tf]
-      });
+      // Throttle: only emit candle_update at the natural interval boundary
+      // M1 → every second, M5 → every 5s, M15 → every 15s, H1 → every 60s
+      const shouldBroadcast = isNewCandle || (now % seconds === 0) || tf === 'M1';
+      if (shouldBroadcast) {
+        const lastBcast = lastCandleBroadcast[sym][tf] || 0;
+        // For M1: always broadcast. For others: only when the slot time changed.
+        if (tf === 'M1' || activeCandles[sym][tf].time !== lastBcast) {
+          lastCandleBroadcast[sym][tf] = activeCandles[sym][tf].time;
+          io.emit('candle_update', {
+            ticker:   sym,
+            interval: tf,
+            candle:   activeCandles[sym][tf]
+          });
+        }
+      }
     });
 
-    // Broadcast price update once per second for this symbol (outside timeframe loop)
-    io.emit('price_update', {
-      ticker:       sym,
-      currentPrice: price
-    });
+    // price_update: only emit when price actually changed (avoids flooding)
+    if (lastEmittedPrice[sym] !== price) {
+      lastEmittedPrice[sym] = price;
+      io.emit('price_update', {
+        ticker:       sym,
+        currentPrice: price
+      });
+    }
   });
 }, 1000);
 

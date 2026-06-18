@@ -755,3 +755,87 @@ input[type="number"] {
 .aurora-orb-3 { background: radial-gradient(circle, rgba(16, 185, 129, 0.15), transparent 68%); }
 .aurora-orb-4 { background: radial-gradient(circle, rgba(245, 158, 11, 0.16), transparent 68%); }
 .aurora-orb-5 { background: radial-gradient(circle, rgba(244, 63, 94, 0.12), transparent 68%); }
+
+/* ═══════════════════════════════════════════
+   PREMIUM SIGNAL CARD ANIMATIONS (Glow & Shimmer)
+   ═══════════════════════════════════════════ */
+
+@keyframes text-shimmer {
+  0% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+  100% { background-position: 0% 50%; }
+}
+
+@keyframes text-glow-pulse-buy {
+  0%, 100% {
+    filter: drop-shadow(0 0 4px rgba(251, 191, 36, 0.5)) drop-shadow(0 0 10px rgba(251, 191, 36, 0.3));
+  }
+  50% {
+    filter: drop-shadow(0 0 12px rgba(251, 191, 36, 0.8)) drop-shadow(0 0 22px rgba(251, 191, 36, 0.5));
+  }
+}
+
+@keyframes text-glow-pulse-sell {
+  0%, 100% {
+    filter: drop-shadow(0 0 4px rgba(239, 68, 68, 0.5)) drop-shadow(0 0 10px rgba(239, 68, 68, 0.3));
+  }
+  50% {
+    filter: drop-shadow(0 0 12px rgba(239, 68, 68, 0.8)) drop-shadow(0 0 22px rgba(239, 68, 68, 0.5));
+  }
+}
+
+@keyframes arrow-stream-up {
+  0% {
+    transform: translateY(8px);
+    opacity: 0;
+  }
+  30% {
+    opacity: 1;
+  }
+  70% {
+    opacity: 1;
+  }
+  100% {
+    transform: translateY(-8px);
+    opacity: 0;
+  }
+}
+
+@keyframes arrow-stream-down {
+  0% {
+    transform: translateY(-8px);
+    opacity: 0;
+  }
+  30% {
+    opacity: 1;
+  }
+  70% {
+    opacity: 1;
+  }
+  100% {
+    transform: translateY(8px);
+    opacity: 0;
+  }
+}
+
+.animate-text-shimmer {
+  background-size: 200% auto !important;
+  animation: text-shimmer 4s ease infinite !important;
+}
+
+.animate-glow-buy {
+  animation: text-glow-pulse-buy 2s ease-in-out infinite;
+}
+
+.animate-glow-sell {
+  animation: text-glow-pulse-sell 2s ease-in-out infinite;
+}
+
+.animate-arrow-up-stream {
+  animation: arrow-stream-up 1.6s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+}
+
+.animate-arrow-down-stream {
+  animation: arrow-stream-down 1.6s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+}
+
