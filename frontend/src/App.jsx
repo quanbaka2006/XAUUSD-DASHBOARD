@@ -15,7 +15,6 @@ import {
 } from 'lucide-react';
 import './App.css';
 import logoImg from './assets/logo.png';
-import telegramQrImg from './assets/telegram_qr.png';
 import { useTradeStore } from './store/useTradeStore';
 import { Sidebar } from './components/Sidebar';
 import { AdminPanel } from './components/AdminPanel';
@@ -224,7 +223,7 @@ function App() {
               <span>{t('login')}</span>
             </button>
 
-            <div className="pt-5 mt-4 border-t border-white/[0.06] text-center flex flex-col items-center gap-4 font-sans">
+            <div className="pt-5 mt-4 border-t border-white/[0.06] text-center flex flex-col items-center gap-4 font-sans font-medium">
               <div>
                 <p className="text-slate-400 text-xs font-bold leading-relaxed">
                   Chức năng đăng ký tài khoản tự do đã bị khóa.
@@ -244,18 +243,6 @@ function App() {
                 <Zap className="h-4 w-4" />
                 <span>Liên hệ hỗ trợ tạo tài khoản</span>
               </a>
-
-              {/* Telegram QR Code */}
-              <div className="flex flex-col items-center p-3 bg-white/[0.02] border border-white/[0.04] rounded-xl w-full">
-                <img 
-                  src={telegramQrImg} 
-                  alt="Telegram Support QR" 
-                  className="h-32 w-32 object-contain rounded-lg border border-white/[0.08] p-1 bg-white" 
-                />
-                <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider mt-2.5">
-                  Quét mã QR để chat với Alphagold Support
-                </span>
-              </div>
             </div>
           </form>
         </div>
