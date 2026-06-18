@@ -949,7 +949,13 @@ export const useTradeStore = create((set, get) => ({
     };
     
     set({ virtualAccount: nextAccount });
-    localStorage.setItem('virtual_account', JSON.stringify(nextAccount));
+    
+    // Performance Optimization: Only write to localStorage when critical trading events happen (open/close trade).
+    // Floating equity/PnL changes do NOT need to be saved every second since they are dynamically recalculated from livePrice on page load.
+    const hasTradesChanged = openTrades.length !== updatedOpenTrades.length || hasTradeClosed;
+    if (hasTradesChanged) {
+      localStorage.setItem('virtual_account', JSON.stringify(nextAccount));
+    }
   },
 
   fetchNews: async (limit = 20, start = 0, importantOnly = false) => {

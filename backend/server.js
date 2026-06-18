@@ -645,13 +645,18 @@ setInterval(() => {
         active.low   = Math.min(active.low,  price);
       }
 
-      // Broadcast to all connected clients
-      io.emit('price_update', {
+      // Broadcast active candle updates for this specific symbol and timeframe
+      io.emit('candle_update', {
         ticker:       sym,
         interval:     tf,
-        candle:       activeCandles[sym][tf],
-        currentPrice: price
+        candle:       activeCandles[sym][tf]
       });
+    });
+
+    // Broadcast price update once per second for this symbol (outside timeframe loop)
+    io.emit('price_update', {
+      ticker:       sym,
+      currentPrice: price
     });
   });
 }, 1000);

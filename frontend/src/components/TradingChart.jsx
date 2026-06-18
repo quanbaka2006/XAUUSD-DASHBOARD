@@ -714,12 +714,20 @@ export function TradingChart({ mobileTab }) {
     socket.on('price_update', (data) => {
       const state = useTradeStore.getState();
       const currentSelectedSymbol = state.selectedSymbol;
-      const currentSelectedTimeframe = state.selectedTimeframe;
       if (data.ticker === currentSelectedSymbol) {
         setLivePrice(data.currentPrice);
         requestAnimationFrame(() => updatePriceGlowLine(data.currentPrice));
+      }
+    });
 
-        if (data.interval === currentSelectedTimeframe && candlestickSeriesRef.current && candlesHistoryRef.current && candlesHistoryRef.current.length > 0) {
+    socket.on('candle_update', (data) => {
+      const state = useTradeStore.getState();
+      const currentSelectedSymbol = state.selectedSymbol;
+      const currentSelectedTimeframe = state.selectedTimeframe;
+
+      // Only calculate indicators and update chart if it matches currently selected symbol AND timeframe
+      if (data.ticker === currentSelectedSymbol && data.interval === currentSelectedTimeframe) {
+        if (candlestickSeriesRef.current && candlesHistoryRef.current && candlesHistoryRef.current.length > 0) {
           const history = candlesHistoryRef.current;
           const lastCandle = history[history.length - 1];
           let updated = false;
