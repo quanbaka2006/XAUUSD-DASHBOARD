@@ -416,6 +416,14 @@ export function calculateTrendlinesWithBreaks(data, length = 14, k = 1.0) {
   return result;
 }
 
+const STATIC_SIGNAL_SETTINGS = {
+  'XAUUSD': { sl: 5.0, tp: 7.0 },
+  'WTIUSD': { sl: 0.5, tp: 0.7 },
+  'XAGUSD': { sl: 0.2, tp: 0.28 },
+  'BTCUSD': { sl: 300.0, tp: 420.0 },
+  'ETHUSD': { sl: 15.0, tp: 21.0 }
+};
+
 export function getCurrentSignal({
   history,
   selectedSymbol,
@@ -441,15 +449,7 @@ export function getCurrentSignal({
     };
   }
 
-  // Volatility calculation (Average True Range - ATR 14)
-  const atrValues = calculateATR(history, 14);
-  const atrVal = atrValues.length > 0 
-    ? atrValues[atrValues.length - 1].value 
-    : (history[history.length - 1].high - history[history.length - 1].low || 0.1);
-
-  // Dynamic offsets: SL is 1.5x ATR, TP is 3x ATR (Healthy 1:2 risk-reward ratio)
-  const dynamicSLOffset = atrVal * 1.5;
-  const dynamicTPOffset = atrVal * 3;
+  let rawSignal = null;
 
   if (selectedIndicatorSystem === 'zen') {
     const zenData = calculateZenTrendLines(history, zenFastPeriod, zenSlowPeriod);
@@ -457,7 +457,6 @@ export function getCurrentSignal({
     const last = zenData[zenData.length - 1];
     const action = last.trend === 'bullish' ? 'buy' : 'sell';
 
-    // Find the most recent EMA crossover candle — lock entry to that candle's close
     let crossoverIdx = zenData.length - 1;
     const currentTrend = last.trend;
     for (let i = zenData.length - 2; i >= 0; i--) {
@@ -466,28 +465,15 @@ export function getCurrentSignal({
         break;
       }
     }
-    // Clamp to valid history index
     crossoverIdx = Math.min(crossoverIdx, history.length - 1);
     const entry = history[crossoverIdx].close;
-
-    let sl = 0;
-    let tp = 0;
-    if (action === 'buy') {
-      sl = parseFloat(Math.min(last.slow, entry - dynamicSLOffset).toFixed(2));
-      tp = parseFloat((entry + dynamicTPOffset).toFixed(2));
-    } else {
-      sl = parseFloat(Math.max(last.slow, entry + dynamicSLOffset).toFixed(2));
-      tp = parseFloat((entry - dynamicTPOffset).toFixed(2));
-    }
 
     const diffPercent = Math.abs(last.fast - last.slow) / last.slow * 100;
     const confidence = Math.min(95, Math.max(65, Math.round(65 + diffPercent * 50)));
 
-    return {
+    rawSignal = {
       action,
       entry,
-      sl,
-      tp,
       confidence,
       timestamp: zenData[crossoverIdx].time * 1000
     };
@@ -506,40 +492,30 @@ export function getCurrentSignal({
     }
 
     if (triggerIdx === -1) {
-      // No recent trigger — use trailing stop direction, lock entry to last CLOSED candle
       const last = utData[utData.length - 1];
-      // Use second-to-last candle as "confirmed" closed entry (not the live one)
       const entryCandle = history.length >= 2 ? history[history.length - 2] : history[history.length - 1];
       const action = entryCandle.close >= (last.trailingStop || entryCandle.close) ? 'buy' : 'sell';
       const entry = parseFloat(entryCandle.close.toFixed(2));
-      const sl = parseFloat((last.trailingStop || (action === 'buy' ? entry - dynamicSLOffset : entry + dynamicSLOffset)).toFixed(2));
-      const tp = parseFloat((action === 'buy' ? entry + dynamicTPOffset : entry - dynamicTPOffset).toFixed(2));
-      return {
+      rawSignal = {
         action,
         entry,
-        sl,
-        tp,
         confidence: 70,
         timestamp: last.time * 1000
       };
+    } else {
+      const trigger = utData[triggerIdx];
+      const action = trigger.buy ? 'buy' : 'sell';
+      const entry = parseFloat(history[triggerIdx].close.toFixed(2));
+      const age = utData.length - 1 - triggerIdx;
+      const confidence = Math.max(60, Math.min(94, 90 - age));
+
+      rawSignal = {
+        action,
+        entry,
+        confidence,
+        timestamp: trigger.time * 1000
+      };
     }
-
-    const trigger = utData[triggerIdx];
-    const action = trigger.buy ? 'buy' : 'sell';
-    const entry = parseFloat(history[triggerIdx].close.toFixed(2));
-    const sl = parseFloat((trigger.trailingStop || (action === 'buy' ? entry - dynamicSLOffset : entry + dynamicSLOffset)).toFixed(2));
-    const tp = parseFloat((action === 'buy' ? entry + dynamicTPOffset : entry - dynamicTPOffset).toFixed(2));
-    const age = utData.length - 1 - triggerIdx;
-    const confidence = Math.max(60, Math.min(94, 90 - age));
-
-    return {
-      action,
-      entry,
-      sl,
-      tp,
-      confidence,
-      timestamp: trigger.time * 1000
-    };
   }
 
   if (selectedIndicatorSystem === 'chandelier') {
@@ -556,38 +532,29 @@ export function getCurrentSignal({
 
     if (triggerIdx === -1) {
       const last = chData[chData.length - 1];
-      // Lock entry to last confirmed (closed) candle
       const entryCandle = history.length >= 2 ? history[history.length - 2] : history[history.length - 1];
       const action = last.dir === 1 ? 'buy' : 'sell';
       const entry = parseFloat(entryCandle.close.toFixed(2));
-      const sl = parseFloat(((action === 'buy' ? last.longStop : last.shortStop) || (action === 'buy' ? entry - dynamicSLOffset : entry + dynamicSLOffset)).toFixed(2));
-      const tp = parseFloat((action === 'buy' ? entry + dynamicTPOffset : entry - dynamicTPOffset).toFixed(2));
-      return {
+      rawSignal = {
         action,
         entry,
-        sl,
-        tp,
         confidence: 72,
         timestamp: last.time * 1000
       };
+    } else {
+      const trigger = chData[triggerIdx];
+      const action = trigger.buy ? 'buy' : 'sell';
+      const entry = parseFloat(history[triggerIdx].close.toFixed(2));
+      const age = chData.length - 1 - triggerIdx;
+      const confidence = Math.max(60, Math.min(94, 90 - age));
+
+      rawSignal = {
+        action,
+        entry,
+        confidence,
+        timestamp: trigger.time * 1000
+      };
     }
-
-    const trigger = chData[triggerIdx];
-    const action = trigger.buy ? 'buy' : 'sell';
-    const entry = parseFloat(history[triggerIdx].close.toFixed(2));
-    const sl = parseFloat(((action === 'buy' ? trigger.longStop : trigger.shortStop) || (action === 'buy' ? entry - dynamicSLOffset : entry + dynamicSLOffset)).toFixed(2));
-    const tp = parseFloat((action === 'buy' ? entry + dynamicTPOffset : entry - dynamicTPOffset).toFixed(2));
-    const age = chData.length - 1 - triggerIdx;
-    const confidence = Math.max(60, Math.min(94, 90 - age));
-
-    return {
-      action,
-      entry,
-      sl,
-      tp,
-      confidence,
-      timestamp: trigger.time * 1000
-    };
   }
 
   if (selectedIndicatorSystem === 'trendline') {
@@ -604,47 +571,60 @@ export function getCurrentSignal({
 
     if (triggerIdx === -1) {
       const last = tlData[tlData.length - 1];
-      // Lock entry to last confirmed (closed) candle
       const entryCandle = history.length >= 2 ? history[history.length - 2] : history[history.length - 1];
       const action = last.upper && entryCandle.close > last.upper ? 'buy' : 'sell';
       const entry = parseFloat(entryCandle.close.toFixed(2));
-      const sl = parseFloat(((action === 'buy' ? last.lower : last.upper) || (action === 'buy' ? entry - dynamicSLOffset : entry + dynamicSLOffset)).toFixed(2));
-      const tp = parseFloat((action === 'buy' ? entry + dynamicTPOffset : entry - dynamicTPOffset).toFixed(2));
-      return {
+      rawSignal = {
         action,
         entry,
-        sl,
-        tp,
         confidence: 67,
         timestamp: last.time * 1000
       };
+    } else {
+      const trigger = tlData[triggerIdx];
+      const action = trigger.buy ? 'buy' : 'sell';
+      const entry = parseFloat(history[triggerIdx].close.toFixed(2));
+      const age = tlData.length - 1 - triggerIdx;
+      const confidence = Math.max(60, Math.min(94, 85 - age));
+
+      rawSignal = {
+        action,
+        entry,
+        confidence,
+        timestamp: trigger.time * 1000
+      };
     }
+  }
 
-    const trigger = tlData[triggerIdx];
-    const action = trigger.buy ? 'buy' : 'sell';
-    const entry = parseFloat(history[triggerIdx].close.toFixed(2));
-    const sl = parseFloat(((action === 'buy' ? trigger.lower : trigger.upper) || (action === 'buy' ? entry - dynamicSLOffset : entry + dynamicSLOffset)).toFixed(2));
-    const tp = parseFloat((action === 'buy' ? entry + dynamicTPOffset : entry - dynamicTPOffset).toFixed(2));
-    const age = tlData.length - 1 - triggerIdx;
-    const confidence = Math.max(60, Math.min(94, 85 - age));
-
+  if (!rawSignal || rawSignal.action === 'stale') {
     return {
-      action,
-      entry,
-      sl,
-      tp,
-      confidence,
-      timestamp: trigger.time * 1000
+      action: 'stale',
+      entry: 0,
+      sl: 0,
+      tp: 0,
+      confidence: 0,
+      timestamp: Date.now()
     };
   }
 
+  // Calculate static TP / SL
+  const settings = STATIC_SIGNAL_SETTINGS[selectedSymbol] || { sl: 5.0, tp: 7.0 };
+  const decimalPlaces = (selectedSymbol === 'XAGUSD') ? 4 : 2;
+  
+  let sl = 0;
+  let tp = 0;
+  if (rawSignal.action === 'buy') {
+    sl = parseFloat((rawSignal.entry - settings.sl).toFixed(decimalPlaces));
+    tp = parseFloat((rawSignal.entry + settings.tp).toFixed(decimalPlaces));
+  } else if (rawSignal.action === 'sell') {
+    sl = parseFloat((rawSignal.entry + settings.sl).toFixed(decimalPlaces));
+    tp = parseFloat((rawSignal.entry - settings.tp).toFixed(decimalPlaces));
+  }
+
   return {
-    action: 'stale',
-    entry: 0,
-    sl: 0,
-    tp: 0,
-    confidence: 0,
-    timestamp: Date.now()
+    ...rawSignal,
+    sl,
+    tp
   };
 }
 
