@@ -15,6 +15,7 @@ import {
 } from 'lucide-react';
 import './App.css';
 import logoImg from './assets/logo.png';
+import telegramQrImg from './assets/telegram_qr.png';
 import { useTradeStore } from './store/useTradeStore';
 import { Sidebar } from './components/Sidebar';
 import { AdminPanel } from './components/AdminPanel';
@@ -177,33 +178,11 @@ function App() {
             />
             <h1 className="text-2xl font-black text-white tracking-tight">ALPHA GOLD CONSOLE</h1>
             <p className="text-xs text-amber-500/80 uppercase font-black tracking-[0.25em] mt-1.5">
-              {isRegistering ? t('createAccount') : t('authRequired')}
+              {t('authRequired')}
             </p>
           </div>
 
-          {registerSuccessMsg && !isRegistering && (
-            <div className="p-3 mb-4 bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 rounded-xl text-xs font-bold leading-relaxed">
-              ✓ {registerSuccessMsg}
-            </div>
-          )}
-
-          <form onSubmit={isRegistering ? handleRegisterSubmit : handleLoginSubmit} className="space-y-4">
-            {isRegistering && (
-              <div className="space-y-1">
-                <label className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">{t('displayName')}</label>
-                <div className="relative">
-                  <input 
-                    type="text" 
-                    value={registerName}
-                    onChange={(e) => setRegisterName(e.target.value)}
-                    placeholder={t('displayName') + " (e.g. John Doe)"}
-                    className="w-full bg-white/[0.04] border border-white/[0.08] rounded-xl px-4 py-3 pl-11 text-xs text-white placeholder-slate-600 focus:outline-none focus:border-amber-500/40 transition-colors"
-                  />
-                  <User className="absolute left-3.5 top-3.5 h-4 w-4 text-slate-600" />
-                </div>
-              </div>
-            )}
-
+          <form onSubmit={handleLoginSubmit} className="space-y-4">
             <div className="space-y-1">
               <label className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">{t('username')}</label>
               <div className="relative">
@@ -233,7 +212,7 @@ function App() {
             </div>
 
             {loginError && (
-              <div className="p-3 bg-red-500/10 border border-red-500/20 text-red-400 rounded-xl text-xs font-bold">
+              <div className="p-3 bg-red-500/10 border border-red-500/20 text-red-400 rounded-xl text-xs font-bold leading-relaxed">
                 ⚠️ {loginError}
               </div>
             )}
@@ -242,22 +221,41 @@ function App() {
               type="submit"
               className="w-full bg-amber-500 hover:bg-amber-600 text-[#040406] font-black py-3.5 px-4 rounded-xl text-xs transition-all duration-300 tracking-wider shadow-[0_0_15px_rgba(234,179,8,0.15)] flex items-center justify-center gap-2 cursor-pointer mt-4"
             >
-              <span>{isRegistering ? t('register') : t('login')}</span>
+              <span>{t('login')}</span>
             </button>
 
-            <div className="text-center pt-3 mt-2 border-t border-zinc-900">
-              <button
-                type="button"
-                onClick={() => {
-                  setIsRegistering(!isRegistering);
-                  setLoginError('');
-                  setRegisterSuccessMsg('');
-                  setLoginPassword('');
-                }}
-                className="text-xs font-black text-amber-500 hover:text-amber-400 tracking-wide transition-colors cursor-pointer"
+            <div className="pt-5 mt-4 border-t border-white/[0.06] text-center flex flex-col items-center gap-4 font-sans">
+              <div>
+                <p className="text-slate-400 text-xs font-bold leading-relaxed">
+                  Chức năng đăng ký tài khoản tự do đã bị khóa.
+                </p>
+                <p className="text-slate-500 text-[11px] mt-0.5 font-medium leading-relaxed">
+                  Vui lòng liên hệ Admin để tạo tài khoản mới hoặc gia hạn sử dụng.
+                </p>
+              </div>
+
+              {/* Telegram Support Button */}
+              <a
+                href="https://t.me/alphagoldhelper"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="w-full flex items-center justify-center gap-2 py-3 px-4 bg-white/[0.03] border border-sky-500/20 text-sky-400 hover:text-sky-300 hover:bg-sky-500/10 hover:border-sky-500/40 rounded-xl text-xs font-black transition-all duration-300 tracking-wide uppercase cursor-pointer"
               >
-                {isRegistering ? t('alreadyHaveAccount') : t('dontHaveAccount')}
-              </button>
+                <Zap className="h-4 w-4" />
+                <span>Liên hệ hỗ trợ tạo tài khoản</span>
+              </a>
+
+              {/* Telegram QR Code */}
+              <div className="flex flex-col items-center p-3 bg-white/[0.02] border border-white/[0.04] rounded-xl w-full">
+                <img 
+                  src={telegramQrImg} 
+                  alt="Telegram Support QR" 
+                  className="h-32 w-32 object-contain rounded-lg border border-white/[0.08] p-1 bg-white" 
+                />
+                <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider mt-2.5">
+                  Quét mã QR để chat với Alphagold Support
+                </span>
+              </div>
             </div>
           </form>
         </div>

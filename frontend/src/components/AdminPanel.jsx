@@ -23,6 +23,7 @@ export function AdminPanel() {
     updatePassword,
     changeRole,
     deleteUser,
+    editUser,
     setAdminError,
     setAdminSuccess
   } = useTradeStore();
@@ -32,6 +33,7 @@ export function AdminPanel() {
   const [newPassword, setNewPassword] = useState('');
   const [newName, setNewName] = useState('');
   const [newRole, setNewRole] = useState('User');
+  const [newExpiresAt, setNewExpiresAt] = useState('');
 
   const [resettingUser, setResettingUser] = useState(null);
   const [resetPasswordVal, setResetPasswordVal] = useState('');
@@ -43,13 +45,18 @@ export function AdminPanel() {
 
   const handleCreateUser = async (e) => {
     e.preventDefault();
-    const success = await createUser(newUsername, newPassword, newName, newRole);
+    const success = await createUser(newUsername, newPassword, newName, newRole, newExpiresAt);
     if (success) {
       setNewUsername('');
       setNewPassword('');
       setNewName('');
       setNewRole('User');
+      setNewExpiresAt('');
     }
+  };
+
+  const handleUpdateExpiration = async (targetUsername, targetDate) => {
+    await editUser(targetUsername, undefined, undefined, targetDate || null);
   };
 
   const handleUpdatePassword = async (targetUsername) => {
@@ -161,6 +168,17 @@ export function AdminPanel() {
               </select>
             </div>
 
+            <div className="space-y-1">
+              <label className="text-xs font-black text-slate-500 uppercase tracking-widest">Hạn sử dụng</label>
+              <input 
+                type="date" 
+                value={newExpiresAt}
+                onChange={(e) => setNewExpiresAt(e.target.value)}
+                className="w-full bg-white/[0.04] border border-white/[0.08] rounded-xl px-4 py-3 text-xs text-white placeholder-slate-600 focus:outline-none focus:border-amber-500/40 transition-colors cursor-pointer"
+              />
+              <span className="text-[10px] text-slate-500 block">Bỏ trống để cấp tài khoản vô thời hạn.</span>
+            </div>
+
             <button 
               type="submit"
               className="w-full bg-amber-500 hover:bg-amber-600 text-[#040406] font-black py-3.5 px-4 rounded-xl text-xs transition-all duration-300 tracking-wider shadow-[0_0_15px_rgba(234,179,8,0.15)] flex items-center justify-center gap-2 cursor-pointer mt-4"
@@ -209,10 +227,34 @@ export function AdminPanel() {
                     const isSelf = u.username.toLowerCase() === user?.username?.toLowerCase();
                     return (
                       <tr key={u.username} className="hover:bg-slate-950/20 transition-colors">
-                        <td className="py-4 px-4">
+                        <td className="py-4 px-4 font-sans">
                           <div className="font-bold text-white text-sm">{u.name}</div>
                           <div className="text-xs font-mono text-slate-500 mt-0.5">
                             @{u.username} {isSelf && <span className="text-amber-500/80 font-bold">({t('you')})</span>}
+                          </div>
+                          <div className="text-[11px] mt-2 flex items-center gap-1.5 flex-wrap font-sans">
+                            <span className="text-slate-500 font-bold">Hạn dùng:</span>
+                            {isSelf ? (
+                              <span className="text-slate-400 font-bold">Vô thời hạn (Admin)</span>
+                            ) : (
+                              <div className="flex items-center gap-2">
+                                <input
+                                  type="date"
+                                  value={u.expiresAt ? u.expiresAt.split('T')[0] : ''}
+                                  onChange={(e) => handleUpdateExpiration(u.username, e.target.value)}
+                                  className="bg-white/[0.03] border border-white/[0.08] hover:border-amber-500/30 rounded-lg px-2 py-0.5 text-[11px] text-slate-300 focus:outline-none cursor-pointer transition-colors font-sans"
+                                />
+                                {u.expiresAt ? (
+                                  new Date(u.expiresAt).getTime() < Date.now() ? (
+                                    <span className="text-red-400 text-[10px] font-black uppercase tracking-wider bg-red-500/10 border border-red-500/20 px-1.5 py-0.5 rounded-md">Hết hạn</span>
+                                  ) : (
+                                    <span className="text-emerald-400 text-[10px] font-black uppercase tracking-wider bg-emerald-500/10 border border-emerald-500/20 px-1.5 py-0.5 rounded-md">Hoạt động</span>
+                                  )
+                                ) : (
+                                  <span className="text-slate-500 text-[10px] font-bold uppercase tracking-wider bg-slate-800/20 border border-slate-700/20 px-1.5 py-0.5 rounded-md">Vô hạn</span>
+                                )}
+                              </div>
+                            )}
                           </div>
                         </td>
                         <td className="py-4 px-4">

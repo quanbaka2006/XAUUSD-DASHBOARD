@@ -483,7 +483,7 @@ export const useTradeStore = create((set, get) => ({
     }
   },
 
-  createUser: async (username, password, name, role) => {
+  createUser: async (username, password, name, role, expiresAt) => {
     set({ adminError: '', adminSuccess: '' });
     if (!username || !password || !name || !role) {
       set({ adminError: 'Vui lòng điền đầy đủ thông tin.' });
@@ -497,7 +497,7 @@ export const useTradeStore = create((set, get) => ({
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${token}`
         },
-        body: JSON.stringify({ username, password, name, role })
+        body: JSON.stringify({ username, password, name, role, expiresAt })
       });
       const data = await response.json();
       if (response.ok && data.success) {
@@ -506,6 +506,33 @@ export const useTradeStore = create((set, get) => ({
         return true;
       } else {
         set({ adminError: data.error || 'Tạo tài khoản thất bại.' });
+        return false;
+      }
+    } catch (err) {
+      set({ adminError: 'Lỗi kết nối máy chủ.' });
+      return false;
+    }
+  },
+
+  editUser: async (targetUsername, name, role, expiresAt) => {
+    set({ adminError: '', adminSuccess: '' });
+    const token = get().token || localStorage.getItem('auth_token');
+    try {
+      const response = await fetch(`${SOCKET_URL}/api/admin/users/${targetUsername}/edit`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({ name, role, expiresAt })
+      });
+      const data = await response.json();
+      if (response.ok && data.success) {
+        set({ adminSuccess: data.message || 'Cập nhật tài khoản thành công!' });
+        get().fetchAdminUsers();
+        return true;
+      } else {
+        set({ adminError: data.error || 'Cập nhật tài khoản thất bại.' });
         return false;
       }
     } catch (err) {

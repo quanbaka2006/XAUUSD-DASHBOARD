@@ -706,6 +706,15 @@ app.post('/api/login', authLimiter, speedLimiter, (req, res) => {
   }
   
   const found = users[foundIdx];
+  
+  // Verify expiration date
+  if (found.expiresAt) {
+    const expTime = new Date(found.expiresAt).getTime();
+    if (Date.now() > expTime) {
+      return res.status(403).json({ success: false, error: 'Tài khoản của bạn đã hết hạn sử dụng. Vui lòng liên hệ Hỗ trợ để gia hạn.' });
+    }
+  }
+
   const isMatch = verifyPassword(password, found.password);
   
   if (isMatch) {
@@ -728,45 +737,9 @@ app.post('/api/login', authLimiter, speedLimiter, (req, res) => {
   res.status(401).json({ success: false, error: 'Tên đăng nhập hoặc mật khẩu không chính xác.' });
 });
 
-// Register endpoint with rate limiter
-app.post('/api/register', authLimiter, (req, res) => {
-  const { username, password, name } = req.body;
-  if (!username || !password || !name || 
-      typeof username !== 'string' || typeof password !== 'string' || typeof name !== 'string') {
-    return res.status(400).json({ success: false, error: 'Vui lòng nhập đầy đủ thông tin.' });
-  }
-
-  const cleanUsername = username.trim().toLowerCase();
-  const cleanName = name.trim();
-
-  if (cleanUsername.length < 3 || cleanUsername.length > 30) {
-    return res.status(400).json({ success: false, error: 'Tên đăng nhập phải từ 3 đến 30 ký tự.' });
-  }
-  if (!/^[a-zA-Z0-9_]+$/.test(cleanUsername)) {
-    return res.status(400).json({ success: false, error: 'Tên đăng nhập chỉ được chứa ký tự chữ, số và dấu gạch dưới.' });
-  }
-  if (password.length < 6 || password.length > 50) {
-    return res.status(400).json({ success: false, error: 'Mật khẩu phải từ 6 đến 50 ký tự.' });
-  }
-  if (cleanName.length < 2 || cleanName.length > 50) {
-    return res.status(400).json({ success: false, error: 'Họ tên phải từ 2 đến 50 ký tự.' });
-  }
-
-  const users = loadUsers();
-  if (users.some(u => u.username.toLowerCase() === cleanUsername)) {
-    return res.status(400).json({ success: false, error: 'Tên đăng nhập đã tồn tại!' });
-  }
-
-  const hashedPassword = hashPassword(password);
-  users.push({ 
-    username: cleanUsername, 
-    password: hashedPassword, 
-    name: cleanName, 
-    role: 'User' 
-  });
-  saveUsers(users);
-
-  res.json({ success: true, message: 'Đăng ký tài khoản thành công!' });
+// Blocked public registration endpoint
+app.post('/api/register', (req, res) => {
+  res.status(403).json({ success: false, error: 'Chức năng tự đăng ký đã bị vô hiệu hóa. Vui lòng liên hệ Admin để tạo tài khoản.' });
 });
 
 // TradingView Webhook: receives signals (secured with WEBHOOK_SECRET)
@@ -897,12 +870,12 @@ app.post('/api/drawings/:symbol', requireAuth, (req, res) => {
 app.get('/api/admin/users', requireAdmin, (req, res) => {
   const users = loadUsers();
   // Map users to exclude passwords
-  const sanitizedUsers = users.map(({ username, name, role }) => ({ username, name, role }));
+  const sanitizedUsers = users.map(({ username, name, role, expiresAt }) => ({ username, name, role, expiresAt }));
   res.json({ success: true, users: sanitizedUsers });
 });
 
 app.post('/api/admin/users', requireAdmin, (req, res) => {
-  const { username, password, name, role } = req.body;
+  const { username, password, name, role, expiresAt } = req.body;
   if (!username || !password || !name || !role ||
       typeof username !== 'string' || typeof password !== 'string' || typeof name !== 'string' || typeof role !== 'string') {
     return res.status(400).json({ success: false, error: 'Vui lòng nhập đầy đủ thông tin.' });
@@ -935,7 +908,8 @@ app.post('/api/admin/users', requireAdmin, (req, res) => {
     username: cleanUsername,
     password: hashedPassword,
     name: cleanName,
-    role: targetRole
+    role: targetRole,
+    expiresAt: expiresAt ? new Date(expiresAt).toISOString() : null
   });
   saveUsers(users);
 
@@ -1009,6 +983,35 @@ app.delete('/api/admin/users/:username', requireAdmin, (req, res) => {
   res.json({ success: true, message: `Xóa tài khoản ${targetUsername} thành công!` });
 });
 
+app.put('/api/admin/users/:username/edit', requireAdmin, (req, res) => {
+  const targetUsername = req.params.username.toLowerCase();
+  const { name, role, expiresAt } = req.body;
+  
+  const users = loadUsers();
+  const idx = users.findIndex(u => u.username.toLowerCase() === targetUsername);
+  if (idx === -1) {
+    return res.status(404).json({ success: false, error: 'Không tìm thấy người dùng này.' });
+  }
+
+  if (name && typeof name === 'string') {
+    users[idx].name = name.trim();
+  }
+
+  if (role && (role === 'User' || role === 'Administrator')) {
+    if (targetUsername === req.user.username.toLowerCase() && role !== 'Administrator') {
+      return res.status(400).json({ success: false, error: 'Bạn không thể tự hạ quyền Administrator của chính mình.' });
+    }
+    users[idx].role = role;
+  }
+
+  if (expiresAt !== undefined) {
+    users[idx].expiresAt = expiresAt ? new Date(expiresAt).toISOString() : null;
+  }
+
+  saveUsers(users);
+  res.json({ success: true, message: `Cập nhật thông tin tài khoản ${targetUsername} thành công!` });
+});
+
 
 // Stale signal checker
 const STALE_TIMEOUT_MS = 15 * 60 * 1000;
@@ -1040,6 +1043,17 @@ io.use((socket, next) => {
   if (!decoded) {
     console.warn(`[Socket Security] Connection rejected from socket ID ${socket.id}: Invalid or expired token.`);
     return next(new Error('Authentication error: Invalid or expired token'));
+  }
+  
+  // Security check: Verify user expiration status
+  const users = loadUsers();
+  const foundUser = users.find(u => u.username.toLowerCase() === decoded.username.toLowerCase());
+  if (foundUser && foundUser.expiresAt) {
+    const expTime = new Date(foundUser.expiresAt).getTime();
+    if (Date.now() > expTime) {
+      console.warn(`[Socket Security] Connection rejected: Account expired for user ${decoded.username}`);
+      return next(new Error('Authentication error: Account expired'));
+    }
   }
   
   socket.user = decoded;
