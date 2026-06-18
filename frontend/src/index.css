@@ -14,9 +14,7 @@
 
 /* Tầng 1 — Primary: nổi bật, amber border, dùng cho header section & HUD cards */
 .panel-primary {
-  background: rgba(10, 14, 30, 0.78);
-  backdrop-filter: blur(32px);
-  -webkit-backdrop-filter: blur(32px);
+  background: rgba(10, 14, 30, 0.94);
   border: 1px solid rgba(234, 179, 8, 0.22);
   box-shadow:
     0 0 0 0.5px rgba(255, 255, 255, 0.04) inset,
@@ -26,27 +24,21 @@
 
 /* Tầng 2 — Standard (giữ tên space-panel-heavy): neutral border, dùng cho body cards */
 .space-panel-heavy {
-  background: rgba(6, 9, 20, 0.50);
-  backdrop-filter: blur(28px);
-  -webkit-backdrop-filter: blur(28px);
+  background: rgba(6, 9, 20, 0.92);
   border: 1px solid rgba(255, 255, 255, 0.08);
   box-shadow: 0 4px 24px rgba(0, 0, 0, 0.60);
 }
 
 /* Tầng 3 — Surface: nền tối nhất, dùng cho wrappers / background containers */
 .panel-surface {
-  background: rgba(3, 4, 12, 0.80);
-  backdrop-filter: blur(20px);
-  -webkit-backdrop-filter: blur(20px);
+  background: rgba(3, 4, 12, 0.95);
   border: 1px solid rgba(255, 255, 255, 0.05);
   box-shadow: 0 2px 16px rgba(0, 0, 0, 0.70);
 }
 
 /* Legacy alias — giữ tương thích ngược */
 .space-panel {
-  background: rgba(8, 10, 20, 0.80);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
+  background: rgba(8, 10, 20, 0.94);
   border: 1px solid rgba(234, 179, 8, 0.08);
   box-shadow: 0 4px 30px rgba(0, 0, 0, 0.85), inset 0 1px 0 0 rgba(255, 255, 255, 0.02);
 }
@@ -87,18 +79,20 @@
    AURORA ANIMATED BACKGROUND ORBS
    ═══════════════════════════════════════════ */
 
+/* translate-only (scale removed): a blurred layer can be composited as a cached
+   texture and just moved — scaling forced an expensive re-rasterization each frame. */
 @keyframes aurora-1 {
-  0%   { transform: translate(0%, 0%) scale(1); }
-  25%  { transform: translate(8%, -12%) scale(1.08); }
-  50%  { transform: translate(15%, 5%) scale(0.95); }
-  75%  { transform: translate(5%, 15%) scale(1.05); }
-  100% { transform: translate(0%, 0%) scale(1); }
+  0%   { transform: translate(0%, 0%); }
+  25%  { transform: translate(8%, -12%); }
+  50%  { transform: translate(15%, 5%); }
+  75%  { transform: translate(5%, 15%); }
+  100% { transform: translate(0%, 0%); }
 }
 @keyframes aurora-2 {
-  0%   { transform: translate(0%, 0%) scale(1); }
-  30%  { transform: translate(-10%, 10%) scale(1.10); }
-  60%  { transform: translate(-5%, -8%) scale(0.92); }
-  100% { transform: translate(0%, 0%) scale(1); }
+  0%   { transform: translate(0%, 0%); }
+  30%  { transform: translate(-10%, 10%); }
+  60%  { transform: translate(-5%, -8%); }
+  100% { transform: translate(0%, 0%); }
 }
 @keyframes aurora-3 {
   0%   { transform: translate(0%, 0%) scale(1); }
@@ -107,10 +101,10 @@
   100% { transform: translate(0%, 0%) scale(1); }
 }
 @keyframes aurora-4 {
-  0%   { transform: translate(0%, 0%) scale(0.95); }
-  35%  { transform: translate(-6%, -14%) scale(1.12); }
-  65%  { transform: translate(10%, -4%) scale(0.90); }
-  100% { transform: translate(0%, 0%) scale(0.95); }
+  0%   { transform: translate(0%, 0%); }
+  35%  { transform: translate(-6%, -14%); }
+  65%  { transform: translate(10%, -4%); }
+  100% { transform: translate(0%, 0%); }
 }
 @keyframes aurora-5 {
   0%   { transform: translate(0%, 0%) scale(1); }
@@ -123,50 +117,52 @@
   width: 700px; height: 700px;
   border-radius: 50%;
   background: radial-gradient(ellipse, rgba(168, 85, 247, 0.38), transparent 70%);
-  filter: blur(80px);
+  filter: blur(55px);
   pointer-events: none;
   top: -5%; left: -5%;
-  animation: aurora-1 18s ease-in-out infinite;
+  animation: aurora-1 28s ease-in-out infinite;
+  will-change: transform;
 }
 .aurora-orb-2 {
   position: absolute;
   width: 650px; height: 650px;
   border-radius: 50%;
   background: radial-gradient(ellipse, rgba(6, 182, 212, 0.35), transparent 70%);
-  filter: blur(90px);
+  filter: blur(60px);
   pointer-events: none;
   bottom: -10%; right: -5%;
-  animation: aurora-2 22s ease-in-out infinite;
+  animation: aurora-2 32s ease-in-out infinite;
+  will-change: transform;
 }
+/* aurora-orb-3 & 5 made static (no animation) to cut per-frame re-rasterization of blurred layers */
 .aurora-orb-3 {
   position: absolute;
   width: 500px; height: 500px;
   border-radius: 50%;
   background: radial-gradient(ellipse, rgba(16, 185, 129, 0.28), transparent 70%);
-  filter: blur(70px);
+  filter: blur(55px);
   pointer-events: none;
   top: 30%; left: 35%;
-  animation: aurora-3 16s ease-in-out infinite;
 }
 .aurora-orb-4 {
   position: absolute;
   width: 550px; height: 450px;
   border-radius: 50%;
   background: radial-gradient(ellipse, rgba(245, 158, 11, 0.30), transparent 70%);
-  filter: blur(85px);
+  filter: blur(60px);
   pointer-events: none;
   top: 5%; right: 15%;
-  animation: aurora-4 25s ease-in-out infinite;
+  animation: aurora-4 36s ease-in-out infinite;
+  will-change: transform;
 }
 .aurora-orb-5 {
   position: absolute;
   width: 400px; height: 400px;
   border-radius: 50%;
   background: radial-gradient(ellipse, rgba(244, 63, 94, 0.18), transparent 70%);
-  filter: blur(70px);
+  filter: blur(55px);
   pointer-events: none;
   bottom: 15%; left: 20%;
-  animation: aurora-5 20s ease-in-out infinite;
 }
 
 /* Circular Dashboard Gauge Animations */
@@ -302,14 +298,10 @@ input[type="number"] {
   100% { transform: translate(10px, -550px) scale(0.5); opacity: 0; }
 }
 
-.firefly-1 { animation: fireflyFloat1 16s infinite ease-in-out; animation-delay: 0s; }
-.firefly-2 { animation: fireflyFloat2 20s infinite ease-in-out; animation-delay: 3s; }
-.firefly-3 { animation: fireflyFloat3 24s infinite ease-in-out; animation-delay: 6s; }
-.firefly-4 { animation: fireflyFloat4 18s infinite ease-in-out; animation-delay: 2s; }
-.firefly-5 { animation: fireflyFloat5 22s infinite ease-in-out; animation-delay: 8s; }
-.firefly-6 { animation: fireflyFloat1 19s infinite ease-in-out; animation-delay: 5s; }
-.firefly-7 { animation: fireflyFloat3 21s infinite ease-in-out; animation-delay: 10s; }
-.firefly-8 { animation: fireflyFloat2 17s infinite ease-in-out; animation-delay: 7s; }
+/* All fireflies disabled — decorative glowing dots animated transform+scale with
+   box-shadow glow, costly re-raster for almost no visual payoff. */
+.firefly-1, .firefly-2, .firefly-3,
+.firefly-4, .firefly-5, .firefly-6, .firefly-7, .firefly-8 { display: none; }
 
 /* ═══════════════════════════════════════════
    SHOOTING STREAK — horizontal light trails
@@ -328,21 +320,14 @@ input[type="number"] {
   pointer-events: none;
   background: linear-gradient(90deg, transparent, rgba(251,191,36,0.6), rgba(255,255,255,0.9), rgba(251,191,36,0.4), transparent);
   filter: blur(0.5px);
+  will-change: transform;
 }
-.shooting-streak-1 {
-  width: 180px; top: 18%; left: -10%;
-  animation: shootingStreak 8s infinite ease-in; animation-delay: 2s;
+/* Shooting streaks disabled — animated transform+scaleX across full viewport width. */
+.shooting-streak-1, .shooting-streak-2 {
+  display: none;
 }
-.shooting-streak-2 {
-  width: 120px; top: 55%; left: -5%;
-  background: linear-gradient(90deg, transparent, rgba(168,85,247,0.5), rgba(255,255,255,0.8), rgba(168,85,247,0.3), transparent);
-  animation: shootingStreak 12s infinite ease-in; animation-delay: 6s;
-}
-.shooting-streak-3 {
-  width: 150px; top: 75%; left: -8%;
-  background: linear-gradient(90deg, transparent, rgba(6,182,212,0.5), rgba(255,255,255,0.7), rgba(6,182,212,0.3), transparent);
-  animation: shootingStreak 10s infinite ease-in; animation-delay: 10s;
-}
+/* shooting-streak-3 removed — 2 streaks sufficient for visual effect */
+.shooting-streak-3 { display: none; }
 
 /* ═══════════════════════════════════════════
    NEBULA PULSE — slow breathing gradient blobs
@@ -358,26 +343,28 @@ input[type="number"] {
   80%      { transform: scale(0.85) translate(3%, -1%); opacity: 0.06; }
 }
 
+/* Nebula blobs made static — the slow opacity/scale pulse was barely visible but
+   forced constant re-rasterization of large blurred layers behind glass panels. */
 .nebula-blob-1 {
   position: absolute; width: 600px; height: 400px; border-radius: 50%;
   background: radial-gradient(ellipse, rgba(251,191,36,0.15), rgba(245,158,11,0.05) 50%, transparent 70%);
   filter: blur(60px); pointer-events: none;
   top: 10%; right: 5%;
-  animation: nebulaPulse1 30s ease-in-out infinite;
+  opacity: 0.14;
 }
 .nebula-blob-2 {
   position: absolute; width: 500px; height: 350px; border-radius: 50%;
   background: radial-gradient(ellipse, rgba(168,85,247,0.12), rgba(139,92,246,0.04) 50%, transparent 70%);
   filter: blur(55px); pointer-events: none;
   bottom: 15%; left: 8%;
-  animation: nebulaPulse2 35s ease-in-out infinite;
+  opacity: 0.12;
 }
 .nebula-blob-3 {
   position: absolute; width: 450px; height: 300px; border-radius: 50%;
   background: radial-gradient(ellipse, rgba(6,182,212,0.10), rgba(34,211,238,0.03) 50%, transparent 70%);
   filter: blur(50px); pointer-events: none;
   top: 50%; left: 40%;
-  animation: nebulaPulse1 28s ease-in-out infinite; animation-delay: 5s;
+  opacity: 0.12;
 }
 
 
@@ -529,7 +516,8 @@ input[type="number"] {
     radial-gradient(1.4px 1.4px at 22% 78%, rgba(34,211,238,0.30), transparent),
     radial-gradient(1.2px 1.2px at 62% 12%, rgba(255,255,255,0.22), transparent);
   background-size: 100% 100%;
-  animation: particleDrift 80s ease-in-out infinite;
+  /* particleDrift animation removed: animating background-position cannot be GPU-composited
+     and forced a full-screen repaint every frame (biggest single FPS drain). Now static. */
   opacity: 0.7;
 }
 
@@ -546,7 +534,7 @@ input[type="number"] {
     radial-gradient(ellipse 50% 40% at 50% 50%,  rgba(251,191,36,0.05),  transparent),
     radial-gradient(ellipse 40% 30% at 80% 15%,  rgba(251,191,36,0.06),  transparent),
     radial-gradient(ellipse 45% 35% at 20% 80%,  rgba(168,85,247,0.06),  transparent);
-  animation: ambientGlow 22s ease-in-out infinite;
+  /* ambientGlow animation removed — static glow looks near-identical, no per-frame repaint. */
 }
 
 /* Dynamic Classes using theme variables */
@@ -565,9 +553,7 @@ input[type="number"] {
 
 /* Glassmorphic Floating HUD style */
 .glass-hud {
-  background: rgba(8, 8, 12, 0.65);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
+  background: rgba(8, 8, 12, 0.9);
   border: 1px solid rgba(255, 255, 255, 0.05);
   box-shadow: 0 4px 24px 0 rgba(0, 0, 0, 0.7);
 }
@@ -610,9 +596,7 @@ input[type="number"] {
 
 
 .dynamic-theme-panel {
-  background: var(--theme-panel-bg);
-  backdrop-filter: blur(24px);
-  -webkit-backdrop-filter: blur(24px);
+  background: var(--theme-panel-bg, rgba(8, 10, 20, 0.94));
   border: var(--theme-panel-border);
   box-shadow: var(--theme-panel-shadow);
   transition: background 0.8s ease, border 0.8s ease, box-shadow 0.8s ease;
@@ -734,3 +718,40 @@ input[type="number"] {
 .animate-fadeInNormal {
   animation: normalFadeIn 0.2s ease-out forwards;
 }
+
+/* ═══════════════════════════════════════════
+   PERFORMANCE — reduce motion / background load
+   ═══════════════════════════════════════════ */
+
+/* Respect OS "reduce motion" setting and weak devices: kill all decorative
+   background animation entirely (keeps the look, removes the GPU cost). */
+@media (prefers-reduced-motion: reduce) {
+  .aurora-orb-1, .aurora-orb-2, .aurora-orb-4,
+  .firefly-1, .firefly-2, .firefly-3,
+  .shooting-streak-1, .shooting-streak-2,
+  .animate-cosmic {
+    animation: none !important;
+  }
+}
+
+/* ─────────────────────────────────────────────────────────────
+   CRITICAL FPS FIX (measured): filter:blur() on the large aurora
+   orbs + nebula blobs dropped the dashboard to ~11 FPS on the
+   integrated GPU. Disabling ONLY these layers restored ~43 FPS
+   (≈60 without DevTools open). The radial-gradients already fade
+   to transparent, so they stay soft as cheap STATIC glows once the
+   per-frame blur compositing and animation are removed.
+   ───────────────────────────────────────────────────────────── */
+.aurora-orb-1, .aurora-orb-2, .aurora-orb-3, .aurora-orb-4, .aurora-orb-5,
+.nebula-blob-1, .nebula-blob-2, .nebula-blob-3 {
+  filter: none !important;       /* remove GPU-killing blur */
+  animation: none !important;    /* no per-frame re-composite */
+  will-change: auto !important;
+}
+
+/* Soften the now-unblurred glows a touch so edges stay gentle */
+.aurora-orb-1 { background: radial-gradient(circle, rgba(168, 85, 247, 0.20), transparent 68%); }
+.aurora-orb-2 { background: radial-gradient(circle, rgba(6, 182, 212, 0.18), transparent 68%); }
+.aurora-orb-3 { background: radial-gradient(circle, rgba(16, 185, 129, 0.15), transparent 68%); }
+.aurora-orb-4 { background: radial-gradient(circle, rgba(245, 158, 11, 0.16), transparent 68%); }
+.aurora-orb-5 { background: radial-gradient(circle, rgba(244, 63, 94, 0.12), transparent 68%); }
