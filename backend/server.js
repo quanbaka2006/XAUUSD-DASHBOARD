@@ -353,6 +353,8 @@ SYMBOLS.forEach((sym) => {
 // ==========================================
 // Historical Candle Generator
 // ==========================================
+const CHART_HISTORY_LIMIT = 10000;
+
 function generateHistory() {
   const now = Math.floor(Date.now() / 1000);
   if (isMarketClosed()) {
@@ -365,7 +367,7 @@ function generateHistory() {
       const seconds = INTERVAL_SECONDS[tf];
       let price = currentPrices[sym];
       const list = [];
-      for (let i = 1; i <= 100; i++) {
+      for (let i = 1; i <= CHART_HISTORY_LIMIT; i++) {
         const time = (Math.floor(now / seconds) - i) * seconds;
         const change = (Math.random() - 0.49) * (defaultPrices[sym] * 0.0006);
         const close = price;
@@ -460,8 +462,96 @@ function connectBinance() {
 connectBinance();
 
 // ==========================================
-// Yahoo Finance — used ONLY as cold-start seed
-// (fallback when Finnhub not configured)
+// Seed Fetchers (Finnhub Spot & Binance HTTP API)
+// ==========================================
+function fetchFinnhubSeed(sym, callback) {
+  if (!FINNHUB_TOKEN) {
+    return callback(null);
+  }
+
+  // Find the corresponding Finnhub symbol (e.g. OANDA:XAU_USD)
+  const finnhubSym = FINNHUB_SUBSCRIBE.find(s => FINNHUB_SYMBOL_MAP[s] === sym);
+  if (!finnhubSym) {
+    return callback(null);
+  }
+
+  const options = {
+    hostname: 'finnhub.io',
+    path: `/api/v1/quote?symbol=${encodeURIComponent(finnhubSym)}&token=${FINNHUB_TOKEN}`,
+    method: 'GET',
+    headers: { 'User-Agent': 'Mozilla/5.0' }
+  };
+
+  const req = https.request(options, (res) => {
+    let data = '';
+    res.on('data', c => data += c);
+    res.on('end', () => {
+      try {
+        const json = JSON.parse(data);
+        const price = json.c; // c is current price
+        if (price && typeof price === 'number') {
+          applyRealPrice(sym, price);
+          console.log(`[Finnhub seed] ${sym}: $${currentPrices[sym]}`);
+          return callback(price);
+        }
+      } catch (e) {
+        console.error(`[Finnhub seed] Parse error ${sym}:`, e.message);
+      }
+      callback(null);
+    });
+  });
+
+  req.on('error', (err) => {
+    console.error(`[Finnhub seed] Request error ${sym}:`, err.message);
+    callback(null);
+  });
+  req.setTimeout(5000, () => req.destroy());
+  req.end();
+}
+
+function fetchBinanceSeed(sym, callback) {
+  const binanceStream = BINANCE_STREAMS[sym];
+  if (!binanceStream) {
+    return callback(null);
+  }
+  const binanceSymbol = binanceStream.toUpperCase(); // e.g. BTCUSDT
+
+  const options = {
+    hostname: 'api.binance.com',
+    path: `/api/v3/ticker/price?symbol=${binanceSymbol}`,
+    method: 'GET',
+    headers: { 'User-Agent': 'Mozilla/5.0' }
+  };
+
+  const req = https.request(options, (res) => {
+    let data = '';
+    res.on('data', c => data += c);
+    res.on('end', () => {
+      try {
+        const json = JSON.parse(data);
+        const price = parseFloat(json.price);
+        if (price && !isNaN(price)) {
+          applyRealPrice(sym, price);
+          console.log(`[Binance seed] ${sym}: $${currentPrices[sym]}`);
+          return callback(price);
+        }
+      } catch (e) {
+        console.error(`[Binance seed] Parse error ${sym}:`, e.message);
+      }
+      callback(null);
+    });
+  });
+
+  req.on('error', (err) => {
+    console.error(`[Binance seed] Request error ${sym}:`, err.message);
+    callback(null);
+  });
+  req.setTimeout(5000, () => req.destroy());
+  req.end();
+}
+
+// ==========================================
+// Yahoo Finance — used ONLY as fallback seed
 // ==========================================
 function fetchYahooSeed(sym, callback) {
   const ticker = YAHOO_TICKERS[sym];
@@ -481,11 +571,18 @@ function fetchYahooSeed(sym, callback) {
           applyRealPrice(sym, price);
           console.log(`[Yahoo seed] ${sym}: $${currentPrices[sym]}`);
           if (callback) callback(price);
+        } else {
+          callback(null);
         }
-      } catch(e) { console.error(`[Yahoo seed] Error ${sym}:`, e.message); }
+      } catch(e) {
+        console.error(`[Yahoo seed] Error ${sym}:`, e.message);
+        callback(null);
+      }
     });
   });
-  req.on('error', () => {});
+  req.on('error', () => {
+    callback(null);
+  });
   req.setTimeout(8000, () => req.destroy());
   req.end();
 }
@@ -504,13 +601,34 @@ function onSeedReceived(sym) {
   }
 }
 
-// Seed ALL symbols from Yahoo on startup — history built after all seeds arrive
+// Seed ALL symbols on startup with proper sources to avoid price jump
 SYMBOLS.forEach(sym => {
-  if (!isMarketClosed() || sym.includes('BTC') || sym.includes('ETH')) {
-    fetchYahooSeed(sym, () => onSeedReceived(sym));
+  const isCrypto = sym.includes('BTC') || sym.includes('ETH');
+  if (isCrypto) {
+    // 1. Try Binance first
+    fetchBinanceSeed(sym, (price) => {
+      if (price) {
+        onSeedReceived(sym);
+      } else {
+        // 2. Fallback to Yahoo
+        fetchYahooSeed(sym, () => onSeedReceived(sym));
+      }
+    });
   } else {
-    // Market closed for this commodity — remove from pending set
-    onSeedReceived(sym);
+    if (!isMarketClosed()) {
+      // 1. Try Finnhub quote first (Spot price)
+      fetchFinnhubSeed(sym, (price) => {
+        if (price) {
+          onSeedReceived(sym);
+        } else {
+          // 2. Fallback to Yahoo
+          fetchYahooSeed(sym, () => onSeedReceived(sym));
+        }
+      });
+    } else {
+      // Market closed for this commodity — remove from pending set (uses frozen weekend prices)
+      onSeedReceived(sym);
+    }
   }
 });
 
@@ -689,7 +807,7 @@ setInterval(() => {
       if (isNewCandle) {
         // New candle: archive old one
         candleHistory[sym][tf].push({ ...active });
-        if (candleHistory[sym][tf].length > 200) candleHistory[sym][tf].shift();
+        if (candleHistory[sym][tf].length > CHART_HISTORY_LIMIT) candleHistory[sym][tf].shift();
 
         activeCandles[sym][tf] = {
           time:  expectedTime,
