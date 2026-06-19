@@ -908,37 +908,43 @@ async function logActivity(actor, action, target, details, ip) {
 }
 
 async function checkAdminGuard(req, res, next) {
-  // If SuperAdmin, bypass guard
-  if (req.user && req.user.role === 'SuperAdmin') {
-    return next();
-  }
-  
   const targetUsername = (req.params.username || '').toLowerCase();
-  
-  // If modifying self, allowed
-  if (req.user && req.user.username.toLowerCase() === targetUsername) {
+  const isSelf = req.user && req.user.username.toLowerCase() === targetUsername;
+
+  // 1. If modifying self -> allowed immediately
+  if (isSelf) {
     return next();
   }
-  
-  // Load users to check creator
+
+  // Load users to check target user details
   const users = await loadUsers();
   const targetUser = users.find(u => u.username.toLowerCase() === targetUsername);
-  
+
   if (!targetUser) {
     return res.status(404).json({ success: false, error: 'Không tìm thấy người dùng này.' });
   }
-  
-  // Block editing SuperAdmins
+
+  // 2. If target is a SuperAdmin
   if (targetUser.role === 'SuperAdmin') {
-    return res.status(403).json({ success: false, error: 'Forbidden: Bạn không thể sửa hoặc xóa tài khoản Super Admin.' });
+    // A SuperAdmin cannot touch another SuperAdmin's account at all
+    return res.status(403).json({ success: false, error: 'Forbidden: Bạn không thể chỉnh sửa hoặc xóa tài khoản của Super Admin khác.' });
   }
 
-  // Block editing other Admins unless created by current user
-  if (targetUser.createdBy !== req.user.username) {
-    return res.status(403).json({ success: false, error: 'Forbidden: Bạn chỉ có quyền sửa hoặc xóa tài khoản do chính bạn tạo ra.' });
+  // 3. If current user is SuperAdmin -> can modify any other regular admin/employee/user
+  if (req.user.role === 'SuperAdmin') {
+    return next();
   }
-  
-  next();
+
+  // 4. Regular Administrator: can only modify users they created
+  if (req.user.role === 'Administrator') {
+    if (targetUser.createdBy !== req.user.username) {
+      return res.status(403).json({ success: false, error: 'Forbidden: Bạn chỉ có quyền sửa hoặc xóa tài khoản do chính bạn tạo ra.' });
+    }
+    return next();
+  }
+
+  // 5. Employees or normal Users are blocked from modifying anyone else
+  return res.status(403).json({ success: false, error: 'Forbidden: Bạn không có quyền thực hiện thao tác này.' });
 }
 
 // ==========================================

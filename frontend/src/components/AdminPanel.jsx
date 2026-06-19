@@ -348,8 +348,13 @@ export function AdminPanel() {
                     const targetIsSuperAdmin = u.role === 'SuperAdmin';
                     
                     // Rules for editing/deleting based on creator/hierarchy:
-                    // Regular Admin cannot edit/delete SuperAdmin or other admins they didn't create
-                    const isBlockedFromEditing = isEmployee || (!isSuperAdmin && targetIsSuperAdmin) || (user?.role === 'Administrator' && u.role === 'Administrator' && u.createdBy !== user?.username);
+                    // A SuperAdmin cannot edit/delete another SuperAdmin.
+                    // Regular Admin cannot edit/delete SuperAdmin or other admins they didn't create.
+                    const isBlockedFromEditing = !isSelf && (
+                      isEmployee || 
+                      targetIsSuperAdmin || 
+                      (user?.role === 'Administrator' && u.role === 'Administrator' && u.createdBy !== user?.username)
+                    );
                     
                     return (
                       <tr key={u.username} className="hover:bg-slate-950/20 transition-colors">
