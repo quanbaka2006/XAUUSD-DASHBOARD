@@ -783,6 +783,29 @@ async function connectDB() {
         console.log('[MongoDB] Migration completed successfully.');
       }
     }
+
+    // Auto-Upgrade admin & john to SuperAdmin in MongoDB if they exist
+    try {
+      const adminUser = await db.collection('users').findOne({ username: 'admin' });
+      if (adminUser && adminUser.role !== 'SuperAdmin') {
+        await db.collection('users').updateOne(
+          { username: 'admin' },
+          { $set: { role: 'SuperAdmin', refCode: 'gold77', telegramSupport: 'https://t.me/alphagoldhelper' } }
+        );
+        console.log('[Database] Auto-upgraded admin to SuperAdmin in MongoDB.');
+      }
+      
+      const johnUser = await db.collection('users').findOne({ username: 'john' });
+      if (johnUser && johnUser.role !== 'SuperAdmin') {
+        await db.collection('users').updateOne(
+          { username: 'john' },
+          { $set: { role: 'SuperAdmin', refCode: 'john88', telegramSupport: 'https://t.me/alphagoldhelper' } }
+        );
+        console.log('[Database] Auto-upgraded john to SuperAdmin in MongoDB.');
+      }
+    } catch (dbErr) {
+      console.error('[Database] Failed to auto-upgrade admins on startup:', dbErr.message);
+    }
   } catch (err) {
     console.error('[MongoDB] Connection failed on startup. Falling back to local file. Error:', err.message);
   }
