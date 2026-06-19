@@ -374,9 +374,10 @@ function generateHistory() {
         const open = price - change;
         const high = Math.max(open, close) + Math.random() * (defaultPrices[sym] * 0.0003);
         const low  = Math.min(open, close) - Math.random() * (defaultPrices[sym] * 0.0003);
-        list.unshift({ time, open, high, low, close });
+        list.push({ time, open, high, low, close });
         price = open;
       }
+      list.reverse();
       candleHistory[sym][tf] = list;
     });
   });
