@@ -845,6 +845,9 @@ export function TradingChart({ mobileTab }) {
             if (!isHoveringRef.current) {
               showLatestCandleHUD();
             }
+            if (drawCanvasRef.current) {
+              requestAnimationFrame(() => drawCanvasRef.current());
+            }
 
             // PERFORMANCE: throttle indicator recalculation to max once per 500ms
             const now = Date.now();
@@ -1572,6 +1575,9 @@ export function TradingChart({ mobileTab }) {
               title: 'CHoCH',
             });
           }
+        }
+        if (drawCanvasRef.current) {
+          requestAnimationFrame(() => drawCanvasRef.current());
         }
       })
       .catch(err => console.error('Failed loading history:', err));
