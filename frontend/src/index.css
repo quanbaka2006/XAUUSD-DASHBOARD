@@ -688,7 +688,7 @@ input[type="number"] {
   }
 }
 
-/* Mobile touch target minimum sizes */
+/* Mobile touch target minimum sizes & compact layout */
 @media (max-width: 767px) {
   button, [role="button"] {
     min-height: 36px;
@@ -696,6 +696,37 @@ input[type="number"] {
   select, input[type="number"], input[type="text"], input[type="password"] {
     min-height: 40px;
     font-size: 14px; /* Prevents iOS zoom-in on focus */
+  }
+
+  /* ── Compact panels on mobile ── */
+  .panel-primary {
+    border-radius: 16px;
+  }
+  .space-panel-heavy {
+    border-radius: 16px;
+  }
+
+  /* ── Reduce aurora/nebula sizes on mobile for less visual clutter ── */
+  .aurora-orb-1, .aurora-orb-2, .aurora-orb-3, .aurora-orb-4, .aurora-orb-5 {
+    width: 300px !important;
+    height: 300px !important;
+    opacity: 0.5 !important;
+  }
+  .nebula-blob-1, .nebula-blob-2, .nebula-blob-3 {
+    width: 250px !important;
+    height: 180px !important;
+    opacity: 0.08 !important;
+  }
+
+  /* ── Signal card compact padding ── */
+  .signal-card-mobile {
+    padding-left: 12px !important;
+    padding-right: 12px !important;
+  }
+
+  /* ── Chart wrapper compact ── */
+  .space-panel-heavy {
+    padding: 12px !important;
   }
 }
 

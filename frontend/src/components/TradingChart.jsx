@@ -1764,7 +1764,7 @@ export function TradingChart({ mobileTab }) {
 
       {/* ── LEFT PANEL: Signal Card + Live Trading Board ── */}
       {/* Desktop: always show. Mobile: only show when mobileTab === 'signal' */}
-      <div className={`lg:order-none w-full lg:w-[22%] lg:min-w-[260px] flex-shrink-0 flex flex-col gap-6 ${
+      <div className={`lg:order-none w-full lg:w-[22%] lg:min-w-[260px] flex-shrink-0 flex flex-col gap-4 lg:gap-6 ${
         mobileTab === 'signal' ? 'flex order-2' : mobileTab === 'chart' ? 'hidden lg:flex order-2' : 'hidden lg:flex order-2'
       }`}>
         {/* 1. SELL/BUY SIGNAL DETAIL CARD - Redesigned */}
@@ -1777,7 +1777,7 @@ export function TradingChart({ mobileTab }) {
           }`} />
 
           {/* ── HEADER: Segmented asset/live feed info ── */}
-          <div className="flex justify-between items-center px-5 py-4 border-b border-white/[0.06] bg-white/[0.03]">
+          <div className="flex justify-between items-center px-3 lg:px-5 py-3 lg:py-4 border-b border-white/[0.06] bg-white/[0.03]">
             <div className="flex items-center gap-2">
               <span className="text-xs font-black text-white tracking-widest font-mono">{selectedSymbol}</span>
               <span className="px-2 py-0.5 bg-amber-500/10 border border-amber-500/20 text-amber-500 rounded text-[11px] font-mono font-black tracking-widest">{selectedTimeframe}</span>
@@ -1787,7 +1787,7 @@ export function TradingChart({ mobileTab }) {
           </div>
 
           {/* ── HERO ZONE: Technical action arrow ── */}
-          <div className="px-5 py-6 flex items-center gap-4">
+          <div className="px-3 lg:px-5 py-4 lg:py-6 flex items-center gap-4">
             <div className={`h-14 w-14 rounded-2xl flex items-center justify-center border transition-all duration-500 relative group overflow-hidden ${
               currentSignal.action === 'buy'
                 ? 'bg-gradient-to-br from-amber-500/10 to-yellow-600/5 border-amber-500/30 text-amber-400 shadow-[0_0_25px_rgba(234,179,8,0.2)]'
@@ -1819,7 +1819,7 @@ export function TradingChart({ mobileTab }) {
           </div>
 
           {/* ── PARAMETERS & METRIC AREA ── */}
-          <div className="px-5 pb-5 flex flex-col gap-5">
+          <div className="px-3 lg:px-5 pb-4 lg:pb-5 flex flex-col gap-4 lg:gap-5">
             <div className="divide-y divide-white/[0.05] panel-surface rounded-2xl overflow-hidden">
               {/* Entry Price */}
               <div className="flex items-center justify-between px-4 py-3 hover:bg-slate-900/20 transition-all duration-300">
@@ -2044,7 +2044,7 @@ export function TradingChart({ mobileTab }) {
       }`}>
 
         {/* Chart Wrapper — Aurora Nebula panel */}
-        <div className="space-panel-heavy rounded-3xl px-5 py-4 flex flex-col justify-start gap-3 relative h-full overflow-hidden"
+        <div className="space-panel-heavy rounded-2xl lg:rounded-3xl px-2 lg:px-5 py-3 lg:py-4 flex flex-col justify-start gap-2 lg:gap-3 relative h-full overflow-hidden"
           style={{ border: '1px solid rgba(202, 138, 4, 0.18)' }}>
 
           {/* Chart Title Overlay */}
@@ -2070,66 +2070,140 @@ export function TradingChart({ mobileTab }) {
               </span>
             </div>
 
-            {/* RIGHT: Candle color toggles */}
-            <div className="flex items-center gap-1 bg-white/[0.04] border border-white/[0.08] p-0.5 rounded-lg">
-              <button
-                onClick={() => setCandleColorTheme('premium')}
-                className={`px-2 py-0.5 rounded text-[11px] font-black transition-all ${candleColorTheme === 'premium' ? 'bg-amber-500 text-black font-black' : 'text-slate-500 hover:text-slate-300'}`}
-              >
-                Premium
-              </button>
-              <button
-                onClick={() => setCandleColorTheme('traditional')}
-                className={`px-2 py-0.5 rounded text-[11px] font-black transition-all ${candleColorTheme === 'traditional' ? 'bg-emerald-500 text-white font-black' : 'text-slate-500 hover:text-slate-300'}`}
-              >
-                MetaTrader5
-              </button>
+            {/* RIGHT: Candle color toggles + Sessions Status on mobile */}
+            <div className="flex items-center gap-2 mt-1 sm:mt-0 flex-wrap justify-end">
+              {/* Candle color toggles */}
+              <div className="flex items-center gap-1 bg-white/[0.04] border border-white/[0.08] p-0.5 rounded-lg">
+                <button
+                  onClick={() => setCandleColorTheme('premium')}
+                  className={`px-2 py-0.5 rounded text-[11px] font-black transition-all ${candleColorTheme === 'premium' ? 'bg-amber-500 text-black font-black' : 'text-slate-500 hover:text-slate-300'}`}
+                >
+                  Premium
+                </button>
+                <button
+                  onClick={() => setCandleColorTheme('traditional')}
+                  className={`px-2 py-0.5 rounded text-[11px] font-black transition-all ${candleColorTheme === 'traditional' ? 'bg-emerald-500 text-white font-black' : 'text-slate-500 hover:text-slate-300'}`}
+                >
+                  MetaTrader5
+                </button>
+              </div>
+
+              {/* Sessions Status — ONLY visible on mobile (placed next to color toggles) */}
+              <div className="flex md:hidden items-center gap-1">
+                {['Sydney', 'Tokyo', 'London', 'New York'].map(session => {
+                  const open = getSessionStatus(session);
+                  return (
+                    <span key={session}
+                      className={`px-1.5 py-0.5 rounded border text-[9px] font-black tracking-wide uppercase transition-all duration-300 ${
+                        open ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400' : 'bg-slate-950/40 border-zinc-900/60 text-slate-600'
+                      }`}>
+                      {session.slice(0, 3)}
+                    </span>
+                  );
+                })}
+              </div>
             </div>
           </div>
 
-          {/* TOOLBAR + SESSIONS — 1 hàng ngang trên chart */}
-          <div className="flex flex-row flex-wrap items-center justify-between gap-3 mb-2.5">
-            {/* Drawing Toolbar — horizontal */}
-            {showDrawingToolbar && (
-              <div className="hidden md:flex flex-row items-center gap-1 bg-[#060b18]/60 px-2 py-1 rounded-xl border border-slate-800/40 select-none shadow-[0_2px_16px_rgba(0,0,0,0.4)]">
-                <button onClick={() => setActiveTool('cursor')}
-                  className={`w-7 h-7 rounded-lg border transition-all cursor-pointer flex items-center justify-center ${activeTool === 'cursor' ? 'bg-amber-500/15 border-amber-500/50 text-amber-500' : 'bg-white/[0.04] border-white/[0.08] text-slate-400 hover:text-amber-500 hover:border-amber-500/35 hover:bg-amber-500/5'}`}
-                  title="Con trỏ chuột"><MousePointer className="h-3.5 w-3.5" /></button>
-                <button onClick={() => setActiveTool('trendline')}
-                  className={`w-7 h-7 rounded-lg border transition-all cursor-pointer flex items-center justify-center ${activeTool === 'trendline' ? 'bg-amber-500/15 border-amber-500/50 text-amber-500' : 'bg-white/[0.04] border-white/[0.08] text-slate-400 hover:text-amber-500 hover:border-amber-500/35 hover:bg-amber-500/5'}`}
-                  title="Đường xu hướng"><Slash className="h-3.5 w-3.5" /></button>
-                <button onClick={() => setActiveTool('horizontal')}
-                  className={`w-7 h-7 rounded-lg border transition-all cursor-pointer flex items-center justify-center ${activeTool === 'horizontal' ? 'bg-amber-500/15 border-amber-500/50 text-amber-500' : 'bg-white/[0.04] border-white/[0.08] text-slate-400 hover:text-amber-500 hover:border-amber-500/35 hover:bg-amber-500/5'}`}
-                  title="Đường nằm ngang"><Minus className="h-3.5 w-3.5" /></button>
-                <button onClick={() => setActiveTool('fib')}
-                  className={`w-7 h-7 rounded-lg border transition-all cursor-pointer flex items-center justify-center ${activeTool === 'fib' ? 'bg-amber-500/15 border-amber-500/50 text-amber-500' : 'bg-white/[0.04] border-white/[0.08] text-slate-400 hover:text-amber-500 hover:border-amber-500/35 hover:bg-amber-500/5'}`}
-                  title="Fibonacci"><Grid className="h-3.5 w-3.5" /></button>
-                <button onClick={() => setActiveTool('rectangle')}
-                  className={`w-7 h-7 rounded-lg border transition-all cursor-pointer flex items-center justify-center ${activeTool === 'rectangle' ? 'bg-amber-500/15 border-amber-500/50 text-amber-500' : 'bg-white/[0.04] border-white/[0.08] text-slate-400 hover:text-amber-500 hover:border-amber-500/35 hover:bg-amber-500/5'}`}
-                  title="Hình chữ nhật"><Square className="h-3.5 w-3.5" /></button>
-                <div className="h-5 w-[1px] bg-zinc-800/60 mx-1" />
-                <button onClick={handleUndo}
-                  className="w-7 h-7 rounded-lg border border-white/[0.08] bg-white/[0.04] text-slate-400 hover:text-amber-500 hover:border-amber-500/35 hover:bg-amber-500/5 transition-all cursor-pointer flex items-center justify-center"
-                  title="Hoàn tác (Ctrl+Z)"><Undo className="h-3.5 w-3.5" /></button>
-                <button onClick={() => { setDrawings([]); setActiveTool('cursor'); }}
-                  className="w-7 h-7 rounded-lg border border-white/[0.08] bg-white/[0.04] text-slate-500 hover:text-red-400 hover:border-red-500/35 hover:bg-red-500/10 transition-all cursor-pointer flex items-center justify-center"
-                  title="Xóa tất cả"><Trash2 className="h-3.5 w-3.5" /></button>
-              </div>
-            )}
+          {/* TOOLBAR + SESSIONS — 1 hàng ngang trên chart (Desktop: showing toolbar + sessions, Mobile: showing selectors row) */}
+          <div className="flex flex-col gap-2.5 mb-2.5">
+            {/* Row 2: Drawing Toolbar (Desktop) & Sessions (Desktop) */}
+            <div className="flex flex-row flex-wrap items-center justify-between gap-3">
+              {/* Drawing Toolbar — horizontal */}
+              {showDrawingToolbar && (
+                <div className="hidden md:flex flex-row items-center gap-1 bg-[#060b18]/60 px-2 py-1 rounded-xl border border-slate-800/40 select-none shadow-[0_2px_16px_rgba(0,0,0,0.4)]">
+                  <button onClick={() => setActiveTool('cursor')}
+                    className={`w-7 h-7 rounded-lg border transition-all cursor-pointer flex items-center justify-center ${activeTool === 'cursor' ? 'bg-amber-500/15 border-amber-500/50 text-amber-500' : 'bg-white/[0.04] border-white/[0.08] text-slate-400 hover:text-amber-500 hover:border-amber-500/35 hover:bg-amber-500/5'}`}
+                    title="Con trỏ chuột"><MousePointer className="h-3.5 w-3.5" /></button>
+                  <button onClick={() => setActiveTool('trendline')}
+                    className={`w-7 h-7 rounded-lg border transition-all cursor-pointer flex items-center justify-center ${activeTool === 'trendline' ? 'bg-amber-500/15 border-amber-500/50 text-amber-500' : 'bg-white/[0.04] border-white/[0.08] text-slate-400 hover:text-amber-500 hover:border-amber-500/35 hover:bg-amber-500/5'}`}
+                    title="Đường xu hướng"><Slash className="h-3.5 w-3.5" /></button>
+                  <button onClick={() => setActiveTool('horizontal')}
+                    className={`w-7 h-7 rounded-lg border transition-all cursor-pointer flex items-center justify-center ${activeTool === 'horizontal' ? 'bg-amber-500/15 border-amber-500/50 text-amber-500' : 'bg-white/[0.04] border-white/[0.08] text-slate-400 hover:text-amber-500 hover:border-amber-500/35 hover:bg-amber-500/5'}`}
+                    title="Đường nằm ngang"><Minus className="h-3.5 w-3.5" /></button>
+                  <button onClick={() => setActiveTool('fib')}
+                    className={`w-7 h-7 rounded-lg border transition-all cursor-pointer flex items-center justify-center ${activeTool === 'fib' ? 'bg-amber-500/15 border-amber-500/50 text-amber-500' : 'bg-white/[0.04] border-white/[0.08] text-slate-400 hover:text-amber-500 hover:border-amber-500/35 hover:bg-amber-500/5'}`}
+                    title="Fibonacci"><Grid className="h-3.5 w-3.5" /></button>
+                  <button onClick={() => setActiveTool('rectangle')}
+                    className={`w-7 h-7 rounded-lg border transition-all cursor-pointer flex items-center justify-center ${activeTool === 'rectangle' ? 'bg-amber-500/15 border-amber-500/50 text-amber-500' : 'bg-white/[0.04] border-white/[0.08] text-slate-400 hover:text-amber-500 hover:border-amber-500/35 hover:bg-amber-500/5'}`}
+                    title="Hình chữ nhật"><Square className="h-3.5 w-3.5" /></button>
+                  <div className="h-5 w-[1px] bg-zinc-800/60 mx-1" />
+                  <button onClick={handleUndo}
+                    className="w-7 h-7 rounded-lg border border-white/[0.08] bg-white/[0.04] text-slate-400 hover:text-amber-500 hover:border-amber-500/35 hover:bg-amber-500/5 transition-all cursor-pointer flex items-center justify-center"
+                    title="Hoàn tác (Ctrl+Z)"><Undo className="h-3.5 w-3.5" /></button>
+                  <button onClick={() => { setDrawings([]); setActiveTool('cursor'); }}
+                    className="w-7 h-7 rounded-lg border border-white/[0.08] bg-white/[0.04] text-slate-500 hover:text-red-400 hover:border-red-500/35 hover:bg-red-500/10 transition-all cursor-pointer flex items-center justify-center"
+                    title="Xóa tất cả"><Trash2 className="h-3.5 w-3.5" /></button>
+                </div>
+              )}
 
-            {/* Sessions Status */}
-            <div className="flex flex-wrap items-center gap-1.5">
-              {['Sydney', 'Tokyo', 'London', 'New York'].map(session => {
-                const open = getSessionStatus(session);
-                return (
-                  <span key={session}
-                    className={`px-2 py-0.5 rounded border text-[11px] font-black tracking-wide uppercase transition-all duration-300 ${
-                      open ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400' : 'bg-slate-950/40 border-zinc-900/60 text-slate-600'
-                    }`}>
-                    {session.slice(0, 3)}
-                  </span>
-                );
-              })}
+              {/* Sessions Status — ONLY visible on desktop/tablet (md+) */}
+              <div className="hidden md:flex flex-wrap items-center gap-1.5">
+                {['Sydney', 'Tokyo', 'London', 'New York'].map(session => {
+                  const open = getSessionStatus(session);
+                  return (
+                    <span key={session}
+                      className={`px-2 py-0.5 rounded border text-[11px] font-black tracking-wide uppercase transition-all duration-300 ${
+                        open ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400' : 'bg-slate-950/40 border-zinc-900/60 text-slate-600'
+                      }`}>
+                      {session.slice(0, 3)}
+                    </span>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Mobile Quick Selectors: ONLY visible on screens < lg (mobile/tablet). Centered, wider, sharp borders with golden glow */}
+            <div className="grid lg:hidden grid-cols-3 gap-2 w-full p-1.5 bg-[#050914]/90 border border-amber-500/30 shadow-[0_0_15px_rgba(245,158,11,0.18)] hover:shadow-[0_0_25px_rgba(245,158,11,0.3)] hover:border-amber-500/50 rounded-xl transition-all duration-500">
+              {/* Timeframe Select */}
+              <div className="relative">
+                <select
+                  value={selectedTimeframe}
+                  onChange={(e) => setSelectedTimeframe(e.target.value)}
+                  className="w-full bg-[#03060f] border border-amber-500/20 hover:border-amber-500/40 focus:border-amber-500 text-amber-400 hover:text-amber-300 rounded-lg px-2 py-1.5 text-[11px] font-black uppercase font-mono focus:outline-none cursor-pointer transition-all appearance-none text-center shadow-[0_0_5px_rgba(245,158,11,0.04)] focus:shadow-[0_0_12px_rgba(245,158,11,0.25)]"
+                  title="Khung thời gian"
+                >
+                  {['M1', 'M5', 'M15', 'H1'].map(tf => (
+                    <option key={tf} value={tf} className="bg-[#0b0f19] text-white">{tf}</option>
+                  ))}
+                </select>
+                <div className="absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none text-amber-500/80 text-[8px]">▼</div>
+              </div>
+
+              {/* Asset Select */}
+              <div className="relative">
+                <select
+                  value={selectedSymbol}
+                  onChange={(e) => {
+                    setSelectedSymbol(e.target.value);
+                    const setLivePrice = useTradeStore.getState().setLivePrice;
+                    if (setLivePrice) setLivePrice(null);
+                  }}
+                  className="w-full bg-[#03060f] border border-amber-500/20 hover:border-amber-500/40 focus:border-amber-500 text-amber-400 hover:text-amber-300 rounded-lg px-2 py-1.5 text-[11px] font-black uppercase font-mono focus:outline-none cursor-pointer transition-all appearance-none text-center shadow-[0_0_5px_rgba(245,158,11,0.04)] focus:shadow-[0_0_12px_rgba(245,158,11,0.25)]"
+                  title="Chọn cặp tài sản"
+                >
+                  {['XAUUSD', 'WTIUSD', 'XAGUSD', 'BTCUSD', 'ETHUSD'].map(sym => (
+                    <option key={sym} value={sym} className="bg-[#0b0f19] text-white">{sym}</option>
+                  ))}
+                </select>
+                <div className="absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none text-amber-500/80 text-[8px]">▼</div>
+              </div>
+
+              {/* Indicator Select */}
+              <div className="relative">
+                <select
+                  value={selectedIndicatorSystem}
+                  onChange={(e) => setSelectedIndicatorSystem(e.target.value)}
+                  className="w-full bg-[#03060f] border border-amber-500/20 hover:border-amber-500/40 focus:border-amber-500 text-amber-400 hover:text-amber-300 rounded-lg px-2 py-1.5 text-[11px] font-black uppercase font-mono focus:outline-none cursor-pointer transition-all appearance-none text-center truncate pr-5 shadow-[0_0_5px_rgba(245,158,11,0.04)] focus:shadow-[0_0_12px_rgba(245,158,11,0.25)]"
+                  title="Hệ thống chỉ báo"
+                >
+                  <option value="zen" className="bg-[#0b0f19] text-white">MTF Trend PA</option>
+                  <option value="utbot" className="bg-[#0b0f19] text-white">UT Bot</option>
+                  <option value="chandelier" className="bg-[#0b0f19] text-white">Chandelier</option>
+                  <option value="trendline" className="bg-[#0b0f19] text-white">Trendlines</option>
+                </select>
+                <div className="absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none text-amber-500/80 text-[8px]">▼</div>
+              </div>
             </div>
           </div>
 

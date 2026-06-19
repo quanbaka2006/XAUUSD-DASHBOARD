@@ -34,8 +34,8 @@ export function CoreController() {
         </span>
       </div>
 
-      {/* Selectors grid/row */}
-      <div className="flex flex-col gap-3">
+      {/* Selectors grid/row — only visible on desktop (lg) since mobile has them directly on the chart tab */}
+      <div className="hidden lg:flex flex-col gap-3">
         {/* Symbol Selector */}
         <div className="flex flex-col gap-1.5">
           <label className="text-[9px] font-black text-slate-500 uppercase tracking-widest">Cặp Tài Sản (Asset)</label>

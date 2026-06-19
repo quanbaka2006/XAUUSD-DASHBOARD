@@ -31,10 +31,10 @@ export function MobileTabBar({ activeTab, onTabChange }) {
       className="fixed bottom-0 left-0 right-0 z-40 md:hidden"
       style={{ paddingBottom: 'env(safe-area-inset-bottom, 0px)' }}
     >
-      {/* Separator glow line */}
-      <div className="h-[1px] bg-gradient-to-r from-transparent via-amber-500/20 to-transparent" />
+      {/* Separator glow line — brighter for visibility */}
+      <div className="h-[1px] bg-gradient-to-r from-transparent via-amber-500/30 to-transparent" />
 
-      <div className="bg-[#040810]/96 backdrop-blur-xl flex items-stretch h-[60px]">
+      <div className="bg-[#040810]/97 backdrop-blur-xl flex items-stretch h-[56px] border-t border-white/[0.04]">
         {TABS.map((tab, idx) => {
           const Icon = tab.icon;
           const isActive = activeTab === tab.id;
@@ -45,8 +45,8 @@ export function MobileTabBar({ activeTab, onTabChange }) {
               key={tab.id}
               onClick={() => onTabChange(tab.id)}
               className={`
-                flex-1 flex flex-col items-center justify-center gap-1
-                min-h-[44px] transition-all duration-200 active:scale-95
+                flex-1 flex flex-col items-center justify-center gap-0.5
+                min-h-[48px] transition-all duration-200 active:scale-90
                 relative select-none
                 ${isActive
                   ? 'text-amber-400'
@@ -55,18 +55,18 @@ export function MobileTabBar({ activeTab, onTabChange }) {
               `}
               aria-label={label}
             >
-              {/* Active indicator bar at top */}
+              {/* Active indicator bar at top — wider + stronger glow */}
               {isActive && (
-                <div className="absolute top-0 left-1/2 -translate-x-1/2 w-8 h-[2px] rounded-full bg-amber-400 shadow-[0_0_8px_rgba(234,179,8,0.6)]" />
+                <div className="absolute top-0 left-1/2 -translate-x-1/2 w-10 h-[2.5px] rounded-full bg-amber-400 shadow-[0_0_12px_rgba(234,179,8,0.7)]" />
               )}
 
               {/* Icon with glow when active */}
-              <div className={`relative transition-all duration-200 ${isActive ? 'drop-shadow-[0_0_6px_rgba(234,179,8,0.5)]' : ''}`}>
-                <Icon className={`transition-all duration-200 ${isActive ? 'h-5 w-5' : 'h-[18px] w-[18px]'}`} />
+              <div className={`relative transition-all duration-200 ${isActive ? 'drop-shadow-[0_0_8px_rgba(234,179,8,0.6)]' : ''}`}>
+                <Icon className={`transition-all duration-200 ${isActive ? 'h-[22px] w-[22px]' : 'h-5 w-5'}`} />
               </div>
 
               {/* Label */}
-              <span className={`text-[11px] font-black uppercase tracking-wider leading-none transition-all duration-200 ${isActive ? 'text-amber-400' : 'text-slate-600'}`}>
+              <span className={`text-[10px] font-black uppercase tracking-wider leading-none transition-all duration-200 ${isActive ? 'text-amber-400' : 'text-slate-600'}`}>
                 {label}
               </span>
             </button>

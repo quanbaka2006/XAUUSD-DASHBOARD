@@ -513,6 +513,16 @@ function fetchJson(url, options = {}) {
 }
 
 // ==========================================
+// Finnhub symbol mapping (hoisted for fetchFinnhubSeed)
+// ==========================================
+const FINNHUB_SYMBOL_MAP = {
+  'OANDA:XAU_USD':   'XAUUSD',
+  'OANDA:XAG_USD':   'XAGUSD',
+  'OANDA:WTICO_USD': 'WTIUSD',
+};
+const FINNHUB_SUBSCRIBE = Object.keys(FINNHUB_SYMBOL_MAP);
+
+// ==========================================
 // Seed Fetchers (Finnhub Spot & Binance HTTP API)
 // ==========================================
 function fetchFinnhubSeed(sym, callback) {
@@ -711,14 +721,7 @@ function startYahooFallback() {
 // Set env var: FINNHUB_TOKEN=your_key_here
 // ==========================================
 
-// Map Finnhub/OANDA symbols → our symbols
-const FINNHUB_SYMBOL_MAP = {
-  'OANDA:XAU_USD':   'XAUUSD',
-  'OANDA:XAG_USD':   'XAGUSD',
-  'OANDA:WTICO_USD': 'WTIUSD',
-};
-
-const FINNHUB_SUBSCRIBE = Object.keys(FINNHUB_SYMBOL_MAP);
+// (FINNHUB_SYMBOL_MAP & FINNHUB_SUBSCRIBE declared above fetchFinnhubSeed)
 
 let finnhubWs = null;
 let finnhubConnected = false;

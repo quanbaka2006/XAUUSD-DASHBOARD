@@ -306,7 +306,7 @@ function App() {
 
       {/* Main Content Dashboard - Responsive Padding */}
       <div 
-        className={`flex-1 min-h-screen p-4 md:py-6 md:pr-6 transition-all duration-300 ease-in-out ${isSidebarHovered ? 'md:pl-[240px]' : 'md:pl-[80px]'} pl-4 flex flex-col items-center relative overflow-hidden dynamic-theme-bg`}
+        className={`flex-1 min-h-screen p-2 md:p-4 md:py-6 md:pr-6 transition-all duration-300 ease-in-out ${isSidebarHovered ? 'md:pl-[240px]' : 'md:pl-[80px]'} md:pl-4 flex flex-col items-center relative overflow-hidden dynamic-theme-bg`}
       >
         {/* Cybernetic Tech Grid Overlay — subtle, low opacity */}
         <div className="absolute inset-0 pointer-events-none opacity-[0.25] cyber-grid-overlay" />
@@ -339,34 +339,64 @@ function App() {
         <div className="firefly-8 absolute w-[2.5px] h-[2.5px] rounded-full pointer-events-none" style={{bottom:'40%',left:'8%',background:'radial-gradient(circle,rgba(6,182,212,0.85),rgba(6,182,212,0.25))',boxShadow:'0 0 8px rgba(6,182,212,0.5), 0 0 18px rgba(6,182,212,0.2)'}} />
       
         {/* Container */}
-        <div className="w-full max-w-[1680px] flex flex-col gap-6 relative z-10">
+        <div className="w-full max-w-[1680px] flex flex-col gap-3 md:gap-6 relative z-10">
           
-          {/* Header Ribbon */}
-          <div className="flex flex-col md:flex-row justify-between items-stretch md:items-center gap-4 pb-4 border-b border-white/[0.06]">
-            <div className="flex items-center justify-between md:justify-start gap-3">
-              <div className="flex items-center gap-3">
-                {/* Mobile Hamburger Button */}
-                <button 
-                  onClick={() => setIsMobileMenuOpen(true)}
-                  className="md:hidden p-2.5 rounded-xl bg-white/[0.04] border border-white/[0.08] text-slate-300 hover:text-white transition-all shadow-[0_0_15px_rgba(0,0,0,0.4)]"
-                  aria-label="Open menu"
-                >
-                  <Menu className="h-5 w-5" />
-                </button>
-                <img 
-                  src={logoImg} 
-                  alt="Alpha Gold Logo" 
-                  className="h-20 w-24 md:h-24 md:w-28 object-contain filter drop-shadow-[0_0_20px_rgba(245,158,11,0.5)] transition-all duration-500 hover:scale-105" 
-                />
-                <div className="filter drop-shadow-[0_0_15px_rgba(245,158,11,0.45)] hover:drop-shadow-[0_0_25px_rgba(245,158,11,0.7)] transition-all duration-700">
-                  <h1 className="text-3xl md:text-4xl font-black tracking-widest text-transparent bg-clip-text bg-gradient-to-r from-amber-100 via-amber-400 to-amber-600 select-none uppercase font-sans">
-                    {currentView === 'dashboard' ? 'DASHBOARD'
-                      : currentView === 'capital' ? t('capitalManagement').toUpperCase()
-                      : currentView === 'calendar' ? t('economicCalendar').toUpperCase()
-                      : currentView === 'admin' ? 'ADMIN PANEL'
-                      : 'DASHBOARD'}
-                  </h1>
+          {/* ═══ HEADER RIBBON ═══ */}
+          {/* ── MOBILE HEADER (< md): compact single row ── */}
+          <div className="flex md:hidden items-center justify-between pb-2 border-b border-white/[0.06]">
+            <div className="flex items-center gap-2">
+              <img 
+                src={logoImg} 
+                alt="Alpha Gold Logo" 
+                className="h-10 w-10 object-contain filter drop-shadow-[0_0_12px_rgba(245,158,11,0.4)]" 
+              />
+              <div>
+                <h1 className="text-base font-black tracking-wider text-transparent bg-clip-text bg-gradient-to-r from-amber-100 via-amber-400 to-amber-600 select-none uppercase font-sans leading-tight">
+                  {currentView === 'dashboard' ? 'DASHBOARD'
+                    : currentView === 'capital' ? t('capitalManagement').toUpperCase()
+                    : currentView === 'calendar' ? t('economicCalendar').toUpperCase()
+                    : currentView === 'admin' ? 'ADMIN'
+                    : 'DASHBOARD'}
+                </h1>
+                <div className="text-[9px] text-amber-500/60 font-bold uppercase tracking-[0.15em] leading-none mt-0.5">ALPHA GOLD</div>
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              {/* Compact Live dot */}
+              <div className="flex items-center gap-1.5 bg-white/[0.04] border border-white/[0.07] px-2.5 py-1.5 rounded-lg">
+                <div className="relative flex h-2 w-2">
+                  <span className={`animate-ping absolute inline-flex h-full w-full rounded-full opacity-75 ${connectionStatus ? 'bg-sky-400' : 'bg-red-400'}`}></span>
+                  <span className={`relative inline-flex rounded-full h-2 w-2 ${connectionStatus ? 'bg-sky-500' : 'bg-red-500'}`}></span>
                 </div>
+                <span className="text-[10px] font-black text-sky-400 font-mono" ref={clockDomRef}>00:00:00</span>
+              </div>
+              {/* Hamburger — opens left drawer */}
+              <button 
+                onClick={() => setIsMobileMenuOpen(true)}
+                className="p-2 rounded-lg bg-white/[0.04] border border-white/[0.08] text-slate-300 hover:text-white transition-all active:scale-95"
+                aria-label="Open menu"
+              >
+                <Menu className="h-5 w-5" />
+              </button>
+            </div>
+          </div>
+
+          {/* ── DESKTOP HEADER (md+): original full header ── */}
+          <div className="hidden md:flex flex-row justify-between items-center gap-4 pb-4 border-b border-white/[0.06]">
+            <div className="flex items-center gap-3">
+              <img 
+                src={logoImg} 
+                alt="Alpha Gold Logo" 
+                className="h-24 w-28 object-contain filter drop-shadow-[0_0_20px_rgba(245,158,11,0.5)] transition-all duration-500 hover:scale-105" 
+              />
+              <div className="filter drop-shadow-[0_0_15px_rgba(245,158,11,0.45)] hover:drop-shadow-[0_0_25px_rgba(245,158,11,0.7)] transition-all duration-700">
+                <h1 className="text-4xl font-black tracking-widest text-transparent bg-clip-text bg-gradient-to-r from-amber-100 via-amber-400 to-amber-600 select-none uppercase font-sans">
+                  {currentView === 'dashboard' ? 'DASHBOARD'
+                    : currentView === 'capital' ? t('capitalManagement').toUpperCase()
+                    : currentView === 'calendar' ? t('economicCalendar').toUpperCase()
+                    : currentView === 'admin' ? 'ADMIN PANEL'
+                    : 'DASHBOARD'}
+                </h1>
               </div>
             </div>
 
@@ -398,7 +428,7 @@ function App() {
                   }`}
                 >
                   <Sliders className="h-4 w-4" />
-                  <span className="hidden sm:inline">{currentView === 'admin' ? t('adminPanel') : t('memberManagement')}</span>
+                  <span>{currentView === 'admin' ? t('adminPanel') : t('memberManagement')}</span>
                 </button>
               )}
 
@@ -446,7 +476,7 @@ function App() {
                 <div className="h-7 w-7 rounded-full bg-amber-500/10 border border-amber-500/30 flex items-center justify-center text-xs font-black text-amber-500 font-mono">
                   {user?.name ? user.name.slice(0,2).toUpperCase() : 'US'}
                 </div>
-                <div className="text-left hidden sm:block">
+                <div className="text-left">
                   <div className="text-[11px] text-slate-500 font-bold leading-none tracking-wider">{t('account')}</div>
                   <div className="text-xs font-black text-slate-300 mt-0.5">{user?.name || 'Trader'}</div>
                 </div>
@@ -535,55 +565,68 @@ function App() {
         <MobileTabBar activeTab={activeMobileTab} onTabChange={setActiveMobileTab} />
       )}
 
-      {/* Slide-out Mobile Menu Drawer */}
+      {/* ═══ SLIDE-OUT MOBILE MENU DRAWER — opens from LEFT ═══ */}
       {isMobileMenuOpen && (
-        <div className="fixed inset-0 z-50 flex justify-end md:hidden">
+        <div className="fixed inset-0 z-50 flex justify-start md:hidden">
           {/* Backdrop */}
           <div 
             className="fixed inset-0 bg-black/75 backdrop-blur-sm transition-opacity duration-300"
             onClick={() => setIsMobileMenuOpen(false)}
           />
-          {/* Drawer Panel */}
-          <div className="relative w-80 max-w-[85vw] h-full panel-surface border-l border-white/[0.06] p-6 flex flex-col justify-between shadow-2xl z-10 transition-transform duration-300 ease-in-out">
-            <div className="flex flex-col gap-6">
+          {/* Drawer Panel — LEFT side */}
+          <div className="relative w-[280px] max-w-[80vw] h-full panel-surface border-r border-white/[0.06] p-5 flex flex-col justify-between shadow-2xl z-10 transition-transform duration-300 ease-in-out overflow-y-auto">
+            <div className="flex flex-col gap-5">
               {/* Drawer Header */}
-              <div className="flex justify-between items-center pb-4 border-b border-white/[0.06]">
+              <div className="flex justify-between items-center pb-3 border-b border-white/[0.06]">
                 <div className="flex items-center gap-2">
                   <img 
                     src={logoImg} 
                     alt="Alpha Gold Logo" 
-                    className="h-10 w-10 object-contain filter drop-shadow-[0_0_10px_rgba(245,158,11,0.3)]" 
+                    className="h-9 w-9 object-contain filter drop-shadow-[0_0_10px_rgba(245,158,11,0.3)]" 
                   />
                   <div className="flex flex-col text-left">
                     <span className="text-xs font-black text-amber-500 tracking-wider">ALPHA GOLD</span>
-                    <span className="text-[11px] text-slate-400 font-bold uppercase mt-0.5">MULTI-ASSET CONSOLE</span>
+                    <span className="text-[10px] text-slate-400 font-bold uppercase mt-0.5">MULTI-ASSET CONSOLE</span>
                   </div>
                 </div>
                 
                 {/* Close Button (X) */}
                 <button 
                   onClick={() => setIsMobileMenuOpen(false)}
-                  className="p-1.5 rounded-lg bg-white/[0.04] border border-white/[0.08] text-slate-400 hover:text-white transition-colors"
+                  className="p-1.5 rounded-lg bg-white/[0.04] border border-white/[0.08] text-slate-400 hover:text-white transition-colors active:scale-95"
                   aria-label="Close menu"
                 >
                   <X className="h-5 w-5" />
                 </button>
               </div>
 
+              {/* Live Status Bar inside Drawer */}
+              <div className="flex items-center gap-2 bg-white/[0.04] border border-white/[0.07] px-3 py-2 rounded-xl">
+                <div className="relative flex h-2 w-2">
+                  <span className={`animate-ping absolute inline-flex h-full w-full rounded-full opacity-75 ${connectionStatus ? 'bg-sky-400' : 'bg-red-400'}`}></span>
+                  <span className={`relative inline-flex rounded-full h-2 w-2 ${connectionStatus ? 'bg-sky-500' : 'bg-red-500'}`}></span>
+                </div>
+                <div className="text-left leading-none flex-1">
+                  <div className="text-[10px] text-sky-500/70 font-bold uppercase tracking-wider">{connectionStatus ? 'LIVE FEED' : 'OFFLINE'}</div>
+                  <div className="text-[11px] font-black text-sky-400 font-mono mt-0.5"><span>{useTradeStore.getState().utcTime || '00:00:00 UTC+7'}</span></div>
+                </div>
+              </div>
+
               {/* Navigation Links inside Drawer */}
-              <nav className="flex flex-col gap-2 overflow-y-auto max-h-[60vh] text-left">
+              <nav className="flex flex-col gap-1.5 text-left">
+                <span className="text-[10px] text-slate-500 font-bold uppercase tracking-widest px-3 mb-1">{t('dashboard')?.includes('Dashboard') ? 'NAVIGATION' : 'ĐIỀU HƯỚNG'}</span>
                 <button 
                   onClick={() => {
                     setCurrentView('dashboard');
                     setIsMobileMenuOpen(false);
                   }}
-                  className={`w-full flex items-center gap-4 py-3 px-4 rounded-xl transition-all cursor-pointer ${
+                  className={`w-full flex items-center gap-3 py-2.5 px-3 rounded-xl transition-all cursor-pointer active:scale-[0.98] ${
                     currentView === 'dashboard'
                       ? 'bg-amber-500/10 border border-amber-500/20 text-amber-500 text-xs font-black'
                       : 'text-slate-400 hover:text-white hover:bg-white/[0.04] text-xs font-bold border border-transparent'
                   }`}
                 >
-                  <TrendingUp className={`h-5 w-5 ${currentView === 'dashboard' ? 'text-amber-500' : 'text-slate-400'}`} />
+                  <TrendingUp className={`h-4.5 w-4.5 ${currentView === 'dashboard' ? 'text-amber-500' : 'text-slate-400'}`} />
                   <span>{t('dashboard')}</span>
                 </button>
                 
@@ -592,17 +635,17 @@ function App() {
                     setCurrentView('capital');
                     setIsMobileMenuOpen(false);
                   }}
-                  className={`w-full flex items-center justify-between py-3 px-4 rounded-xl transition-all cursor-pointer ${
+                  className={`w-full flex items-center justify-between py-2.5 px-3 rounded-xl transition-all cursor-pointer active:scale-[0.98] ${
                     currentView === 'capital'
                       ? 'bg-amber-500/10 border border-amber-500/20 text-amber-500 text-xs font-black'
                       : 'text-slate-400 hover:text-white hover:bg-white/[0.04] text-xs font-bold border border-transparent'
                   }`}
                 >
-                  <div className="flex items-center gap-4">
-                    <Coins className={`h-5 w-5 ${currentView === 'capital' ? 'text-amber-500' : 'text-slate-400'}`} />
+                  <div className="flex items-center gap-3">
+                    <Coins className={`h-4.5 w-4.5 ${currentView === 'capital' ? 'text-amber-500' : 'text-slate-400'}`} />
                     <span>{t('capitalManagement')}</span>
                   </div>
-                  <span className="px-1.5 py-0.5 bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 rounded text-[11px] font-black tracking-widest">SAFE</span>
+                  <span className="px-1.5 py-0.5 bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 rounded text-[10px] font-black tracking-widest">SAFE</span>
                 </button>
 
                 <button 
@@ -610,29 +653,112 @@ function App() {
                     setCurrentView('calendar');
                     setIsMobileMenuOpen(false);
                   }}
-                  className={`w-full flex items-center gap-4 py-3 px-4 rounded-xl transition-all cursor-pointer ${
+                  className={`w-full flex items-center gap-3 py-2.5 px-3 rounded-xl transition-all cursor-pointer active:scale-[0.98] ${
                     currentView === 'calendar'
                       ? 'bg-amber-500/10 border border-amber-500/20 text-amber-500 text-xs font-black'
                       : 'text-slate-400 hover:text-white hover:bg-white/[0.04] text-xs font-bold border border-transparent'
                   }`}
                 >
-                  <Calendar className={`h-5 w-5 ${currentView === 'calendar' ? 'text-amber-500' : 'text-slate-400'}`} />
+                  <Calendar className={`h-4.5 w-4.5 ${currentView === 'calendar' ? 'text-amber-500' : 'text-slate-400'}`} />
                   <span>{t('economicCalendar')}</span>
                 </button>
-              </nav>
-            </div>
 
-            {/* Profile Widget inside Drawer */}
-            <div className="flex flex-col gap-4">
-              <div className="flex items-center gap-3 p-2 rounded-xl bg-white/[0.03] border border-white/[0.06] text-left">
-                <div className="h-8 w-8 rounded-full bg-amber-500/15 border border-amber-500/35 flex items-center justify-center text-xs font-black text-amber-500 font-mono">
-                  {user?.name ? user.name.slice(0, 2).toUpperCase() : 'US'}
-                </div>
-                <div className="flex flex-col">
-                  <span className="text-xs font-black text-white leading-none">{user?.name || 'Trader'}</span>
-                  <span className="text-xs text-amber-500/80 font-bold mt-1 uppercase">{t('premiumMember')}</span>
+                {/* Admin Panel Button — only for admin roles */}
+                {['SuperAdmin', 'Administrator', 'Employee'].includes(user?.role) && (
+                  <button
+                    onClick={() => {
+                      setAdminError('');
+                      setAdminSuccess('');
+                      setCurrentView(currentView === 'admin' ? 'dashboard' : 'admin');
+                      setIsMobileMenuOpen(false);
+                    }}
+                    className={`w-full flex items-center gap-3 py-2.5 px-3 rounded-xl transition-all cursor-pointer active:scale-[0.98] ${
+                      currentView === 'admin'
+                        ? 'bg-amber-500/10 border border-amber-500/20 text-amber-500 text-xs font-black'
+                        : 'text-slate-400 hover:text-white hover:bg-white/[0.04] text-xs font-bold border border-transparent'
+                    }`}
+                  >
+                    <Sliders className={`h-4.5 w-4.5 ${currentView === 'admin' ? 'text-amber-500' : 'text-slate-400'}`} />
+                    <span>{currentView === 'admin' ? t('adminPanel') : t('memberManagement')}</span>
+                  </button>
+                )}
+              </nav>
+
+              {/* Divider */}
+              <div className="h-[1px] bg-gradient-to-r from-transparent via-white/[0.06] to-transparent" />
+
+              {/* Settings & Preferences */}
+              <div className="flex flex-col gap-3">
+                <span className="text-[10px] text-slate-500 font-bold uppercase tracking-widest px-3">{language === 'vn' ? 'CÀI ĐẶT' : 'SETTINGS'}</span>
+                
+                {/* Settings Toggle */}
+                {currentView !== 'admin' && (
+                  <button
+                    onClick={() => {
+                      toggleConfigPanel();
+                      setIsMobileMenuOpen(false);
+                    }}
+                    className={`w-full flex items-center gap-3 py-2.5 px-3 rounded-xl transition-all cursor-pointer active:scale-[0.98] text-xs font-bold ${
+                      showConfigPanel
+                        ? 'bg-amber-500/10 border border-amber-500/20 text-amber-500 font-black'
+                        : 'text-slate-400 hover:text-white hover:bg-white/[0.04] border border-transparent'
+                    }`}
+                  >
+                    <Sliders className="h-4.5 w-4.5" />
+                    <span>{t('configPanelTitle')}</span>
+                  </button>
+                )}
+
+                {/* Language Toggle */}
+                <div className="flex items-center justify-between px-3">
+                  <span className="text-xs text-slate-400 font-bold">{language === 'vn' ? 'Ngôn ngữ' : 'Language'}</span>
+                  <div className="flex bg-white/[0.04] border border-white/[0.07] p-0.5 rounded-lg">
+                    <button
+                      onClick={() => setLanguage('en')}
+                      className={`px-3 py-1.5 text-xs font-black rounded-md transition-all duration-200 cursor-pointer ${
+                        language === 'en'
+                          ? 'bg-amber-500 text-[#040406] shadow-[0_0_8px_rgba(234,179,8,0.15)]'
+                          : 'text-slate-400 hover:text-slate-200'
+                      }`}
+                    >
+                      EN
+                    </button>
+                    <button
+                      onClick={() => setLanguage('vn')}
+                      className={`px-3 py-1.5 text-xs font-black rounded-md transition-all duration-200 cursor-pointer ${
+                        language === 'vn'
+                          ? 'bg-amber-500 text-[#040406] shadow-[0_0_8px_rgba(234,179,8,0.15)]'
+                          : 'text-slate-400 hover:text-slate-200'
+                      }`}
+                    >
+                      VN
+                    </button>
+                  </div>
                 </div>
               </div>
+            </div>
+
+            {/* Bottom: Profile Widget + Logout inside Drawer */}
+            <div className="flex flex-col gap-3 pt-4 border-t border-white/[0.06]">
+              <div className="flex items-center gap-3 p-2.5 rounded-xl bg-white/[0.03] border border-white/[0.06] text-left">
+                <div className="h-9 w-9 rounded-full bg-amber-500/15 border border-amber-500/35 flex items-center justify-center text-xs font-black text-amber-500 font-mono">
+                  {user?.name ? user.name.slice(0, 2).toUpperCase() : 'US'}
+                </div>
+                <div className="flex flex-col flex-1">
+                  <span className="text-xs font-black text-white leading-none">{user?.name || 'Trader'}</span>
+                  <span className="text-[11px] text-amber-500/80 font-bold mt-1 uppercase">{t('premiumMember')}</span>
+                </div>
+              </div>
+              <button 
+                onClick={() => {
+                  handleLogout();
+                  setIsMobileMenuOpen(false);
+                }}
+                className="w-full flex items-center justify-center gap-2 py-2.5 px-3 rounded-xl bg-red-500/10 border border-red-500/20 text-red-400 text-xs font-black transition-all cursor-pointer hover:bg-red-500/15 active:scale-[0.98]"
+              >
+                <LogOut className="h-4 w-4" />
+                <span>{t('logout')}</span>
+              </button>
             </div>
           </div>
         </div>
