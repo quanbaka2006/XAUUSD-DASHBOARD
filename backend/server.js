@@ -304,6 +304,15 @@ const currentPrices = { ...defaultPrices };
 // Last confirmed real price from external source (anchor)
 const lastRealPrices = { ...defaultPrices };
 
+// Tracks whether the synthetic history has been aligned to the first live streaming price
+const hasAlignedHistory = {
+  'XAUUSD': false,
+  'WTIUSD': false,
+  'XAGUSD': false,
+  'BTCUSD': false,
+  'ETHUSD': false
+};
+
 // ==========================================
 // Drawings Store (in-memory, per user+symbol)
 // Key: `${username}:${symbol}`, Value: drawings[]
@@ -412,6 +421,42 @@ function initializeCandles() {
 function applyRealPrice(sym, newPrice) {
   if (!newPrice || typeof newPrice !== 'number' || isNaN(newPrice)) return;
   const price = parseFloat(newPrice.toFixed(sym.includes('BTC') ? 2 : 4));
+
+  // Align synthetic history to the first live price from external stream (e.g. websocket)
+  if (historyInitialized && !hasAlignedHistory[sym]) {
+    const oldPrice = currentPrices[sym];
+    const offset = price - oldPrice;
+    
+    // Only shift if there is a meaningful difference to prevent unnecessary work
+    if (Math.abs(offset) > 0.001) {
+      console.log(`[Init] Aligning historical candles for ${sym} (offset: ${offset.toFixed(4)}, seed: ${oldPrice}, live: ${price})`);
+      
+      // Shift historical candles
+      if (candleHistory[sym]) {
+        Object.keys(candleHistory[sym]).forEach(tf => {
+          if (Array.isArray(candleHistory[sym][tf])) {
+            candleHistory[sym][tf].forEach(c => {
+              c.open = parseFloat((c.open + offset).toFixed(sym === 'XAGUSD' ? 4 : 2));
+              c.high = parseFloat((c.high + offset).toFixed(sym === 'XAGUSD' ? 4 : 2));
+              c.low = parseFloat((c.low + offset).toFixed(sym === 'XAGUSD' ? 4 : 2));
+              c.close = parseFloat((c.close + offset).toFixed(sym === 'XAGUSD' ? 4 : 2));
+            });
+          }
+          
+          // Also shift active candle if it exists
+          if (activeCandles[sym] && activeCandles[sym][tf]) {
+            const ac = activeCandles[sym][tf];
+            ac.open = parseFloat((ac.open + offset).toFixed(sym === 'XAGUSD' ? 4 : 2));
+            ac.high = parseFloat((ac.high + offset).toFixed(sym === 'XAGUSD' ? 4 : 2));
+            ac.low = parseFloat((ac.low + offset).toFixed(sym === 'XAGUSD' ? 4 : 2));
+            ac.close = parseFloat((ac.close + offset).toFixed(sym === 'XAGUSD' ? 4 : 2));
+          }
+        });
+      }
+    }
+    hasAlignedHistory[sym] = true;
+  }
+
   currentPrices[sym] = price;
   lastRealPrices[sym] = price;
 }
