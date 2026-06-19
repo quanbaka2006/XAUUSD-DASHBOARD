@@ -362,7 +362,7 @@ SYMBOLS.forEach((sym) => {
 // ==========================================
 // Historical Candle Generator
 // ==========================================
-const CHART_HISTORY_LIMIT = 10000;
+const CHART_HISTORY_LIMIT = 200;
 
 function generateHistory() {
   const now = Math.floor(Date.now() / 1000);
