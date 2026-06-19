@@ -7,5 +7,8 @@
     "build:backend": "cd backend && npm install",
     "build": "npm run build:frontend && npm run build:backend",
     "start": "cd backend && npm start"
+  },
+  "engines": {
+    "node": ">=18.0.0"
   }
 }

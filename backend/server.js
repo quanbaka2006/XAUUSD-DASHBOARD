@@ -462,6 +462,56 @@ function connectBinance() {
 connectBinance();
 
 // ==========================================
+// Custom fetch helper using native https
+// ==========================================
+function fetchJson(url, options = {}) {
+  return new Promise((resolve, reject) => {
+    try {
+      const u = new URL(url);
+      const reqOptions = {
+        hostname: u.hostname,
+        path: u.pathname + u.search,
+        method: options.method || 'GET',
+        headers: {
+          'User-Agent': 'Mozilla/5.0',
+          ...options.headers
+        }
+      };
+
+      const req = https.request(reqOptions, (res) => {
+        let data = '';
+        res.on('data', chunk => data += chunk);
+        res.on('end', () => {
+          resolve({
+            ok: res.statusCode >= 200 && res.statusCode < 300,
+            status: res.statusCode,
+            json: () => {
+              try {
+                return Promise.resolve(JSON.parse(data));
+              } catch (e) {
+                return Promise.reject(new Error('Invalid JSON'));
+              }
+            }
+          });
+        });
+      });
+
+      req.on('error', (err) => {
+        reject(err);
+      });
+
+      if (options.body) {
+        req.write(typeof options.body === 'string' ? options.body : JSON.stringify(options.body));
+      }
+      req.setTimeout(10000, () => req.destroy());
+      req.end();
+    } catch (err) {
+      reject(err);
+    }
+  });
+}
+
+// ==========================================
 // Seed Fetchers (Finnhub Spot & Binance HTTP API)
 // ==========================================
 function fetchFinnhubSeed(sym, callback) {
@@ -1663,7 +1713,7 @@ app.get('/api/external/calendar', requireAuth, async (req, res) => {
     return res.status(400).json({ error: 'Missing date parameter' });
   }
   try {
-    const response = await fetch(`https://vnwallstreet.org/api/calendar?date=${encodeURIComponent(date)}&t=${Date.now()}`, {
+    const response = await fetchJson(`https://vnwallstreet.org/api/calendar?date=${encodeURIComponent(date)}&t=${Date.now()}`, {
       headers: {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
         'Accept': 'application/json'
@@ -1687,7 +1737,7 @@ app.get('/api/external/news', requireAuth, async (req, res) => {
     if (important === '1') {
       url += '&important=1';
     }
-    const response = await fetch(url, {
+    const response = await fetchJson(url, {
       headers: {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
         'Accept': 'application/json'
