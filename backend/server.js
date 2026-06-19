@@ -1153,7 +1153,7 @@ app.get('/api/admin/users', requireAdmin, async (req, res) => {
 });
 
 app.post('/api/admin/users', requireAdmin, async (req, res) => {
-  const { username, password, name, role, expiresAt, telegramSupport } = req.body;
+  const { username, password, name, role, expiresAt, telegramSupport, refCode } = req.body;
   if (!username || !password || !name || !role ||
       typeof username !== 'string' || typeof password !== 'string' || typeof name !== 'string' || typeof role !== 'string') {
     return res.status(400).json({ success: false, error: 'Vui lòng nhập đầy đủ thông tin.' });
@@ -1195,9 +1195,22 @@ app.post('/api/admin/users', requireAdmin, async (req, res) => {
     createdBy: req.user.username
   };
 
-  // Generate refCode and set default telegramSupport for Admins/SuperAdmins
+  // Generate or set refCode and telegramSupport for Admins/SuperAdmins
   if (targetRole === 'Administrator' || targetRole === 'SuperAdmin') {
-    newUser.refCode = generateRefCode();
+    let finalRefCode = undefined;
+    if (refCode && typeof refCode === 'string' && refCode.trim()) {
+      const cleanRef = refCode.trim().toLowerCase();
+      if (!/^[a-zA-Z0-9]+$/.test(cleanRef)) {
+        return res.status(400).json({ success: false, error: 'Mã giới thiệu chỉ được chứa chữ cái và số.' });
+      }
+      if (users.some(u => u.refCode && u.refCode.toLowerCase() === cleanRef)) {
+        return res.status(400).json({ success: false, error: 'Mã giới thiệu này đã được sử dụng!' });
+      }
+      finalRefCode = cleanRef;
+    } else {
+      finalRefCode = generateRefCode();
+    }
+    newUser.refCode = finalRefCode;
     newUser.telegramSupport = telegramSupport || 'https://t.me/alphagoldhelper';
   }
 
@@ -1319,7 +1332,7 @@ app.delete('/api/admin/users/:username', requireAdmin, checkAdminGuard, async (r
 
 app.put('/api/admin/users/:username/edit', requireAdmin, checkAdminGuard, async (req, res) => {
   const targetUsername = req.params.username.toLowerCase();
-  const { name, role, expiresAt, telegramSupport } = req.body;
+  const { name, role, expiresAt, telegramSupport, refCode } = req.body;
   
   const users = await loadUsers();
   const idx = users.findIndex(u => u.username.toLowerCase() === targetUsername);
@@ -1359,6 +1372,24 @@ app.put('/api/admin/users/:username/edit', requireAdmin, checkAdminGuard, async 
   if (telegramSupport !== undefined) {
     users[idx].telegramSupport = telegramSupport;
     details.push(`đổi telegram support thành "${telegramSupport}"`);
+  }
+
+  if (refCode !== undefined) {
+    if (refCode && typeof refCode === 'string' && refCode.trim()) {
+      const cleanRef = refCode.trim().toLowerCase();
+      if (!/^[a-zA-Z0-9]+$/.test(cleanRef)) {
+        return res.status(400).json({ success: false, error: 'Mã giới thiệu chỉ được chứa chữ cái và số.' });
+      }
+      // Check duplicate refCode excluding the target user
+      if (users.some(u => u.username.toLowerCase() !== targetUsername && u.refCode && u.refCode.toLowerCase() === cleanRef)) {
+        return res.status(400).json({ success: false, error: 'Mã giới thiệu này đã được sử dụng!' });
+      }
+      users[idx].refCode = cleanRef;
+      details.push(`đổi mã giới thiệu thành "${cleanRef}"`);
+    } else {
+      users[idx].refCode = generateRefCode();
+      details.push(`đổi mã giới thiệu thành mã ngẫu nhiên "${users[idx].refCode}"`);
+    }
   }
 
   await saveUsers(users);

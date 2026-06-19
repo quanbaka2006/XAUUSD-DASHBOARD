@@ -487,7 +487,7 @@ export const useTradeStore = create((set, get) => ({
     }
   },
 
-  createUser: async (username, password, name, role, expiresAt) => {
+  createUser: async (username, password, name, role, expiresAt, telegramSupport, refCode) => {
     set({ adminError: '', adminSuccess: '' });
     if (!username || !password || !name || !role) {
       set({ adminError: 'Vui lòng điền đầy đủ thông tin.' });
@@ -501,7 +501,7 @@ export const useTradeStore = create((set, get) => ({
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${token}`
         },
-        body: JSON.stringify({ username, password, name, role, expiresAt })
+        body: JSON.stringify({ username, password, name, role, expiresAt, telegramSupport, refCode })
       });
       const data = await response.json();
       if (response.ok && data.success) {
@@ -518,7 +518,7 @@ export const useTradeStore = create((set, get) => ({
     }
   },
 
-  editUser: async (targetUsername, name, role, expiresAt, telegramSupport) => {
+  editUser: async (targetUsername, name, role, expiresAt, telegramSupport, refCode) => {
     set({ adminError: '', adminSuccess: '' });
     const token = get().token || localStorage.getItem('auth_token');
     try {
@@ -528,7 +528,7 @@ export const useTradeStore = create((set, get) => ({
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${token}`
         },
-        body: JSON.stringify({ name, role, expiresAt, telegramSupport })
+        body: JSON.stringify({ name, role, expiresAt, telegramSupport, refCode })
       });
       const data = await response.json();
       if (response.ok && data.success) {

@@ -35,9 +35,13 @@ export function AdminPanel() {
   const [newRole, setNewRole] = useState('User');
   const [newExpiresAt, setNewExpiresAt] = useState('');
 
+  const [newTelegramSupport, setNewTelegramSupport] = useState('');
+  const [newRefCode, setNewRefCode] = useState('');
+
   const [editingUser, setEditingUser] = useState(null);
   const [editPasswordVal, setEditPasswordVal] = useState('');
   const [editTelegramVal, setEditTelegramVal] = useState('');
+  const [editRefCodeVal, setEditRefCodeVal] = useState('');
 
   // Audit Logs local states
   const [logs, setLogs] = useState([]);
@@ -99,13 +103,15 @@ export function AdminPanel() {
 
   const handleCreateUser = async (e) => {
     e.preventDefault();
-    const success = await createUser(newUsername, newPassword, newName, newRole, newExpiresAt);
+    const success = await createUser(newUsername, newPassword, newName, newRole, newExpiresAt, newTelegramSupport, newRefCode);
     if (success) {
       setNewUsername('');
       setNewPassword('');
       setNewName('');
       setNewRole('User');
       setNewExpiresAt('');
+      setNewTelegramSupport('');
+      setNewRefCode('');
     }
   };
 
@@ -120,14 +126,15 @@ export function AdminPanel() {
     }
     if (success) {
       const targetUser = adminUsers.find(u => u.username === targetUsername);
-      if (targetUser && targetUser.telegramSupport !== editTelegramVal) {
-        success = await editUser(targetUsername, undefined, undefined, undefined, editTelegramVal);
+      if (targetUser && (targetUser.telegramSupport !== editTelegramVal || targetUser.refCode !== editRefCodeVal)) {
+        success = await editUser(targetUsername, undefined, undefined, undefined, editTelegramVal, editRefCodeVal);
       }
     }
     if (success) {
       setEditingUser(null);
       setEditPasswordVal('');
       setEditTelegramVal('');
+      setEditRefCodeVal('');
       setAdminSuccess('Cập nhật thông tin tài khoản thành công!');
     }
   };
@@ -136,6 +143,7 @@ export function AdminPanel() {
     setEditingUser(u.username);
     setEditPasswordVal('');
     setEditTelegramVal(u.telegramSupport || '');
+    setEditRefCodeVal(u.refCode || '');
   };
 
   const handleChangeRole = async (targetUsername, targetRole) => {
@@ -250,6 +258,32 @@ export function AdminPanel() {
                   )}
                 </select>
               </div>
+
+              {['Administrator', 'SuperAdmin'].includes(newRole) && (
+                <>
+                  <div className="space-y-1">
+                    <label className="text-xs font-black text-slate-500 uppercase tracking-widest">Telegram Support Link</label>
+                    <input 
+                      type="text" 
+                      value={newTelegramSupport}
+                      onChange={(e) => setNewTelegramSupport(e.target.value)}
+                      placeholder="e.g. https://t.me/alphagoldhelper" 
+                      className="w-full bg-white/[0.04] border border-white/[0.08] rounded-xl px-4 py-3 text-xs text-white placeholder-slate-600 focus:outline-none focus:border-amber-500/40 transition-colors font-mono"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-xs font-black text-slate-500 uppercase tracking-widest">Đuôi link Ref (Tùy chọn)</label>
+                    <input 
+                      type="text" 
+                      value={newRefCode}
+                      onChange={(e) => setNewRefCode(e.target.value)}
+                      placeholder="Bỏ trống để tự sinh ngẫu nhiên" 
+                      className="w-full bg-white/[0.04] border border-white/[0.08] rounded-xl px-4 py-3 text-xs text-white placeholder-slate-600 focus:outline-none focus:border-amber-500/40 transition-colors font-mono"
+                    />
+                    <span className="text-[10px] text-slate-500 block font-sans">Chỉ chứa chữ cái và số (ví dụ: gold77, quan123).</span>
+                  </div>
+                </>
+              )}
 
               <div className="space-y-1">
                 <label className="text-xs font-black text-slate-500 uppercase tracking-widest">Hạn sử dụng</label>
@@ -429,16 +463,28 @@ export function AdminPanel() {
                                   />
                                 </div>
                                 {['SuperAdmin', 'Administrator'].includes(u.role) && (
-                                  <div className="space-y-1">
-                                    <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">Telegram Support Link</label>
-                                    <input
-                                      type="text"
-                                      value={editTelegramVal}
-                                      onChange={(e) => setEditTelegramVal(e.target.value)}
-                                      placeholder="https://t.me/your_telegram"
-                                      className="w-full bg-white/[0.04] border border-white/[0.08] rounded-lg px-2.5 py-1.5 text-xs text-white placeholder-slate-600 focus:outline-none focus:border-amber-500/40 transition-colors font-mono"
-                                    />
-                                  </div>
+                                  <>
+                                    <div className="space-y-1">
+                                      <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">Telegram Support Link</label>
+                                      <input
+                                        type="text"
+                                        value={editTelegramVal}
+                                        onChange={(e) => setEditTelegramVal(e.target.value)}
+                                        placeholder="https://t.me/your_telegram"
+                                        className="w-full bg-white/[0.04] border border-white/[0.08] rounded-lg px-2.5 py-1.5 text-xs text-white placeholder-slate-600 focus:outline-none focus:border-amber-500/40 transition-colors font-mono"
+                                      />
+                                    </div>
+                                    <div className="space-y-1">
+                                      <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">Mã giới thiệu (Đuôi ref)</label>
+                                      <input
+                                        type="text"
+                                        value={editRefCodeVal}
+                                        onChange={(e) => setEditRefCodeVal(e.target.value)}
+                                        placeholder="Mã giới thiệu tùy chọn"
+                                        className="w-full bg-white/[0.04] border border-white/[0.08] rounded-lg px-2.5 py-1.5 text-xs text-white placeholder-slate-600 focus:outline-none focus:border-amber-500/40 transition-colors font-mono"
+                                      />
+                                    </div>
+                                  </>
                                 )}
                                 <div className="flex items-center justify-end gap-2 pt-1 border-t border-white/[0.05]">
                                   <button
@@ -453,6 +499,7 @@ export function AdminPanel() {
                                       setEditingUser(null);
                                       setEditPasswordVal('');
                                       setEditTelegramVal('');
+                                      setEditRefCodeVal('');
                                     }}
                                     className="flex items-center gap-1 px-3 py-1.5 bg-white/[0.04] hover:bg-white/[0.08] text-slate-300 font-bold rounded-lg text-[10px] uppercase transition-colors cursor-pointer border border-white/[0.08]"
                                   >
