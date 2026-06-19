@@ -8,3 +8,4 @@ test_sync.txt
 # Local user store — must NOT be committed (contains account data / password hashes)
 backend/users.json
 users.json
+backend/audit_logs.json

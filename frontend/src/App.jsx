@@ -31,6 +31,10 @@ function App() {
   const { t, language, setLanguage } = useTranslation();
   // Mobile tab state: 'chart' | 'signal' | 'manage'
   const [activeMobileTab, setActiveMobileTab] = useState('chart');
+
+  // Telegram support link from affiliate referrer
+  const [telegramSupportLink, setTelegramSupportLink] = useState('https://t.me/alphagoldhelper');
+  const [refOwnerName, setRefOwnerName] = useState('');
   const {
     isLoggedIn,
     user,
@@ -79,9 +83,35 @@ function App() {
     checkAuth();
   }, [checkAuth]);
 
+  // Handle Referral Link check
+  useEffect(() => {
+    // Initial check from localStorage
+    const savedLink = localStorage.getItem('ref_telegram_support');
+    const savedName = localStorage.getItem('ref_owner_name');
+    if (savedLink) setTelegramSupportLink(savedLink);
+    if (savedName) setRefOwnerName(savedName);
+
+    const params = new URLSearchParams(window.location.search);
+    const refCode = params.get('ref');
+    if (refCode) {
+      fetch(`${SOCKET_URL}/api/ref/${encodeURIComponent(refCode)}`)
+        .then(res => res.json())
+        .then(data => {
+          if (data.success && data.telegramSupport) {
+            localStorage.setItem('ref_telegram_support', data.telegramSupport);
+            localStorage.setItem('ref_owner_name', data.name);
+            setTelegramSupportLink(data.telegramSupport);
+            setRefOwnerName(data.name);
+            console.log(`[Referral] Set support telegram to ${data.telegramSupport} from owner ${data.name}`);
+          }
+        })
+        .catch(err => console.error('[Referral] Error fetching ref code:', err));
+    }
+  }, []);
+
   // Auto-fetch admin users to resolve database connection status
   useEffect(() => {
-    if (isLoggedIn && user?.role === 'Administrator') {
+    if (isLoggedIn && ['SuperAdmin', 'Administrator', 'Employee'].includes(user?.role)) {
       fetchAdminUsers();
     }
   }, [isLoggedIn, user, fetchAdminUsers]);
@@ -250,13 +280,15 @@ function App() {
 
               {/* Telegram Support Button */}
               <a
-                href="https://t.me/alphagoldhelper"
+                href={telegramSupportLink}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="w-full flex items-center justify-center gap-2 py-3 px-4 bg-white/[0.03] border border-sky-500/20 text-sky-400 hover:text-sky-300 hover:bg-sky-500/10 hover:border-sky-500/40 rounded-xl text-xs font-black transition-all duration-300 tracking-wide uppercase cursor-pointer"
               >
                 <Zap className="h-4 w-4" />
-                <span>Liên hệ hỗ trợ tạo tài khoản</span>
+                <span>
+                  {refOwnerName ? `Hỗ trợ qua Telegram (${refOwnerName})` : 'Liên hệ hỗ trợ tạo tài khoản'}
+                </span>
               </a>
             </div>
           </form>
@@ -352,7 +384,7 @@ function App() {
               </div>
 
               {/* Admin Panel Button */}
-              {user?.role === 'Administrator' && (
+              {['SuperAdmin', 'Administrator', 'Employee'].includes(user?.role) && (
                 <button
                   onClick={() => {
                     setAdminError('');
@@ -430,7 +462,7 @@ function App() {
           </div>
 
           {/* Database connection warning for Administrators */}
-          {isLoggedIn && user?.role === 'Administrator' && !useMongoDB && (
+          {isLoggedIn && ['SuperAdmin', 'Administrator'].includes(user?.role) && !useMongoDB && (
             <div className="w-full bg-red-950/40 border border-red-500/40 rounded-2xl p-5 relative overflow-hidden flex flex-col md:flex-row items-center gap-4 text-left shadow-[0_0_30px_rgba(239,68,68,0.1)] mb-4">
               <div className="absolute top-0 left-0 bottom-0 w-1 bg-red-500 animate-pulse" />
               <div className="h-12 w-12 rounded-xl bg-red-500/15 border border-red-500/30 flex items-center justify-center text-red-500 flex-shrink-0 animate-bounce">

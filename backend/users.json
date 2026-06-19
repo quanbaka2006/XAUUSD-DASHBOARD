@@ -3,12 +3,26 @@
     "username": "admin",
     "password": "pbkdf2$10000$f15bde21d1c500e231f2e82346568730$ea886355abdeee4161dfe618b3d4b291543d67b4837706f8dc1f96cf943154622c631779ce7957b99c587c03bacf879116899c21515b18ec84a1c8a605830e94",
     "name": "Admin Account",
-    "role": "Administrator"
+    "role": "SuperAdmin",
+    "refCode": "gold77",
+    "telegramSupport": "https://t.me/alphagoldhelper"
   },
   {
-    "username": "viethieu123",
-    "password": "pbkdf2$10000$cf9a1d700dfadc07bd8c8e75b87531fd$46c4a19421f82680c6ac6658a31135404759748e778785383f8e83ca5e491e9b6e966ff0f6250eb1d72465541ef79443a75346912c02c285d5ac9b7d4090a30a",
-    "name": "VH",
-    "role": "User"
+    "username": "john",
+    "password": "pbkdf2$100000$1181f3e11a417a05add8ae533c652b62$e92299c8d47476a2252fc70988fd1413b9e7a2ff8dec9d82facabfc8c37fcf3fc35627afafcaafcfc93611b782de4c605015aaa604d1d9bc12bfa2084f644e3f",
+    "name": "John nguey",
+    "role": "SuperAdmin",
+    "refCode": "john88",
+    "telegramSupport": "https://t.me/alphagoldhelper",
+    "expiresAt": "2050-02-12T00:00:00.000Z",
+    "createdBy": "admin"
+  },
+  {
+    "username": "quandeptrai2k6",
+    "password": "pbkdf2$100000$d0b67fe3ded2bc2c949c9d48185aaa97$6984395d2f697768e34e75bd5460b34eb77d60d9c4053c4e0a28edcc0218c18dbe4bcd2ef01e79e71f0246f8e5205d9b2523ef5dde49934e4a23d5c84f4e4931",
+    "name": "gay qua di",
+    "role": "Administrator",
+    "expiresAt": "2026-06-20T00:00:00.000Z",
+    "createdBy": "admin"
   }
 ]

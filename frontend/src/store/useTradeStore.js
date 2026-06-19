@@ -518,7 +518,7 @@ export const useTradeStore = create((set, get) => ({
     }
   },
 
-  editUser: async (targetUsername, name, role, expiresAt) => {
+  editUser: async (targetUsername, name, role, expiresAt, telegramSupport) => {
     set({ adminError: '', adminSuccess: '' });
     const token = get().token || localStorage.getItem('auth_token');
     try {
@@ -528,7 +528,7 @@ export const useTradeStore = create((set, get) => ({
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${token}`
         },
-        body: JSON.stringify({ name, role, expiresAt })
+        body: JSON.stringify({ name, role, expiresAt, telegramSupport })
       });
       const data = await response.json();
       if (response.ok && data.success) {

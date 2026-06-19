@@ -194,9 +194,36 @@ function requireAuth(req, res, next) {
   next();
 }
 
+function generateRefCode() {
+  const chars = 'abcdefghijklmnopqrstuvwxyz0123456789';
+  let code = '';
+  for (let i = 0; i < 6; i++) {
+    code += chars.charAt(Math.floor(Math.random() * chars.length));
+  }
+  return code;
+}
+
+function requireSuperAdmin(req, res, next) {
+  requireAuth(req, res, () => {
+    if (req.user && req.user.role === 'SuperAdmin') {
+      return next();
+    }
+    return res.status(403).json({ error: 'Forbidden: Chỉ Super Admin mới có quyền thực hiện thao tác này.' });
+  });
+}
+
 function requireAdmin(req, res, next) {
   requireAuth(req, res, () => {
-    if (req.user && req.user.role === 'Administrator') {
+    if (req.user && (req.user.role === 'SuperAdmin' || req.user.role === 'Administrator')) {
+      return next();
+    }
+    return res.status(403).json({ error: 'Forbidden: Bạn không có quyền truy cập tính năng này.' });
+  });
+}
+
+function requireAdminOrEmployee(req, res, next) {
+  requireAuth(req, res, () => {
+    if (req.user && (req.user.role === 'SuperAdmin' || req.user.role === 'Administrator' || req.user.role === 'Employee')) {
       return next();
     }
     return res.status(403).json({ error: 'Forbidden: Bạn không có quyền truy cập tính năng này.' });
@@ -792,6 +819,106 @@ async function saveUsers(users) {
 }
 
 // ==========================================
+// Audit Logs & checkAdminGuard Helpers
+// ==========================================
+const auditLogsFilePath = path.join(__dirname, 'audit_logs.json');
+
+function loadAuditLogsFromFile() {
+  try {
+    if (!fs.existsSync(auditLogsFilePath)) {
+      return [];
+    }
+    return JSON.parse(fs.readFileSync(auditLogsFilePath, 'utf8'));
+  } catch (e) {
+    return [];
+  }
+}
+
+function saveAuditLogsToFile(logs) {
+  try {
+    fs.writeFileSync(auditLogsFilePath, JSON.stringify(logs, null, 2), 'utf8');
+  } catch (e) {}
+}
+
+async function loadAuditLogs() {
+  if (useMongoDB) {
+    try {
+      return await db.collection('audit_logs').find({}).sort({ timestamp: -1 }).toArray();
+    } catch (e) {
+      console.error('[MongoDB] Load audit logs failed, falling back:', e.message);
+      return loadAuditLogsFromFile();
+    }
+  }
+  return loadAuditLogsFromFile();
+}
+
+async function saveAuditLogs(logs) {
+  if (useMongoDB) {
+    try {
+      await db.collection('audit_logs').deleteMany({});
+      if (logs.length > 0) {
+        await db.collection('audit_logs').insertMany(logs);
+      }
+      return;
+    } catch (e) {
+      console.error('[MongoDB] Save audit logs failed, falling back:', e.message);
+      saveAuditLogsToFile(logs);
+    }
+  } else {
+    saveAuditLogsToFile(logs);
+  }
+}
+
+async function logActivity(actor, action, target, details, ip) {
+  const log = {
+    timestamp: new Date().toISOString(),
+    actor,
+    action,
+    target,
+    details,
+    ip
+  };
+  const logs = await loadAuditLogs();
+  logs.unshift(log);
+  if (logs.length > 500) logs.pop();
+  await saveAuditLogs(logs);
+}
+
+async function checkAdminGuard(req, res, next) {
+  // If SuperAdmin, bypass guard
+  if (req.user && req.user.role === 'SuperAdmin') {
+    return next();
+  }
+  
+  const targetUsername = (req.params.username || '').toLowerCase();
+  
+  // If modifying self, allowed
+  if (req.user && req.user.username.toLowerCase() === targetUsername) {
+    return next();
+  }
+  
+  // Load users to check creator
+  const users = await loadUsers();
+  const targetUser = users.find(u => u.username.toLowerCase() === targetUsername);
+  
+  if (!targetUser) {
+    return res.status(404).json({ success: false, error: 'Không tìm thấy người dùng này.' });
+  }
+  
+  // Block editing SuperAdmins
+  if (targetUser.role === 'SuperAdmin') {
+    return res.status(403).json({ success: false, error: 'Forbidden: Bạn không thể sửa hoặc xóa tài khoản Super Admin.' });
+  }
+
+  // Block editing other Admins unless created by current user
+  if (targetUser.createdBy !== req.user.username) {
+    return res.status(403).json({ success: false, error: 'Forbidden: Bạn chỉ có quyền sửa hoặc xóa tài khoản do chính bạn tạo ra.' });
+  }
+  
+  next();
+}
+
+// ==========================================
 // REST API Endpoints
 // ==========================================
 
@@ -977,13 +1104,33 @@ app.post('/api/drawings/:symbol', requireAuth, (req, res) => {
 
 app.get('/api/admin/users', requireAdmin, async (req, res) => {
   const users = await loadUsers();
+  const isSuperAdmin = req.user.role === 'SuperAdmin';
+  
+  // Filter users based on role
+  let filteredUsers = users;
+  if (!isSuperAdmin && req.user.role !== 'Employee') {
+    // Regular Administrator: only see their own clients (createdBy === req.user.username) plus themselves
+    filteredUsers = users.filter(u => 
+      u.createdBy === req.user.username || 
+      u.username.toLowerCase() === req.user.username.toLowerCase()
+    );
+  }
+  
   // Map users to exclude passwords
-  const sanitizedUsers = users.map(({ username, name, role, expiresAt }) => ({ username, name, role, expiresAt }));
+  const sanitizedUsers = filteredUsers.map(({ username, name, role, expiresAt, createdBy, refCode, telegramSupport }) => ({
+    username,
+    name,
+    role,
+    expiresAt,
+    createdBy,
+    refCode,
+    telegramSupport
+  }));
   res.json({ success: true, users: sanitizedUsers, useMongoDB });
 });
 
 app.post('/api/admin/users', requireAdmin, async (req, res) => {
-  const { username, password, name, role, expiresAt } = req.body;
+  const { username, password, name, role, expiresAt, telegramSupport } = req.body;
   if (!username || !password || !name || !role ||
       typeof username !== 'string' || typeof password !== 'string' || typeof name !== 'string' || typeof role !== 'string') {
     return res.status(400).json({ success: false, error: 'Vui lòng nhập đầy đủ thông tin.' });
@@ -991,7 +1138,11 @@ app.post('/api/admin/users', requireAdmin, async (req, res) => {
 
   const cleanUsername = username.trim().toLowerCase();
   const cleanName = name.trim();
-  const targetRole = role === 'Administrator' ? 'Administrator' : 'User';
+  const targetRole = ['SuperAdmin', 'Administrator', 'Employee', 'User'].includes(role) ? role : 'User';
+
+  if (targetRole === 'SuperAdmin' && req.user.role !== 'SuperAdmin') {
+    return res.status(403).json({ success: false, error: 'Forbidden: Chỉ Super Admin mới có quyền tạo tài khoản Super Admin.' });
+  }
 
   if (cleanUsername.length < 3 || cleanUsername.length > 30) {
     return res.status(400).json({ success: false, error: 'Tên đăng nhập phải từ 3 đến 30 ký tự.' });
@@ -1012,19 +1163,36 @@ app.post('/api/admin/users', requireAdmin, async (req, res) => {
   }
 
   const hashedPassword = hashPassword(password);
-  users.push({
+  const newUser = {
     username: cleanUsername,
     password: hashedPassword,
     name: cleanName,
     role: targetRole,
-    expiresAt: expiresAt ? new Date(expiresAt).toISOString() : null
-  });
+    expiresAt: expiresAt ? new Date(expiresAt).toISOString() : null,
+    createdBy: req.user.username
+  };
+
+  // Generate refCode and set default telegramSupport for Admins/SuperAdmins
+  if (targetRole === 'Administrator' || targetRole === 'SuperAdmin') {
+    newUser.refCode = generateRefCode();
+    newUser.telegramSupport = telegramSupport || 'https://t.me/alphagoldhelper';
+  }
+
+  users.push(newUser);
   await saveUsers(users);
+
+  await logActivity(
+    req.user.username,
+    'CREATE_USER',
+    cleanUsername,
+    `Tạo tài khoản mới với quyền: ${targetRole}${newUser.refCode ? ` (Ref: ${newUser.refCode})` : ''}`,
+    req.ip
+  );
 
   res.json({ success: true, message: 'Tạo tài khoản mới thành công!' });
 });
 
-app.put('/api/admin/users/:username/password', requireAdmin, async (req, res) => {
+app.put('/api/admin/users/:username/password', requireAdmin, checkAdminGuard, async (req, res) => {
   const targetUsername = req.params.username.toLowerCase();
   const { password } = req.body;
   
@@ -1044,15 +1212,27 @@ app.put('/api/admin/users/:username/password', requireAdmin, async (req, res) =>
   users[idx].password = hashPassword(password);
   await saveUsers(users);
 
+  await logActivity(
+    req.user.username,
+    'CHANGE_PASSWORD',
+    targetUsername,
+    'Thay đổi mật khẩu tài khoản',
+    req.ip
+  );
+
   res.json({ success: true, message: `Đổi mật khẩu cho tài khoản ${targetUsername} thành công!` });
 });
 
-app.put('/api/admin/users/:username/role', requireAdmin, async (req, res) => {
+app.put('/api/admin/users/:username/role', requireAdmin, checkAdminGuard, async (req, res) => {
   const targetUsername = req.params.username.toLowerCase();
   const { role } = req.body;
 
-  if (!role || (role !== 'User' && role !== 'Administrator')) {
+  if (!role || !['SuperAdmin', 'Administrator', 'Employee', 'User'].includes(role)) {
     return res.status(400).json({ success: false, error: 'Quyền (role) không hợp lệ.' });
+  }
+
+  if (role === 'SuperAdmin' && req.user.role !== 'SuperAdmin') {
+    return res.status(403).json({ success: false, error: 'Chỉ Super Admin mới có thể thiết lập quyền Super Admin.' });
   }
 
   const users = await loadUsers();
@@ -1062,17 +1242,32 @@ app.put('/api/admin/users/:username/role', requireAdmin, async (req, res) => {
   }
 
   // Self role change check (prevent lockout if changing their own role)
-  if (targetUsername === req.user.username.toLowerCase() && role !== 'Administrator') {
-    return res.status(400).json({ success: false, error: 'Bạn không thể tự hạ quyền Administrator của chính mình.' });
+  if (targetUsername === req.user.username.toLowerCase() && role !== req.user.role) {
+    return res.status(400).json({ success: false, error: 'Bạn không thể tự thay đổi quyền của chính mình.' });
   }
 
+  const oldRole = users[idx].role;
   users[idx].role = role;
+
+  // Generate refCode if needed
+  if ((role === 'Administrator' || role === 'SuperAdmin') && !users[idx].refCode) {
+    users[idx].refCode = generateRefCode();
+  }
+
   await saveUsers(users);
+
+  await logActivity(
+    req.user.username,
+    'CHANGE_ROLE',
+    targetUsername,
+    `Thay đổi quyền từ ${oldRole} thành ${role}`,
+    req.ip
+  );
 
   res.json({ success: true, message: `Cập nhật quyền cho tài khoản ${targetUsername} thành công!` });
 });
 
-app.delete('/api/admin/users/:username', requireAdmin, async (req, res) => {
+app.delete('/api/admin/users/:username', requireAdmin, checkAdminGuard, async (req, res) => {
   const targetUsername = req.params.username.toLowerCase();
 
   if (targetUsername === req.user.username.toLowerCase()) {
@@ -1088,12 +1283,20 @@ app.delete('/api/admin/users/:username', requireAdmin, async (req, res) => {
   users.splice(idx, 1);
   await saveUsers(users);
 
+  await logActivity(
+    req.user.username,
+    'DELETE_USER',
+    targetUsername,
+    'Xóa tài khoản thành viên',
+    req.ip
+  );
+
   res.json({ success: true, message: `Xóa tài khoản ${targetUsername} thành công!` });
 });
 
-app.put('/api/admin/users/:username/edit', requireAdmin, async (req, res) => {
+app.put('/api/admin/users/:username/edit', requireAdmin, checkAdminGuard, async (req, res) => {
   const targetUsername = req.params.username.toLowerCase();
-  const { name, role, expiresAt } = req.body;
+  const { name, role, expiresAt, telegramSupport } = req.body;
   
   const users = await loadUsers();
   const idx = users.findIndex(u => u.username.toLowerCase() === targetUsername);
@@ -1101,24 +1304,92 @@ app.put('/api/admin/users/:username/edit', requireAdmin, async (req, res) => {
     return res.status(404).json({ success: false, error: 'Không tìm thấy người dùng này.' });
   }
 
+  const oldUser = { ...users[idx] };
+  let details = [];
+
   if (name && typeof name === 'string') {
     users[idx].name = name.trim();
+    details.push(`đổi tên thành "${users[idx].name}"`);
   }
 
-  if (role && (role === 'User' || role === 'Administrator')) {
-    if (targetUsername === req.user.username.toLowerCase() && role !== 'Administrator') {
-      return res.status(400).json({ success: false, error: 'Bạn không thể tự hạ quyền Administrator của chính mình.' });
+  if (role && ['SuperAdmin', 'Administrator', 'Employee', 'User'].includes(role)) {
+    if (role === 'SuperAdmin' && req.user.role !== 'SuperAdmin') {
+      return res.status(403).json({ success: false, error: 'Chỉ Super Admin mới có thể thiết lập quyền Super Admin.' });
+    }
+    if (targetUsername === req.user.username.toLowerCase() && role !== req.user.role) {
+      return res.status(400).json({ success: false, error: 'Bạn không thể tự thay đổi quyền của chính mình.' });
     }
     users[idx].role = role;
+    
+    // Generate refCode if needed
+    if ((role === 'Administrator' || role === 'SuperAdmin') && !users[idx].refCode) {
+      users[idx].refCode = generateRefCode();
+    }
+    details.push(`đổi quyền thành ${role}`);
   }
 
   if (expiresAt !== undefined) {
     users[idx].expiresAt = expiresAt ? new Date(expiresAt).toISOString() : null;
+    details.push(`đổi hạn dùng thành ${expiresAt ? new Date(expiresAt).toLocaleDateString('vi-VN') : 'vô hạn'}`);
+  }
+
+  if (telegramSupport !== undefined) {
+    users[idx].telegramSupport = telegramSupport;
+    details.push(`đổi telegram support thành "${telegramSupport}"`);
   }
 
   await saveUsers(users);
+  
+  await logActivity(
+    req.user.username,
+    'EDIT_USER',
+    targetUsername,
+    `Cập nhật thông tin: ${details.join(', ')}`,
+    req.ip
+  );
+
   res.json({ success: true, message: `Cập nhật thông tin tài khoản ${targetUsername} thành công!` });
 });
+
+// GET /api/ref/:code — public endpoint to resolve affiliate referral link
+app.get('/api/ref/:code', async (req, res) => {
+  const code = (req.params.code || '').trim().toLowerCase();
+  if (!code) {
+    return res.status(400).json({ success: false, error: 'Mã giới thiệu không hợp lệ.' });
+  }
+
+  const users = await loadUsers();
+  const owner = users.find(u => u.refCode && u.refCode.toLowerCase() === code);
+
+  if (!owner) {
+    return res.status(404).json({ success: false, error: 'Mã giới thiệu không tồn tại.' });
+  }
+
+  // Verify that the owner is an admin or superadmin
+  if (owner.role !== 'Administrator' && owner.role !== 'SuperAdmin') {
+    return res.status(404).json({ success: false, error: 'Mã giới thiệu không hợp lệ.' });
+  }
+
+  res.json({
+    success: true,
+    name: owner.name,
+    telegramSupport: owner.telegramSupport || 'https://t.me/alphagoldhelper'
+  });
+});
+
+// GET /api/admin/audit-logs — SuperAdmin only view of activities
+app.get('/api/admin/audit-logs', requireSuperAdmin, async (req, res) => {
+  const logs = await loadAuditLogs();
+  res.json({ success: true, logs });
+});
+
+// DELETE /api/admin/audit-logs — SuperAdmin only clear logs
+app.delete('/api/admin/audit-logs', requireSuperAdmin, async (req, res) => {
+  await saveAuditLogs([]);
+  await logActivity(req.user.username, 'CLEAR_LOGS', 'system', 'Xóa toàn bộ nhật ký hoạt động', req.ip);
+  res.json({ success: true, message: 'Đã xóa toàn bộ nhật ký hoạt động thành công.' });
+});
+
 
 
 // Stale signal checker
