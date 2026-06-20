@@ -304,6 +304,31 @@ const currentPrices = { ...defaultPrices };
 // Last confirmed real price from external source (anchor)
 const lastRealPrices = { ...defaultPrices };
 
+// Track timestamp of last received real price tick per symbol
+const lastTickTimestamp = {
+  'XAUUSD': Date.now(),
+  'WTIUSD': Date.now(),
+  'XAGUSD': Date.now(),
+  'BTCUSD': Date.now(),
+  'ETHUSD': Date.now()
+};
+
+// Check if market is closed (either weekend or inactivity holiday/early close)
+function isSymbolClosedDynamic(sym) {
+  const isCrypto = sym.includes('BTC') || sym.includes('ETH');
+  if (isCrypto) return false;
+
+  // 1. Hardcoded weekend hours
+  if (isMarketClosed()) return true;
+
+  // 2. Inactivity holiday/early close timeout (no trades received for > 5 minutes)
+  const INACTIVITY_LIMIT = 5 * 60 * 1000;
+  if (Date.now() - lastTickTimestamp[sym] > INACTIVITY_LIMIT) {
+    return true;
+  }
+  return false;
+}
+
 // Tracks whether the synthetic history has been aligned to the first live streaming price
 const hasAlignedHistory = {
   'XAUUSD': false,
@@ -416,6 +441,7 @@ function initializeCandles() {
 // ==========================================
 function applyRealPrice(sym, newPrice) {
   if (!newPrice || typeof newPrice !== 'number' || isNaN(newPrice)) return;
+  lastTickTimestamp[sym] = Date.now();
   const price = parseFloat(newPrice.toFixed(sym.includes('BTC') ? 2 : 4));
 
   // Align synthetic history to the first live price from external stream (e.g. websocket)
@@ -866,8 +892,8 @@ setInterval(() => {
     const isCrypto = sym.includes('BTC') || sym.includes('ETH');
     const isCommodity = !isCrypto;
 
-    // Market closed: freeze commodity candles completely
-    if (isCommodity && marketClosed) {
+    // Market closed: freeze commodity candles dynamically (weekend or inactivity/holiday)
+    if (isSymbolClosedDynamic(sym)) {
       return;
     }
 
