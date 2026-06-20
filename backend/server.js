@@ -366,10 +366,6 @@ const CHART_HISTORY_LIMIT = 200;
 
 function generateHistory() {
   const now = Math.floor(Date.now() / 1000);
-  if (isMarketClosed()) {
-    Object.assign(currentPrices, WEEKEND_FROZEN_PRICES);
-    Object.assign(lastRealPrices, WEEKEND_FROZEN_PRICES);
-  }
 
   SYMBOLS.forEach((sym) => {
     Object.keys(INTERVAL_SECONDS).forEach((tf) => {
@@ -721,20 +717,14 @@ SYMBOLS.forEach(sym => {
       }
     });
   } else {
-    if (!isMarketClosed()) {
-      // 1. Try Finnhub quote first (Spot price)
-      fetchFinnhubSeed(sym, (price) => {
-        if (price) {
-          onSeedReceived(sym);
-        } else {
-          // 2. Fallback to Yahoo
-          fetchYahooSeed(sym, () => onSeedReceived(sym));
-        }
-      });
-    } else {
-      // Market closed for this commodity — remove from pending set (uses frozen weekend prices)
-      onSeedReceived(sym);
-    }
+    // Fetch last closing price from Finnhub / Yahoo even if market is closed
+    fetchFinnhubSeed(sym, (price) => {
+      if (price) {
+        onSeedReceived(sym);
+      } else {
+        fetchYahooSeed(sym, () => onSeedReceived(sym));
+      }
+    });
   }
 });
 
@@ -876,10 +866,9 @@ setInterval(() => {
     const isCrypto = sym.includes('BTC') || sym.includes('ETH');
     const isCommodity = !isCrypto;
 
-    // Market closed: freeze commodity candles
+    // Market closed: freeze commodity candles completely
     if (isCommodity && marketClosed) {
-      const frozen = WEEKEND_FROZEN_PRICES[sym];
-      if (frozen) currentPrices[sym] = frozen;
+      return;
     }
 
     const price = currentPrices[sym];
