@@ -5,7 +5,8 @@
     "name": "Admin Account",
     "role": "SuperAdmin",
     "refCode": "gold77",
-    "telegramSupport": "https://t.me/alphagoldhelper"
+    "telegramSupport": "https://t.me/alphagoldhelper",
+    "telegramChatId": "7737888369"
   },
   {
     "username": "john",

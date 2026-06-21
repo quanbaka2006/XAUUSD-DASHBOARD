@@ -29,6 +29,7 @@ export const translations = {
     dashboard: "Dashboard",
     capitalManagement: "Quản Lý Vốn",
     economicCalendar: "Economic Calendar",
+    autoTrade: "Auto Trade",
 
     // Live Trading Board
     liveTradingBoard: "Live Trading Board",
@@ -264,6 +265,7 @@ export const translations = {
     dashboard: "Dashboard",
     capitalManagement: "Capital Management",
     economicCalendar: "Economic Calendar",
+    autoTrade: "Auto Trade",
 
     // Live Trading Board
     liveTradingBoard: "Live Trading Board",

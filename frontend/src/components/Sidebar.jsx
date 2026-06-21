@@ -89,6 +89,24 @@ export function Sidebar() {
             )}
           </div>
 
+          {/* Auto Trade View Tab */}
+          <div className="relative">
+            <button 
+              onClick={() => setCurrentView('autotrade')}
+              className={`w-full flex items-center gap-4 py-2.5 px-3 rounded-xl transition-all cursor-pointer ${
+                currentView === 'autotrade'
+                  ? 'bg-amber-500/10 border border-amber-500/20 text-amber-500 text-xs font-black'
+                  : 'text-slate-400 hover:text-white hover:bg-slate-900/40 text-xs font-bold border border-transparent'
+              }`}
+            >
+              <Zap className={`h-5 w-5 min-w-[20px] ${currentView === 'autotrade' ? 'text-amber-500' : 'text-slate-400'}`} />
+              <span className={`transition-all duration-300 whitespace-nowrap text-left ${isSidebarHovered ? 'opacity-100' : 'opacity-0 w-0 pointer-events-none'}`}>{t('autoTrade')}</span>
+            </button>
+            {currentView === 'autotrade' && (
+              <div className="absolute left-0 top-2 bottom-2 w-[3px] bg-amber-500 rounded-r" />
+            )}
+          </div>
+
           {/* Economic Calendar Tab */}
           <div className="relative">
             <button 

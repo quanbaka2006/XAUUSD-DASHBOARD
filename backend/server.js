@@ -15,6 +15,59 @@ const slowDown = require('express-slow-down');
 // Load .env file for local development
 try { require('dotenv').config(); } catch(e) {}
 
+// Initialize MetaApi SDK
+const MetaApi = require('metaapi.cloud-sdk').default;
+const METAAPI_TOKEN = process.env.METAAPI_TOKEN || '';
+let metaApi = null;
+if (METAAPI_TOKEN) {
+  metaApi = new MetaApi(METAAPI_TOKEN);
+  console.log('[MetaApi] SDK initialized successfully.');
+} else {
+  console.warn('[MetaApi] WARNING: METAAPI_TOKEN is not configured. Auto-execution features will be disabled.');
+}
+
+// Encryption/Decryption Helpers for MT5 Passwords
+const ENCRYPTION_KEY = process.env.ENCRYPTION_KEY;
+if (!ENCRYPTION_KEY || ENCRYPTION_KEY.length !== 64) {
+  console.warn('[Security] WARNING: ENCRYPTION_KEY must be a 64-character hex string (32 bytes). Encryption might fail or use unsafe fallbacks.');
+}
+
+function encryptPassword(text) {
+  if (!text) return '';
+  try {
+    const iv = crypto.randomBytes(12);
+    const key = Buffer.from(ENCRYPTION_KEY, 'hex');
+    const cipher = crypto.createCipheriv('aes-256-gcm', key, iv);
+    let encrypted = cipher.update(text, 'utf8', 'hex');
+    encrypted += cipher.final('hex');
+    const authTag = cipher.getAuthTag().toString('hex');
+    return `${iv.toString('hex')}:${authTag}:${encrypted}`;
+  } catch (err) {
+    console.error('[Encryption] Failed to encrypt:', err.message);
+    throw new Error('Encryption failed');
+  }
+}
+
+function decryptPassword(encryptedText) {
+  if (!encryptedText) return '';
+  try {
+    const parts = encryptedText.split(':');
+    if (parts.length !== 3) throw new Error('Invalid encrypted format');
+    const iv = Buffer.from(parts[0], 'hex');
+    const authTag = Buffer.from(parts[1], 'hex');
+    const encrypted = Buffer.from(parts[2], 'hex');
+    const key = Buffer.from(ENCRYPTION_KEY, 'hex');
+    const decipher = crypto.createDecipheriv('aes-256-gcm', key, iv);
+    decipher.setAuthTag(authTag);
+    let decrypted = decipher.update(encrypted, 'hex', 'utf8');
+    decrypted += decipher.final('utf8');
+    return decrypted;
+  } catch (err) {
+    console.error('[Decryption] Failed to decrypt:', err.message);
+    throw new Error('Decryption failed');
+  }
+}
+
 // ==========================================
 // API Keys & Secrets — MUST be set via environment variables (never hardcode)
 // ==========================================
@@ -1180,6 +1233,248 @@ async function checkAdminGuard(req, res, next) {
 }
 
 // ==========================================
+// Telegram Bot Integration & Auto-Execution Logic
+// ==========================================
+
+const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
+let lastTelegramUpdateId = 0;
+
+async function sendTelegramNotification(userId, message) {
+  if (!TELEGRAM_BOT_TOKEN) return;
+  
+  try {
+    let chatId = null;
+    if (useMongoDB) {
+      const user = await db.collection('users').findOne({ username: userId });
+      if (user && user.telegramChatId) {
+        chatId = user.telegramChatId;
+      }
+    } else {
+      const users = await loadUsers();
+      const user = users.find(u => u.username.toLowerCase() === String(userId).toLowerCase());
+      if (user && user.telegramChatId) {
+        chatId = user.telegramChatId;
+      }
+    }
+    
+    if (!chatId && /^\d+$/.test(userId)) {
+      chatId = userId;
+    }
+    
+    if (!chatId) {
+      console.log(`[Telegram] Skipped: No Chat ID linked for user ${userId}`);
+      return;
+    }
+    
+    const url = `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`;
+    const response = await fetchJson(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: {
+        chat_id: chatId,
+        text: message,
+        parse_mode: 'Markdown'
+      }
+    });
+    
+    if (!response.ok) {
+      const errText = await response.json();
+      console.error('[Telegram] Send failed:', errText);
+    }
+  } catch (err) {
+    console.error('[Telegram] Notification error:', err.message);
+  }
+}
+
+async function pollTelegramUpdates() {
+  if (!TELEGRAM_BOT_TOKEN) return;
+  console.log('[Telegram] Polling call...');
+  try {
+    const url = `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/getUpdates?offset=${lastTelegramUpdateId + 1}&timeout=10`;
+    const response = await fetchJson(url);
+    if (response.ok) {
+      const result = await response.json();
+      const updates = result.result || [];
+      if (updates.length > 0) {
+        console.log(`[Telegram] Received ${updates.length} updates`);
+      }
+      for (const update of updates) {
+        lastTelegramUpdateId = update.update_id;
+        
+        const message = update.message;
+        if (!message || !message.text) continue;
+        
+        const text = message.text.trim();
+        const chatId = message.chat.id;
+        
+        if (text.startsWith('/start')) {
+          const parts = text.split(' ');
+          if (parts.length > 1) {
+            const username = parts[1].trim().toLowerCase();
+            console.log(`[Telegram] User ${username} sent /start. Linking to Chat ID: ${chatId}`);
+            
+            let success = false;
+            if (useMongoDB) {
+              const res = await db.collection('users').updateOne(
+                { username: username },
+                { $set: { telegramChatId: String(chatId) } }
+              );
+              success = res.matchedCount > 0;
+            } else {
+              const users = await loadUsers();
+              const idx = users.findIndex(u => u.username.toLowerCase() === username);
+              if (idx !== -1) {
+                users[idx].telegramChatId = String(chatId);
+                await saveUsers(users);
+                success = true;
+              }
+            }
+            
+            if (success) {
+              await sendTelegramNotification(
+                String(chatId), 
+                `✅ *[ALPHA GOLD]*\n\nTài khoản của bạn (*${username}*) đã được liên kết thành công với Telegram! Bạn sẽ nhận được thông báo giao dịch tự động tại đây.`
+              );
+            } else {
+              await sendTelegramNotification(
+                String(chatId), 
+                `❌ *[ALPHA GOLD]*\n\nKhông tìm thấy tài khoản username *${username}* trong hệ thống. Vui lòng kiểm tra lại.`
+              );
+            }
+          } else {
+            const welcomeMsg = `👋 *Chào mừng bạn đến với Alpha Gold Auto-Execution!*\n\n` +
+              `Để liên kết tài khoản và nhận thông báo, vui lòng truy cập trang web Alpha Gold, vào phần Profile lấy liên kết hoặc gõ theo cú pháp:\n` +
+              `\`/start <tên_đăng_nhập_của_bạn>\`\n\n` +
+              `Ví dụ: \`/start admin\``;
+            await sendTelegramNotification(String(chatId), welcomeMsg);
+          }
+        }
+      }
+    }
+  } catch (err) {
+    console.error('[Telegram] Polling error:', err.message || err);
+  }
+}
+
+// Start Telegram polling every 5 seconds
+if (TELEGRAM_BOT_TOKEN) {
+  setInterval(pollTelegramUpdates, 5000);
+  console.log('[Telegram] Bot polling active.');
+}
+
+async function executeSignalOnAllAccounts(signal) {
+  if (!metaApi) {
+    console.warn('[Auto-Execution] Skipped: MetaApi not initialized.');
+    return;
+  }
+  
+  const { ticker, action, entry, sl, tp } = signal;
+  console.log(`[Auto-Execution] Processing signal for ${ticker} (${action}) - Entry: ${entry}, SL: ${sl}, TP: ${tp}`);
+  
+  let accounts = [];
+  if (useMongoDB) {
+    try {
+      accounts = await db.collection('mt5_accounts').find({}).toArray();
+    } catch(err) {
+      console.error('[Auto-Execution] Failed to load accounts from DB:', err.message);
+      return;
+    }
+  } else {
+    const testId = process.env.TEST_MT5_ACCOUNT_ID;
+    if (testId) {
+      accounts = [{
+        metaApiAccountId: testId,
+        login: 'TEST',
+        riskConfig: { mode: 'multiplier', value: 0.5 },
+        name: 'Test Account',
+        userId: 'admin'
+      }];
+    }
+  }
+  
+  if (accounts.length === 0) {
+    console.log('[Auto-Execution] No active MT5 accounts to copy trade.');
+    return;
+  }
+  
+  let symbol = ticker;
+  if (symbol === 'BTCUSD') symbol = 'BTCUSDT';
+  if (symbol === 'ETHUSD') symbol = 'ETHUSDT'; 
+  
+  accounts.forEach(async (acc) => {
+    try {
+      const accountId = acc.metaApiAccountId;
+      console.log(`[Auto-Execution] Copying trade to MT5 account ${acc.login} (${acc.name})...`);
+      
+      let lotSize = 0.01;
+      const baseLot = 0.1;
+      
+      if (acc.riskConfig && acc.riskConfig.mode === 'fixed') {
+        lotSize = acc.riskConfig.value;
+      } else if (acc.riskConfig) {
+        lotSize = parseFloat((baseLot * acc.riskConfig.value).toFixed(2));
+      }
+      
+      lotSize = Math.max(0.01, Math.min(1.0, lotSize));
+      
+      const account = await metaApi.metatraderAccountApi.getAccount(accountId);
+      
+      const connection = account.getStreamingConnection();
+      await connection.connect();
+      await connection.waitSynchronized();
+      
+      const isBuy = action.toLowerCase() === 'buy';
+      
+      console.log(`[Auto-Execution] Executing market ${isBuy ? 'buy' : 'sell'} order of ${lotSize} lot on ${symbol} (SL: ${sl}, TP: ${tp}) for account ${acc.login}`);
+      
+      let result;
+      if (isBuy) {
+        result = await connection.createMarketBuyOrder(
+          symbol,
+          lotSize,
+          sl ? parseFloat(sl) : undefined,
+          tp ? parseFloat(tp) : undefined,
+          { comment: 'Alpha Gold Auto-Trade' }
+        );
+      } else {
+        result = await connection.createMarketSellOrder(
+          symbol,
+          lotSize,
+          sl ? parseFloat(sl) : undefined,
+          tp ? parseFloat(tp) : undefined,
+          { comment: 'Alpha Gold Auto-Trade' }
+        );
+      }
+      
+      console.log(`[Auto-Execution] Success for account ${acc.login}. Position ID: ${result.positionId}`);
+      
+      await sendTelegramNotification(
+        acc.userId, 
+        `🔔 *[ALPHA GOLD AUTO] - ĐẶT LỆNH THÀNH CÔNG*\n\n` +
+        `• Tài khoản: MT5 - ${acc.login} (${acc.name})\n` +
+        `• Lệnh: *${action.toUpperCase()} ${symbol}*\n` +
+        `• Khối lượng: *${lotSize} lot* (${acc.riskConfig.mode === 'fixed' ? 'Cố định' : `Hệ số ${acc.riskConfig.value}`})\n` +
+        `• Giá SL: ${sl || 'Không có'} | TP: ${tp || 'Không có'}\n` +
+        `• Ticket: \`${result.positionId}\``
+      );
+      
+    } catch(err) {
+      console.error(`[Auto-Execution] Failed for account ${acc.login || 'unknown'}:`, err.message || err);
+      await sendTelegramNotification(
+        acc.userId, 
+        `⚠️ *[ALPHA GOLD AUTO] - LỆNH THẤT BẠI*\n\n` +
+        `• Tài khoản: MT5 - ${acc.login || 'N/A'}\n` +
+        `• Lệnh: *${action.toUpperCase()} ${symbol}*\n` +
+        `• Lỗi: _${err.message || err}_`
+      );
+    }
+  });
+}
+
+// ==========================================
+// REST API Endpoints
+// ==========================================
+
 // REST API Endpoints
 // ==========================================
 
@@ -1299,6 +1594,12 @@ app.post('/api/webhook', webhookLimiter, (req, res) => {
   };
 
   io.emit('signal_update', signals[sym][tfLabel]);
+
+  // Trigger auto copy trading asynchronously
+  executeSignalOnAllAccounts(signals[sym][tfLabel]).catch(err => {
+    console.error('[Webhook] executeSignalOnAllAccounts error:', err);
+  });
+
   res.json({ success: true, signal: signals[sym][tfLabel] });
 });
 
@@ -1315,6 +1616,196 @@ app.get('/api/history/:symbol/:interval', requireAuth, (req, res) => {
 });
 
 // ==========================================
+// MetaTrader 5 (MT5) Auto-Execution Endpoints
+// ==========================================
+
+// Connect MT5 Account
+app.post('/api/v1/accounts/connect', requireAuth, async (req, res) => {
+  const { login, password, server, riskConfig, name, reliability } = req.body;
+  
+  if (!login || !password || !server) {
+    return res.status(400).json({ success: false, error: 'Thiếu thông tin bắt buộc (login, password, server).' });
+  }
+  
+  if (!metaApi) {
+    return res.status(500).json({ success: false, error: 'Hệ thống Auto-Execution chưa được cấu hình API Token trên Server.' });
+  }
+
+  try {
+    const username = req.user.username;
+    
+    // 1. Register the account in MetaApi
+    console.log(`[MetaApi] Registering account ${login} on ${server} for user ${username}...`);
+    
+    const reliabilityLevel = ['developer', 'standard', 'high'].includes(reliability) ? reliability : 'developer';
+    
+    const account = await metaApi.metatraderAccountApi.createAccount({
+      name: name || `MT5-${login}`,
+      type: 'cloud-g2',
+      login: String(login),
+      password: password,
+      server: server,
+      platform: 'mt5',
+      reliability: reliabilityLevel,
+      magic: 777777 // Default magic number for trades
+    });
+    
+    console.log(`[MetaApi] Account created on MetaApi. ID: ${account.id}`);
+    
+    // 2. Encrypt the password for our local MongoDB backup
+    const encryptedPassword = encryptPassword(password);
+    
+    // 3. Save to MongoDB collection 'mt5_accounts'
+    const accountDoc = {
+      userId: username,
+      metaApiAccountId: account.id,
+      login: String(login),
+      password: encryptedPassword,
+      server: server,
+      reliability: reliabilityLevel,
+      riskConfig: {
+        mode: (riskConfig && ['multiplier', 'fixed'].includes(riskConfig.mode)) ? riskConfig.mode : 'multiplier',
+        value: (riskConfig && typeof riskConfig.value === 'number') ? riskConfig.value : 0.5
+      },
+      name: name || `MT5-${login}`,
+      status: 'deploying',
+      createdAt: new Date()
+    };
+    
+    if (useMongoDB) {
+      await db.collection('mt5_accounts').insertOne(accountDoc);
+    } else {
+      console.warn('[Database] MongoDB not active. Saving connection to MetaApi only.');
+    }
+    
+    res.json({
+      success: true,
+      message: 'Kết nối tài khoản MT5 thành công! Đang tiến hành cài đặt máy chủ ảo.',
+      accountId: account.id
+    });
+    
+  } catch (err) {
+    console.error('[MetaApi] Connection error:', err.message || err);
+    res.status(500).json({ success: false, error: `Lỗi kết nối MetaApi: ${err.message || err}` });
+  }
+});
+
+// Get MT5 Accounts list
+app.get('/api/v1/accounts', requireAuth, async (req, res) => {
+  try {
+    const username = req.user.username;
+    let accounts = [];
+    
+    if (useMongoDB) {
+      accounts = await db.collection('mt5_accounts').find({ userId: username }).toArray();
+    }
+    
+    // Map accounts to hide encrypted password
+    const sanitized = accounts.map(({ _id, metaApiAccountId, login, server, reliability, riskConfig, name, status }) => ({
+      id: _id,
+      metaApiAccountId,
+      login,
+      server,
+      reliability,
+      riskConfig,
+      name,
+      status
+    }));
+    
+    res.json({ success: true, accounts: sanitized });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// Delete/Disconnect MT5 Account
+app.delete('/api/v1/accounts/:id', requireAuth, async (req, res) => {
+  const accountId = req.params.id;
+  
+  if (!metaApi) {
+    return res.status(500).json({ success: false, error: 'MetaApi not configured' });
+  }
+  
+  try {
+    const username = req.user.username;
+    
+    let accountDoc = null;
+    if (useMongoDB) {
+      const { ObjectId } = require('mongodb');
+      try {
+        accountDoc = await db.collection('mt5_accounts').findOne({
+          _id: new ObjectId(accountId),
+          userId: username
+        });
+      } catch(e) {
+        accountDoc = await db.collection('mt5_accounts').findOne({
+          metaApiAccountId: accountId,
+          userId: username
+        });
+      }
+    }
+    
+    if (!accountDoc) {
+      return res.status(404).json({ success: false, error: 'Không tìm thấy tài khoản MT5 hoặc bạn không có quyền.' });
+    }
+    
+    console.log(`[MetaApi] Deleting account ${accountDoc.metaApiAccountId} from MetaApi...`);
+    try {
+      await metaApi.metatraderAccountApi.deleteAccount(accountDoc.metaApiAccountId);
+    } catch(apiErr) {
+      console.warn('[MetaApi] Account already deleted on MetaApi cloud or error:', apiErr.message);
+    }
+    
+    if (useMongoDB) {
+      await db.collection('mt5_accounts').deleteOne({ _id: accountDoc._id });
+    }
+    
+    res.json({ success: true, message: 'Đã ngắt kết nối và xóa tài khoản MT5 thành công!' });
+    
+  } catch (err) {
+    console.error('[MetaApi] Delete error:', err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// Update risk configuration
+app.put('/api/v1/accounts/:id/risk', requireAuth, async (req, res) => {
+  const accountId = req.params.id;
+  const { riskConfig } = req.body;
+  
+  if (!riskConfig || !['multiplier', 'fixed'].includes(riskConfig.mode) || typeof riskConfig.value !== 'number') {
+    return res.status(400).json({ success: false, error: 'Cấu hình rủi ro không hợp lệ.' });
+  }
+  
+  try {
+    const username = req.user.username;
+    const { ObjectId } = require('mongodb');
+    
+    let filter = {};
+    try {
+      filter = { _id: new ObjectId(accountId), userId: username };
+    } catch(e) {
+      filter = { metaApiAccountId: accountId, userId: username };
+    }
+    
+    if (useMongoDB) {
+      const result = await db.collection('mt5_accounts').updateOne(
+        filter,
+        { $set: { riskConfig: { mode: riskConfig.mode, value: riskConfig.value } } }
+      );
+      if (result.matchedCount === 0) {
+        return res.status(404).json({ success: false, error: 'Không tìm thấy tài khoản MT5.' });
+      }
+    }
+    
+    res.json({ success: true, message: 'Cập nhật cấu hình rủi ro thành công!' });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// ==========================================
+
 // Drawings Cloud Sync — REST Endpoints
 // ==========================================
 

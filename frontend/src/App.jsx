@@ -18,6 +18,7 @@ import logoImg from './assets/logo.png';
 import { useTradeStore } from './store/useTradeStore';
 import { Sidebar } from './components/Sidebar';
 import { AdminPanel } from './components/AdminPanel';
+import { AutoTrade } from './components/AutoTrade';
 
 import { RiskCalculator } from './components/RiskCalculator';
 import { TradingChart } from './components/TradingChart';
@@ -124,6 +125,7 @@ function App() {
       if (path === '/capital') view = 'capital';
       else if (path === '/calendar') view = 'calendar';
       else if (path === '/admin') view = 'admin';
+      else if (path === '/autotrade') view = 'autotrade';
       
       const current = useTradeStore.getState().currentView;
       if (current !== view) {
@@ -520,6 +522,8 @@ function App() {
             <CapitalManagement />
           ) : currentView === 'calendar' ? (
             <EconomicCalendar />
+          ) : currentView === 'autotrade' ? (
+            <AutoTrade />
           ) : (
             <>
               {/* ── DESKTOP LAYOUT (lg+): 3-column layout ── */}
@@ -661,6 +665,21 @@ function App() {
                 >
                   <Calendar className={`h-4.5 w-4.5 ${currentView === 'calendar' ? 'text-amber-500' : 'text-slate-400'}`} />
                   <span>{t('economicCalendar')}</span>
+                </button>
+
+                <button 
+                  onClick={() => {
+                    setCurrentView('autotrade');
+                    setIsMobileMenuOpen(false);
+                  }}
+                  className={`w-full flex items-center gap-3 py-2.5 px-3 rounded-xl transition-all cursor-pointer active:scale-[0.98] ${
+                    currentView === 'autotrade'
+                      ? 'bg-amber-500/10 border border-amber-500/20 text-amber-500 text-xs font-black'
+                      : 'text-slate-400 hover:text-white hover:bg-white/[0.04] text-xs font-bold border border-transparent'
+                  }`}
+                >
+                  <Zap className={`h-4.5 w-4.5 ${currentView === 'autotrade' ? 'text-amber-500' : 'text-slate-400'}`} />
+                  <span>{t('autoTrade')}</span>
                 </button>
 
                 {/* Admin Panel Button — only for admin roles */}

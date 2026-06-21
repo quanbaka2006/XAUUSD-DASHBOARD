@@ -1078,5 +1078,116 @@ export const useTradeStore = create((set, get) => ({
     } finally {
       set({ calendarLoading: false });
     }
+  },
+
+  // MT5 Copy Trading state
+  mt5Accounts: [],
+  mt5Loading: false,
+  mt5Error: null,
+  mt5Success: null,
+
+  clearMt5Messages: () => set({ mt5Error: null, mt5Success: null }),
+
+  fetchMt5Accounts: async () => {
+    set({ mt5Loading: true, mt5Error: null });
+    const token = get().token || localStorage.getItem('auth_token');
+    try {
+      const response = await fetch(`${SOCKET_URL}/api/v1/accounts`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      const data = await response.json();
+      if (response.ok) {
+        set({ mt5Accounts: data.accounts || [] });
+      } else {
+        set({ mt5Error: data.error || 'Không thể tải danh sách tài khoản MT5.' });
+      }
+    } catch (err) {
+      set({ mt5Error: err.message });
+    } finally {
+      set({ mt5Loading: false });
+    }
+  },
+
+  connectMt5Account: async (accountData) => {
+    set({ mt5Loading: true, mt5Error: null, mt5Success: null });
+    const token = get().token || localStorage.getItem('auth_token');
+    try {
+      const response = await fetch(`${SOCKET_URL}/api/v1/accounts/connect`, {
+        method: 'POST',
+        headers: { 
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}` 
+        },
+        body: JSON.stringify(accountData)
+      });
+      const data = await response.json();
+      if (response.ok) {
+        set({ mt5Success: 'Kết nối tài khoản MT5 thành công!' });
+        get().fetchMt5Accounts();
+        return true;
+      } else {
+        set({ mt5Error: data.error || 'Kết nối tài khoản thất bại.' });
+        return false;
+      }
+    } catch (err) {
+      set({ mt5Error: err.message });
+      return false;
+    } finally {
+      set({ mt5Loading: false });
+    }
+  },
+
+  disconnectMt5Account: async (id) => {
+    set({ mt5Loading: true, mt5Error: null, mt5Success: null });
+    const token = get().token || localStorage.getItem('auth_token');
+    try {
+      const response = await fetch(`${SOCKET_URL}/api/v1/accounts/${id}`, {
+        method: 'DELETE',
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      const data = await response.json();
+      if (response.ok) {
+        set({ mt5Success: 'Đã hủy kết nối tài khoản MT5!' });
+        get().fetchMt5Accounts();
+        return true;
+      } else {
+        set({ mt5Error: data.error || 'Hủy kết nối tài khoản thất bại.' });
+        return false;
+      }
+    } catch (err) {
+      set({ mt5Error: err.message });
+      return false;
+    } finally {
+      set({ mt5Loading: false });
+    }
+  },
+
+  updateMt5Risk: async (id, riskConfig) => {
+    set({ mt5Loading: true, mt5Error: null, mt5Success: null });
+    const token = get().token || localStorage.getItem('auth_token');
+    try {
+      const response = await fetch(`${SOCKET_URL}/api/v1/accounts/${id}/risk`, {
+        method: 'PUT',
+        headers: { 
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}` 
+        },
+        body: JSON.stringify({ riskConfig })
+      });
+      const data = await response.json();
+      if (response.ok) {
+        set({ mt5Success: 'Cập nhật cấu hình rủi ro thành công!' });
+        get().fetchMt5Accounts();
+        return true;
+      } else {
+        set({ mt5Error: data.error || 'Cập nhật rủi ro thất bại.' });
+        return false;
+      }
+    } catch (err) {
+      set({ mt5Error: err.message });
+      return false;
+    } finally {
+      set({ mt5Loading: false });
+    }
   }
 }));
