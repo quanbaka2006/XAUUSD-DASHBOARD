@@ -169,7 +169,7 @@ export function AutoTrade() {
               </button>
             </div>
 
-            <form onSubmit={handleConnect} className="space-y-4">
+            <form onSubmit={handleConnect} className="space-y-4" autoComplete="off">
               <div className="space-y-1.5">
                 <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block">Tên gợi nhớ</label>
                 <div className="relative">
@@ -179,6 +179,7 @@ export function AutoTrade() {
                     onChange={(e) => setName(e.target.value)}
                     placeholder="e.g. Tài Khoản Demo XAU" 
                     className="w-full bg-white/[0.03] border border-white/[0.06] rounded-xl pl-4 pr-4 py-2.5 text-xs text-white placeholder-slate-600 focus:outline-none focus:border-amber-500/40 transition-colors font-sans"
+                    autoComplete="off"
                   />
                 </div>
               </div>
@@ -194,6 +195,7 @@ export function AutoTrade() {
                       onChange={(e) => setLogin(e.target.value)}
                       placeholder="e.g. 50139420" 
                       className="w-full bg-white/[0.03] border border-white/[0.06] rounded-xl px-4 py-2.5 text-xs text-white placeholder-slate-600 focus:outline-none focus:border-amber-500/40 transition-colors font-mono"
+                      autoComplete="off"
                     />
                   </div>
                 </div>
@@ -208,6 +210,7 @@ export function AutoTrade() {
                       onChange={(e) => setServer(e.target.value)}
                       placeholder="e.g. GTCGlobal-Demo" 
                       className="w-full bg-white/[0.03] border border-white/[0.06] rounded-xl px-4 py-2.5 text-xs text-white placeholder-slate-600 focus:outline-none focus:border-amber-500/40 transition-colors font-mono"
+                      autoComplete="new-password"
                     />
                   </div>
                 </div>
@@ -223,6 +226,7 @@ export function AutoTrade() {
                     onChange={(e) => setPassword(e.target.value)}
                     placeholder="Nhập mật khẩu MT5" 
                     className="w-full bg-white/[0.03] border border-white/[0.06] rounded-xl pl-4 pr-10 py-2.5 text-xs text-white placeholder-slate-600 focus:outline-none focus:border-amber-500/40 transition-colors"
+                    autoComplete="new-password"
                   />
                   <button
                     type="button"
