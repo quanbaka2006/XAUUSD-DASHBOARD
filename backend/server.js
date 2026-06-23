@@ -1024,20 +1024,14 @@ function startYahooFallback() {
       fetchKrakenMulti(pollSyms);
     }
 
-    // Always poll Finnhub for XAUUSD (Spot Gold) and XAGUSD
-    if (!finnhubActive) {
+    // WTIUSD is polled from Yahoo. Finnhub handles XAUUSD and XAGUSD via WebSocket.
+    if (!finnhubConnected) {
+      // If WS is completely down, try falling back to Yahoo for XAUUSD/XAGUSD
       ['XAUUSD', 'XAGUSD'].forEach(sym => {
-        fetchFinnhubSeed(sym, (price) => {
-          if (price) {
-            onSeedReceived(sym);
-          } else {
-            // Fallback to Yahoo if Finnhub fails
-            fetchYahooSeed(sym);
-          }
-        });
+        fetchYahooSeed(sym);
       });
-      fetchYahooSeed('WTIUSD');
     }
+    fetchYahooSeed('WTIUSD');
   }, 1000);
 }
 
@@ -1060,11 +1054,65 @@ function stopYahooFallback() {
 
 let finnhubWs = null;
 let finnhubConnected = false;
-let finnhubRetryDelay = 5000; // exponential backoff: starts 5s, max 60s
+let finnhubRetryDelay = 5000;
 
 function connectFinnhub() {
-  // Free tier: bypass rate-limited Finnhub entirely and use Yahoo Finance polling directly
-  startYahooFallback();
+  if (!FINNHUB_TOKEN) {
+    console.warn('[Finnhub WS] No token provided. Falling back to Yahoo.');
+    startYahooFallback();
+    return;
+  }
+
+  const url = `wss://ws.finnhub.io?token=${FINNHUB_TOKEN}`;
+  finnhubWs = new WebSocket(url);
+
+  finnhubWs.on('open', () => {
+    console.log('[Finnhub WS] Connected — streaming XAUUSD/XAGUSD real-time');
+    finnhubConnected = true;
+    finnhubRetryDelay = 5000;
+
+    FINNHUB_SUBSCRIBE.forEach(sym => {
+      finnhubWs.send(JSON.stringify({'type': 'subscribe', 'symbol': sym}));
+    });
+    
+    // Also start Yahoo fallback for WTIUSD only (since Finnhub WS doesn't have free WTIUSD)
+    startYahooFallback();
+  });
+
+  finnhubWs.on('message', (data) => {
+    try {
+      const parsed = JSON.parse(data);
+      if (parsed.type === 'trade') {
+        parsed.data.forEach(trade => {
+          let symbol = trade.s;
+          if (FINNHUB_SYMBOL_MAP[symbol]) {
+            symbol = FINNHUB_SYMBOL_MAP[symbol];
+          }
+          const price = parseFloat(trade.p);
+          if (price) {
+            applyRealPrice(symbol, price);
+            lastTickTimestamp[symbol] = Date.now();
+            
+            // If this is the first real tick, initialize the seed
+            if (!historyInitialized) {
+              onSeedReceived(symbol);
+            }
+          }
+        });
+      }
+    } catch (e) {}
+  });
+
+  finnhubWs.on('close', (code) => {
+    finnhubConnected = false;
+    console.warn(`[Finnhub WS] Disconnected (${code}) — reconnecting in ${finnhubRetryDelay/1000}s...`);
+    setTimeout(connectFinnhub, finnhubRetryDelay);
+    finnhubRetryDelay = Math.min(finnhubRetryDelay * 1.5, 60000);
+  });
+
+  finnhubWs.on('error', (err) => {
+    console.error('[Finnhub WS] Error:', err.message);
+  });
 }
 
 connectFinnhub();
