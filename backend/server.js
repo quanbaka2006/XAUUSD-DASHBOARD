@@ -308,10 +308,11 @@ const YAHOO_TICKERS = {
   'ETHUSD': 'ETH-USD'
 };
 
-// Binance stream symbols for crypto (true 1s real-time)
+// Binance stream symbols (true 1s real-time)
 const BINANCE_STREAMS = {
   'BTCUSD': 'btcusdt',
-  'ETHUSD': 'ethusdt'
+  'ETHUSD': 'ethusdt',
+  'XAUUSD': 'paxgusdt'
 };
 
 const WEEKEND_FROZEN_PRICES = {
@@ -541,7 +542,7 @@ function applyRealPrice(sym, newPrice) {
 }
 
 // ==========================================
-// BINANCE WebSocket — Real-time 1s for BTC/ETH
+// BINANCE WebSocket — Real-time 1s for BTC/ETH/XAUUSD
 // ==========================================
 let binanceWs = null;
 
@@ -552,7 +553,7 @@ function connectBinance() {
   binanceWs = new WebSocket(url);
 
   binanceWs.on('open', () => {
-    console.log('[Binance WS] Connected — streaming BTC/ETH real-time');
+    console.log('[Binance WS] Connected — streaming BTC/ETH/XAUUSD real-time');
   });
 
   binanceWs.on('message', (raw) => {
@@ -562,7 +563,7 @@ function connectBinance() {
       if (!ticker || !ticker.s || !ticker.c) return;
 
       // Map Binance symbol → our symbol
-      const symbolMap = { 'BTCUSDT': 'BTCUSD', 'ETHUSDT': 'ETHUSD' };
+      const symbolMap = { 'BTCUSDT': 'BTCUSD', 'ETHUSDT': 'ETHUSD', 'PAXGUSDT': 'XAUUSD' };
       const sym = symbolMap[ticker.s];
       if (!sym) return;
 
@@ -788,8 +789,8 @@ function onSeedReceived(sym) {
 
 // Seed ALL symbols on startup with proper sources to avoid price jump
 SYMBOLS.forEach(sym => {
-  const isCrypto = sym.includes('BTC') || sym.includes('ETH');
-  if (isCrypto) {
+  const isBinance = BINANCE_STREAMS[sym] !== undefined;
+  if (isBinance) {
     // 1. Try Binance first
     fetchBinanceSeed(sym, (price) => {
       if (price) {
@@ -834,7 +835,8 @@ function startYahooFallback() {
     // If no clients are connected, skip polling to avoid Yahoo IP bans/rate limits
     if (activeClients === 0) return;
 
-    ['XAUUSD', 'XAGUSD', 'WTIUSD'].forEach(sym => {
+    // XAUUSD is now updated in real-time via Binance WebSocket (PAXGUSDT)
+    ['XAGUSD', 'WTIUSD'].forEach(sym => {
       fetchYahooSeed(sym);
     });
   }, 1000);
