@@ -311,8 +311,7 @@ const YAHOO_TICKERS = {
 // Binance stream symbols (true 1s real-time)
 const BINANCE_STREAMS = {
   'BTCUSD': 'btcusdt',
-  'ETHUSD': 'ethusdt',
-  'XAUUSD': 'paxgusdt'
+  'ETHUSD': 'ethusdt'
 };
 
 const WEEKEND_FROZEN_PRICES = {
@@ -567,7 +566,7 @@ function connectBinance() {
       if (!ticker || !ticker.s || !ticker.c) return;
 
       // Map Binance symbol → our symbol
-      const symbolMap = { 'BTCUSDT': 'BTCUSD', 'ETHUSDT': 'ETHUSD', 'PAXGUSDT': 'XAUUSD' };
+      const symbolMap = { 'BTCUSDT': 'BTCUSD', 'ETHUSDT': 'ETHUSD' };
       const sym = symbolMap[ticker.s];
       if (!sym) return;
 
@@ -845,7 +844,6 @@ function fetchYahooSeed(sym, callback) {
 }
 
 const KRAKEN_REST_MAP = {
-  'XAUUSD': { pair: 'PAXGUSD', resultKey: 'PAXGUSD' },
   'BTCUSD': { pair: 'XBTUSD', resultKey: 'XXBTZUSD' },
   'ETHUSD': { pair: 'ETHUSD', resultKey: 'XETHZUSD' }
 };
@@ -1015,11 +1013,8 @@ function startYahooFallback() {
     const binanceActive = binanceWs && binanceWs.readyState === 1;
     const finnhubActive = finnhubConnected;
 
-    // Check if we need to poll Kraken for BTC/ETH/XAU
+    // Check if we need to poll Kraken for BTC/ETH
     const pollSyms = [];
-    if (!finnhubActive && !krakenActive) {
-      pollSyms.push('XAUUSD');
-    }
     if (!binanceActive && !krakenActive) {
       pollSyms.push('BTCUSD');
       pollSyms.push('ETHUSD');
@@ -1029,9 +1024,9 @@ function startYahooFallback() {
       fetchKrakenMulti(pollSyms);
     }
 
-    // Always poll Yahoo for XAGUSD and WTIUSD if Finnhub WS is down
+    // Always poll Yahoo for XAGUSD, WTIUSD, and XAUUSD if Finnhub WS is down
     if (!finnhubActive) {
-      ['XAGUSD', 'WTIUSD'].forEach(sym => {
+      ['XAGUSD', 'WTIUSD', 'XAUUSD'].forEach(sym => {
         fetchYahooSeed(sym);
       });
     }

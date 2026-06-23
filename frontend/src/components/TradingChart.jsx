@@ -1898,11 +1898,11 @@ export function TradingChart({ mobileTab }) {
             <div className="text-left flex-1">
               <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest block mb-1">{t('latestDetails')}</span>
               
-              <div className={`relative px-4 py-2.5 rounded-xl border flex items-center justify-between overflow-hidden transition-all duration-500 ${
+              <div className={`relative px-4 py-2.5 rounded-xl flex items-center justify-between overflow-hidden transition-all duration-500 ${
                 currentSignal.action === 'buy'
-                  ? 'bg-amber-500/[0.02] border-amber-500/20 shadow-[0_0_20px_rgba(245,158,11,0.03)]'
+                  ? 'bg-amber-500/[0.02] glow-neon-border-buy'
                   : currentSignal.action === 'sell'
-                  ? 'bg-red-500/[0.02] border-red-500/20 shadow-[0_0_20px_rgba(239,68,68,0.03)]'
+                  ? 'bg-red-500/[0.02] glow-neon-border-sell'
                   : 'bg-slate-950/20 border-slate-800/60'
               }`}>
                 {/* Tech Corner Crosshairs */}
@@ -1927,12 +1927,12 @@ export function TradingChart({ mobileTab }) {
                 )}
 
                 {/* Glowing text display */}
-                <h2 className={`text-2xl lg:text-3xl font-black tracking-[0.1em] leading-none uppercase bg-clip-text text-transparent animate-text-shimmer hud-signal-text ${
+                <h2 className={`text-2xl lg:text-3xl font-black tracking-[0.1em] leading-none uppercase animate-text-shimmer hud-signal-text ${
                   currentSignal.action === 'buy'
-                    ? 'bg-gradient-to-r from-amber-200 via-yellow-400 to-orange-400 hud-signal-text-buy'
+                    ? 'text-amber-300 glow-neon-buy'
                     : currentSignal.action === 'sell'
-                    ? 'bg-gradient-to-r from-rose-300 via-red-400 to-orange-500 hud-signal-text-sell'
-                    : 'bg-gradient-to-r from-slate-300 to-slate-500'
+                    ? 'text-red-300 glow-neon-sell'
+                    : 'text-slate-300'
                 }`}
                 data-text={currentSignal.action === 'buy' ? 'BUY NOW' : currentSignal.action === 'sell' ? 'SELL NOW' : 'WAITING'}
                 >
@@ -1963,7 +1963,7 @@ export function TradingChart({ mobileTab }) {
                   <div className="w-1.5 h-1.5 rounded-full bg-amber-500" />
                   <span className="text-[11px] font-black text-slate-400 uppercase tracking-wider">{t('entryPrice')}</span>
                 </div>
-                <span className="text-base font-mono font-black text-white tracking-tighter">{formatPrice(currentSignal.entry)}</span>
+                <span className="text-base font-sans font-black text-white tracking-tighter">{formatPrice(currentSignal.entry)}</span>
               </div>
 
               {/* Stop Loss (SL) */}
@@ -1972,7 +1972,7 @@ export function TradingChart({ mobileTab }) {
                   <div className="w-1.5 h-1.5 rounded-full bg-red-500" />
                   <span className="text-[11px] font-black text-slate-400 uppercase tracking-wider">STOP LOSS</span>
                 </div>
-                <span className="text-base font-mono font-black text-red-400 tracking-tighter">{formatPrice(currentSignal.sl)}</span>
+                <span className="text-base font-sans font-black text-red-400 tracking-tighter">{formatPrice(currentSignal.sl)}</span>
               </div>
 
               {/* Take Profit (TP) */}
@@ -1986,8 +1986,8 @@ export function TradingChart({ mobileTab }) {
                         <span className={`text-[11px] font-black uppercase tracking-wider ${isHit ? 'text-emerald-400' : 'text-slate-400'}`}>TAKE PROFIT {idx + 1}</span>
                       </div>
                       <div className="flex items-center gap-2">
-                        {isHit && <span className="text-[9px] bg-emerald-500/20 text-emerald-400 px-1 py-0.5 rounded font-black font-mono">HIT</span>}
-                        <span className={`text-base font-mono font-black tracking-tighter ${isHit ? 'text-emerald-400' : 'text-white'}`}>{formatPrice(tpVal)}</span>
+                        {isHit && <span className="text-[9px] bg-emerald-500/20 text-emerald-400 px-1 py-0.5 rounded font-black font-sans">HIT</span>}
+                        <span className={`text-base font-sans font-black tracking-tighter ${isHit ? 'text-emerald-400' : 'text-white'}`}>{formatPrice(tpVal)}</span>
                       </div>
                     </div>
                   );
@@ -1998,7 +1998,7 @@ export function TradingChart({ mobileTab }) {
                     <div className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
                     <span className="text-[11px] font-black text-slate-400 uppercase tracking-wider">TAKE PROFIT</span>
                   </div>
-                  <span className="text-base font-mono font-black text-emerald-400 tracking-tighter">{formatPrice(currentSignal.tp)}</span>
+                  <span className="text-base font-sans font-black text-emerald-400 tracking-tighter">{formatPrice(currentSignal.tp)}</span>
                 </div>
               )}
             </div>
@@ -2399,13 +2399,13 @@ export function TradingChart({ mobileTab }) {
                     <span className="text-amber-500 font-black font-mono text-[11px]">{selectedTimeframe}</span>
                   </div>
                   <div className="flex flex-wrap items-center gap-2 text-[11px] text-slate-400">
-                    <div>O<span ref={hudOpenRef} className="font-mono text-white ml-0.5 font-bold">---</span></div>
-                    <div>H<span ref={hudHighRef} className="font-mono text-white ml-0.5 font-bold">---</span></div>
-                    <div>L<span ref={hudLowRef} className="font-mono text-white ml-0.5 font-bold">---</span></div>
-                    <div>C<span ref={hudCloseRef} className="font-mono text-white ml-0.5 font-bold">---</span></div>
-                    <div ref={hudChangeRef} className="font-mono font-bold">---</div>
+                    <div>O<span ref={hudOpenRef} className="font-sans text-white ml-0.5 font-bold">---</span></div>
+                    <div>H<span ref={hudHighRef} className="font-sans text-white ml-0.5 font-bold">---</span></div>
+                    <div>L<span ref={hudLowRef} className="font-sans text-white ml-0.5 font-bold">---</span></div>
+                    <div>C<span ref={hudCloseRef} className="font-sans text-white ml-0.5 font-bold">---</span></div>
+                    <div ref={hudChangeRef} className="font-sans font-bold">---</div>
                   </div>
-                  <div ref={hudIndicatorsRef} className="text-slate-500 font-mono text-[11px] pl-2 border-l border-zinc-850 hidden md:block">
+                  <div ref={hudIndicatorsRef} className="text-slate-500 font-sans text-[11px] pl-2 border-l border-zinc-850 hidden md:block">
                     {/* Dynamic indicators */}
                   </div>
                 </div>
@@ -2680,7 +2680,7 @@ function TsunamiConsoleBoard() {
               <span>Chưa có lịch sử sự kiện hit SL/TP nào được ghi nhận</span>
             </div>
           ) : (
-            <div className="flex flex-col gap-1.5 font-mono text-xs text-slate-300">
+            <div className="flex flex-col gap-1.5 font-sans text-xs text-slate-300">
               {tsunamiEvents.map(event => {
                 const isTp = event.type === 'EVENT_TP';
                 const logTime = event.timeString || new Date(event.timestamp).toLocaleTimeString('vi-VN');
