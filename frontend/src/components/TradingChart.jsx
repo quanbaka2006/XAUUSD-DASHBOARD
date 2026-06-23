@@ -73,10 +73,30 @@ function computeSignalStatus(signal, livePrice) {
 }
 
 const STATUS_META = {
-  running: { vn: 'ĐANG CHẠY', en: 'ACTIVE', cls: 'text-emerald-200 bg-emerald-500/20 border-emerald-300/50 shadow-[0_0_20px_rgba(16,185,129,0.45)]', dot: 'bg-emerald-300' },
-  tp:      { vn: 'ĐÃ CHẠM TP', en: 'TP HIT', cls: 'text-emerald-100 bg-emerald-400/30 border-emerald-200/70 shadow-[0_0_26px_rgba(16,185,129,0.7)]', dot: 'bg-emerald-200' },
-  sl:      { vn: 'ĐÃ CHẠM SL', en: 'SL HIT', cls: 'text-rose-100 bg-rose-500/30 border-rose-200/70 shadow-[0_0_26px_rgba(244,63,94,0.7)]', dot: 'bg-rose-200' },
-  none:    { vn: 'HẾT HIỆU LỰC', en: 'EXPIRED', cls: 'text-slate-300 bg-slate-500/15 border-slate-400/30', dot: 'bg-slate-400' },
+  running: { 
+    vn: 'ĐANG CHẠY', 
+    en: 'ACTIVE', 
+    cls: 'text-emerald-400 bg-emerald-950/50 border-emerald-500/40 shadow-[0_0_15px_rgba(16,185,129,0.35)] font-extrabold', 
+    dot: 'bg-emerald-400' 
+  },
+  tp: { 
+    vn: 'ĐÃ CHẠM TP', 
+    en: 'TP HIT', 
+    cls: 'text-amber-400 bg-amber-950/50 border-amber-500/40 shadow-[0_0_15px_rgba(245,158,11,0.35)] font-extrabold', 
+    dot: 'bg-amber-400' 
+  },
+  sl: { 
+    vn: 'ĐÃ CHẠM SL', 
+    en: 'SL HIT', 
+    cls: 'text-red-400 bg-red-950/50 border-red-500/40 shadow-[0_0_15px_rgba(239,68,68,0.35)] font-extrabold', 
+    dot: 'bg-red-400' 
+  },
+  none: { 
+    vn: 'HẾT HIỆU LỰC', 
+    en: 'EXPIRED', 
+    cls: 'text-slate-400 bg-slate-900/60 border-slate-800 shadow-none font-bold', 
+    dot: 'bg-slate-500' 
+  },
 };
 
 // Small isolated component: only THIS re-renders on each price tick (not the whole chart)
@@ -87,8 +107,13 @@ function SignalStatusBadge({ signal }) {
   const m = STATUS_META[status];
   const running = status === 'running';
   return (
-    <span className={`flex items-center gap-1.5 px-3 py-1 rounded-full text-[11px] font-black tracking-widest uppercase border ${m.cls}`}>
-      <span className={`w-1.5 h-1.5 rounded-full inline-block ${m.dot} ${running ? 'animate-ping' : ''}`} />
+    <span className={`flex items-center gap-2 px-3 py-1 rounded-full text-[10px] font-black tracking-widest uppercase border transition-all duration-300 ${m.cls}`}>
+      <span className="relative flex h-2 w-2">
+        {running && (
+          <span className={`animate-ping absolute inline-flex h-full w-full rounded-full opacity-75 ${m.dot}`}></span>
+        )}
+        <span className={`relative inline-flex rounded-full h-2 w-2 ${m.dot}`}></span>
+      </span>
       {language === 'en' ? m.en : m.vn}
     </span>
   );
