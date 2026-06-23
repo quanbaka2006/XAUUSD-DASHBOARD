@@ -156,8 +156,7 @@ function SignalProgressBar({ signal, symbol }) {
         <span className={tpAtRight ? 'text-emerald-400' : 'text-rose-400'}>{tpAtRight ? 'TP' : 'SL'} {rightVal.toFixed(dec)}</span>
       </div>
       <div className="relative h-2.5 rounded-full" style={{ background: trackGradient }}>
-        {/* entry marker */}
-        <span className="absolute top-1/2 -translate-x-1/2 -translate-y-1/2 w-[3px] h-4 bg-white/80 rounded-full" style={{ left: `${entryPct}%` }} />
+        {/* entry marker removed per user request */}
         {/* live price marker */}
         <span className="absolute top-1/2 -translate-x-1/2 -translate-y-1/2 w-3.5 h-3.5 rounded-full bg-white border-2 border-amber-400 shadow-[0_0_12px_rgba(251,191,36,0.95)]" style={{ left: `${pricePct}%` }} />
       </div>
@@ -1928,19 +1927,21 @@ export function TradingChart({ mobileTab }) {
 
                 {/* Glowing text display */}
                 <h2 className={`text-2xl lg:text-3xl font-black tracking-[0.1em] leading-none uppercase animate-text-shimmer hud-signal-text ${
-                  currentSignal.action === 'buy'
+                  (currentSignal.status === 'hit_tp' || currentSignal.status === 'closed' || currentSignal.status === 'sl')
+                    ? 'text-slate-400'
+                    : currentSignal.action === 'buy'
                     ? 'text-amber-300 glow-neon-buy'
                     : currentSignal.action === 'sell'
                     ? 'text-red-300 glow-neon-sell'
                     : 'text-slate-300'
                 }`}
-                data-text={currentSignal.action === 'buy' ? 'BUY NOW' : currentSignal.action === 'sell' ? 'SELL NOW' : 'WAITING'}
+                data-text={(currentSignal.status === 'hit_tp' || currentSignal.status === 'closed' || currentSignal.status === 'sl') ? 'FINISHED' : currentSignal.action === 'buy' ? 'BUY NOW' : currentSignal.action === 'sell' ? 'SELL NOW' : 'WAITING'}
                 >
-                  {currentSignal.action === 'buy' ? 'BUY NOW' : currentSignal.action === 'sell' ? 'SELL NOW' : t('waiting')}
+                  {(currentSignal.status === 'hit_tp' || currentSignal.status === 'closed' || currentSignal.status === 'sl') ? 'FINISHED' : currentSignal.action === 'buy' ? 'BUY NOW' : currentSignal.action === 'sell' ? 'SELL NOW' : t('waiting')}
                 </h2>
 
                 {/* Flashing status dot indicator */}
-                {currentSignal.action !== 'stale' && (
+                {currentSignal.action !== 'stale' && currentSignal.status !== 'hit_tp' && currentSignal.status !== 'closed' && currentSignal.status !== 'sl' && (
                   <span className="relative flex h-2 w-2 mr-1">
                     <span className={`animate-ping absolute inline-flex h-full w-full rounded-full opacity-75 ${
                       currentSignal.action === 'buy' ? 'bg-amber-400' : 'bg-red-400'
