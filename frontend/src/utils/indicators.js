@@ -634,8 +634,18 @@ export function getCurrentSignal({
     tp = parseFloat((rawSignal.entry - settings.tp).toFixed(decimalPlaces));
   }
 
+  // Override confidence to a random 93-97% based on entry price and timestamp
+  // This guarantees that the "random" number is stable for the same signal, 
+  // but varies between different signals (93, 94, 95, 96, 97)
+  let finalConfidence = 0;
+  if (rawSignal.entry > 0) {
+    const seed = Math.floor((rawSignal.entry * 100) + (rawSignal.timestamp / 100000)) % 5;
+    finalConfidence = 93 + Math.abs(seed);
+  }
+
   return {
     ...rawSignal,
+    confidence: finalConfidence || rawSignal.confidence,
     sl,
     tp
   };
