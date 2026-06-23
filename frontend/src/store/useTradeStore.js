@@ -263,6 +263,9 @@ export const useTradeStore = create((set, get) => ({
   candleColorTheme: 'premium',
   riskCalculator: { accountBalance: 10000, riskPercentage: 1 },
   currentSignal: null,
+  tsunamiSignals: [],
+  tsunamiEvents: [],
+  userBotSettings: {},
 
   // Virtual Account Simulation States
   candlesHistory: [],
@@ -315,6 +318,32 @@ export const useTradeStore = create((set, get) => ({
   setLivePrice: (val) => {
     set({ livePrice: val });
     get().updateVirtualTick(val);
+    
+    // Automatically close client-side indicators signals if live price hits SL/TP
+    const signal = get().currentSignal;
+    if (signal && signal.action !== 'stale' && signal.entry && get().selectedIndicatorSystem !== 'tsunami') {
+      const tpValue = signal.tp || 0;
+      let hit = false;
+      if (signal.action === 'buy') {
+        if ((tpValue && val >= tpValue) || (signal.sl && val <= signal.sl)) {
+          hit = true;
+        }
+      } else if (signal.action === 'sell') {
+        if ((tpValue && val <= tpValue) || (signal.sl && val >= signal.sl)) {
+          hit = true;
+        }
+      }
+      if (hit) {
+        set({
+          currentSignal: {
+            ...signal,
+            action: 'stale',
+            status: 'closed',
+            expiredReason: 'hit_sl_tp'
+          }
+        });
+      }
+    }
   },
   setMarketSpread: (val) => set({ marketSpread: val }),
   setMarketVolume: (val) => set({ marketVolume: val }),
@@ -326,6 +355,79 @@ export const useTradeStore = create((set, get) => ({
     set({ language: val });
   },
   setConnectionStatus: (val) => set({ connectionStatus: val }),
+
+  fetchTsunamiSignals: async () => {
+    try {
+      const token = localStorage.getItem('auth_token');
+      const response = await fetch(`${SOCKET_URL}/api/tsunami/signals`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (response.ok) {
+        const data = await response.json();
+        set({ tsunamiSignals: data });
+        if (get().selectedIndicatorSystem === 'tsunami' && data.length > 0) {
+          set({ currentSignal: data[0] });
+        }
+      }
+    } catch (e) {
+      console.error('Error fetching tsunami signals:', e);
+    }
+  },
+
+  fetchTsunamiEvents: async () => {
+    try {
+      const token = localStorage.getItem('auth_token');
+      const response = await fetch(`${SOCKET_URL}/api/tsunami/events`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (response.ok) {
+        const data = await response.json();
+        set({ tsunamiEvents: data });
+      }
+    } catch (e) {
+      console.error('Error fetching tsunami events:', e);
+    }
+  },
+
+  fetchUserSettings: async () => {
+    try {
+      const token = localStorage.getItem('auth_token');
+      const response = await fetch(`${SOCKET_URL}/api/user/settings`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (response.ok) {
+        const data = await response.json();
+        set({ userBotSettings: data.botSettings || {} });
+      }
+    } catch (e) {
+      console.error('Error fetching user settings:', e);
+    }
+  },
+
+  updateUserSettings: async (botSettings) => {
+    try {
+      const token = localStorage.getItem('auth_token');
+      const response = await fetch(`${SOCKET_URL}/api/user/settings`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({ botSettings })
+      });
+      if (response.ok) {
+        const data = await response.json();
+        if (data.success) {
+          set({ userBotSettings: data.botSettings });
+          return true;
+        }
+      }
+      return false;
+    } catch (e) {
+      console.error('Error updating user settings:', e);
+      return false;
+    }
+  },
 
   setInd1Type: (val) => set({ ind1Type: val }),
   setInd1Period: (val) => set({ ind1Period: val }),

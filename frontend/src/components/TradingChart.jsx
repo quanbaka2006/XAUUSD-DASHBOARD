@@ -51,12 +51,23 @@ const SYMBOLS_DISPLAY = {
 function computeSignalStatus(signal, livePrice) {
   if (!signal || signal.action === 'stale' || !signal.entry) return 'none';
   if (livePrice == null || isNaN(livePrice) || livePrice === 0) return 'running';
+
+  if (signal.status === 'closed') {
+    if (signal.sl && ((signal.action === 'buy' && livePrice <= signal.sl) || (signal.action === 'sell' && livePrice >= signal.sl))) {
+      return 'sl';
+    }
+    return 'none';
+  }
+  if (signal.status === 'hit_tp') return 'tp';
+  if (signal.hitTps && signal.hitTps.some(x => x)) return 'tp';
+
+  const tpValue = signal.tp || (signal.tps && signal.tps[0]) || 0;
   if (signal.action === 'sell') {
-    if (livePrice <= signal.tp) return 'tp';
-    if (livePrice >= signal.sl) return 'sl';
+    if (tpValue && livePrice <= tpValue) return 'tp';
+    if (signal.sl && livePrice >= signal.sl) return 'sl';
   } else if (signal.action === 'buy') {
-    if (livePrice >= signal.tp) return 'tp';
-    if (livePrice <= signal.sl) return 'sl';
+    if (tpValue && livePrice >= tpValue) return 'tp';
+    if (signal.sl && livePrice <= signal.sl) return 'sl';
   }
   return 'running';
 }
@@ -87,21 +98,24 @@ function SignalStatusBadge({ signal }) {
 function SignalProgressBar({ signal, symbol }) {
   const livePrice = useTradeStore(s => s.livePrice);
   const { language } = useTranslation();
-  if (!signal || signal.action === 'stale' || !signal.entry || !signal.sl || !signal.tp) return null;
+  
+  const tpValue = signal.tp || (signal.tps && signal.tps[signal.tps.length - 1]) || 0;
+  if (!signal || signal.action === 'stale' || !signal.entry || !signal.sl || !tpValue) return null;
+
   const dec = symbol === 'XAGUSD' ? 4 : 2;
-  const lo = Math.min(signal.sl, signal.tp);
-  const hi = Math.max(signal.sl, signal.tp);
+  const lo = Math.min(signal.sl, tpValue);
+  const hi = Math.max(signal.sl, tpValue);
   const span = (hi - lo) || 1;
   const clamp = (v) => Math.max(0, Math.min(100, v));
   const entryPct = clamp(((signal.entry - lo) / span) * 100);
   const hasPrice = livePrice != null && !isNaN(livePrice) && livePrice !== 0;
   const pricePct = hasPrice ? clamp(((livePrice - lo) / span) * 100) : entryPct;
-  const tpAtRight = signal.tp >= signal.sl; // buy: TP is the high end (right); sell: TP is the low end (left)
+  const tpAtRight = tpValue >= signal.sl; // buy: TP is the high end (right); sell: TP is the low end (left)
   const trackGradient = tpAtRight
     ? 'linear-gradient(90deg, rgba(244,63,94,0.55), rgba(148,163,184,0.18) 50%, rgba(16,185,129,0.6))'
     : 'linear-gradient(90deg, rgba(16,185,129,0.6), rgba(148,163,184,0.18) 50%, rgba(244,63,94,0.55))';
-  const leftVal = tpAtRight ? signal.sl : signal.tp;
-  const rightVal = tpAtRight ? signal.tp : signal.sl;
+  const leftVal = tpAtRight ? signal.sl : tpValue;
+  const rightVal = tpAtRight ? tpValue : signal.sl;
   return (
     <div className="px-1 pt-1">
       <div className="flex justify-between text-[10px] font-black tracking-wider mb-1.5">
@@ -114,6 +128,93 @@ function SignalProgressBar({ signal, symbol }) {
         <span className="absolute top-1/2 -translate-x-1/2 -translate-y-1/2 w-[3px] h-4 bg-white/80 rounded-full" style={{ left: `${entryPct}%` }} />
         {/* live price marker */}
         <span className="absolute top-1/2 -translate-x-1/2 -translate-y-1/2 w-3.5 h-3.5 rounded-full bg-white border-2 border-amber-400 shadow-[0_0_12px_rgba(251,191,36,0.95)]" style={{ left: `${pricePct}%` }} />
+      </div>
+    </div>
+  );
+}
+
+function MultiTimeframeDashboard({ selectedSymbol, selectedTimeframe, currentSignal }) {
+  const { t } = useTranslation();
+  const signals = useTradeStore(state => state.signals[selectedSymbol]) || {};
+  const setSelectedTimeframe = useTradeStore(state => state.setSelectedTimeframe);
+
+  const timeframes = ['M1', 'M5', 'M15', 'H1'];
+
+  return (
+    <div className="panel-primary rounded-2xl flex flex-col relative overflow-hidden transition-all duration-500 p-4">
+      {/* Subtle top amber glow line */}
+      <div className="absolute top-0 left-0 right-0 h-[1px] bg-gradient-to-r from-transparent via-amber-400/30 to-transparent" />
+
+      {/* Header */}
+      <div className="flex items-center justify-between border-b border-white/[0.06] pb-2.5 mb-3">
+        <div className="flex items-center gap-2">
+          <Activity className="h-4 w-4 text-amber-500 animate-pulse" />
+          <span className="text-xs font-black text-white tracking-widest uppercase">
+            XU HƯỚNG ĐA KHUNG GIỜ
+          </span>
+        </div>
+        <span className="text-[9px] bg-amber-500/10 text-amber-500 px-1.5 py-0.5 rounded font-black tracking-widest font-mono">
+          MTF CONFLUENCE
+        </span>
+      </div>
+
+      {/* Grid of timeframes */}
+      <div className="flex flex-col gap-2">
+        {timeframes.map((tf) => {
+          const isSelected = selectedTimeframe === tf;
+          
+          let action = 'stale';
+          let source = 'System Webhook';
+          
+          if (isSelected) {
+            action = currentSignal?.action || 'stale';
+            source = 'Client Indicator';
+          } else {
+            action = signals[tf]?.action || 'stale';
+          }
+
+          // Format classes based on action
+          let badgeClass = 'bg-slate-900/50 border-slate-800 text-slate-500';
+          let trendText = 'STALE / CHỜ';
+          if (action === 'buy') {
+            badgeClass = 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400 font-black shadow-[0_0_12px_rgba(16,185,129,0.1)]';
+            trendText = 'BULLISH / TĂNG';
+          } else if (action === 'sell') {
+            badgeClass = 'bg-red-500/10 border-red-500/20 text-red-400 font-black shadow-[0_0_12px_rgba(239,68,68,0.1)]';
+            trendText = 'BEARISH / GIẢM';
+          }
+
+          return (
+            <button
+              key={tf}
+              onClick={() => setSelectedTimeframe(tf)}
+              className={`flex items-center justify-between p-2 rounded-xl border transition-all duration-300 cursor-pointer ${
+                isSelected 
+                  ? 'bg-amber-500/5 border-amber-500/30' 
+                  : 'bg-white/[0.02] border-white/[0.04] hover:bg-white/[0.04] hover:border-white/[0.08]'
+              }`}
+            >
+              <div className="flex items-center gap-2.5">
+                <span className={`w-8 text-center text-xs font-black font-mono py-1 rounded ${
+                  isSelected ? 'bg-amber-500 text-black' : 'bg-slate-800 text-slate-400'
+                }`}>
+                  {tf}
+                </span>
+                <span className="text-[9px] text-slate-500 font-mono font-bold">
+                  {source}
+                </span>
+              </div>
+              <div className={`px-2.5 py-1 rounded text-[10px] font-black border font-mono tracking-wide ${badgeClass}`}>
+                {trendText}
+              </div>
+            </button>
+          );
+        })}
+      </div>
+      
+      {/* Dynamic Confluence Tip */}
+      <div className="mt-3.5 pt-2.5 border-t border-white/[0.06] text-[10px] text-slate-500 font-bold text-left leading-relaxed">
+        💡 <span className="text-slate-400">Mẹo giao dịch:</span> Đợi tín hiệu đồng thuận ở cả khung giờ lớn (M15, H1) và khung giờ giao dịch (M1, M5) để đạt tỷ lệ thắng cao nhất, hạn chế đánh ngược xu hướng chính.
       </div>
     </div>
   );
@@ -750,6 +851,11 @@ export function TradingChart({ mobileTab }) {
   useEffect(() => {
     if (!isLoggedIn) return;
 
+    // Fetch tsunami signals, events and user settings
+    useTradeStore.getState().fetchTsunamiSignals();
+    useTradeStore.getState().fetchTsunamiEvents();
+    useTradeStore.getState().fetchUserSettings();
+
     const token = localStorage.getItem('auth_token');
     const socket = io(SOCKET_URL, {
       auth: { token }
@@ -796,6 +902,33 @@ export function TradingChart({ mobileTab }) {
       }));
     });
 
+    // Tsunami socket events
+    socket.on('tsunami_new_signal', (signal) => {
+      const state = useTradeStore.getState();
+      useTradeStore.setState(prev => ({
+        tsunamiSignals: [signal, ...prev.tsunamiSignals].slice(0, 100)
+      }));
+      if (state.selectedIndicatorSystem === 'tsunami') {
+        useTradeStore.setState({ currentSignal: signal });
+      }
+    });
+
+    socket.on('tsunami_signal_update', (updatedSignal) => {
+      const state = useTradeStore.getState();
+      useTradeStore.setState(prev => ({
+        tsunamiSignals: prev.tsunamiSignals.map(s => s.id === updatedSignal.id ? updatedSignal : s)
+      }));
+      if (state.selectedIndicatorSystem === 'tsunami' && state.currentSignal?.id === updatedSignal.id) {
+        useTradeStore.setState({ currentSignal: updatedSignal });
+      }
+    });
+
+    socket.on('tsunami_event', (event) => {
+      useTradeStore.setState(prev => ({
+        tsunamiEvents: [event, ...prev.tsunamiEvents].slice(0, 150)
+      }));
+    });
+
     socket.on('price_update', (data) => {
       const state = useTradeStore.getState();
       const currentSelectedSymbol = state.selectedSymbol;
@@ -821,6 +954,7 @@ export function TradingChart({ mobileTab }) {
           const history = candlesHistoryRef.current;
           const lastCandle = history[history.length - 1];
           let updated = false;
+          let isNewCandle = false;
 
           if (lastCandle.time === data.candle.time) {
             lastCandle.close = data.candle.close;
@@ -831,11 +965,10 @@ export function TradingChart({ mobileTab }) {
             history.push(data.candle);
             if (history.length > 200) history.shift();
             updated = true;
+            isNewCandle = true;
           }
 
           if (updated) {
-            // Only sync Zustand store on new candle open (not every tick) — avoids re-renders
-            const isNewCandle = data.candle.time > (history[history.length - 2]?.time ?? 0);
             if (isNewCandle) {
               useTradeStore.getState().setCandlesHistory([...history]);
               // Only bump historyCount on actual new candle (triggers signal recalc)
@@ -1608,7 +1741,17 @@ export function TradingChart({ mobileTab }) {
   // Sync latest signal with Zustand store so that App.jsx can read it
   // NOTE: livePrice intentionally excluded from deps — signal should only update
   // when a new candle CLOSES (historyCount changes), not on every live tick.
-  const currentSignal = useMemo(() => {
+  const currentSignal = useTradeStore(state => state.currentSignal) || { action: 'stale', entry: 0, sl: 0, tp: 0, confidence: 0 };
+  const tsunamiSignals = useTradeStore(state => state.tsunamiSignals);
+  const historyCount = useTradeStore(state => state.historyCount);
+
+  useEffect(() => {
+    if (selectedIndicatorSystem === 'tsunami') {
+      const sig = tsunamiSignals[0] || { action: 'stale', entry: 0, sl: 0, tps: [], confidence: 100 };
+      useTradeStore.setState({ currentSignal: sig });
+      return;
+    }
+
     const history = candlesHistoryRef.current || [];
     const sig = getCurrentSignal({
       history,
@@ -1624,12 +1767,7 @@ export function TradingChart({ mobileTab }) {
       trendlineSlopeMult,
     });
 
-    // Defer the Zustand state update to prevent React render warnings (updating store while rendering)
-    setTimeout(() => {
-      useTradeStore.setState({ currentSignal: sig });
-    }, 0);
-
-    return sig;
+    useTradeStore.setState({ currentSignal: sig });
   }, [
     selectedSymbol,
     selectedTimeframe,
@@ -1642,8 +1780,8 @@ export function TradingChart({ mobileTab }) {
     chandelierAtrMultiplier,
     trendlineLength,
     trendlineSlopeMult,
-    // livePrice intentionally removed — entry/SL/TP must be stable after signal fires
-    useTradeStore((state) => state.historyCount)
+    tsunamiSignals,
+    historyCount
   ]);
 
   const psychologyScore = useMemo(() => {
@@ -1846,13 +1984,31 @@ export function TradingChart({ mobileTab }) {
               </div>
 
               {/* Take Profit (TP) */}
-              <div className="flex items-center justify-between px-4 py-3 hover:bg-emerald-950/5 transition-all duration-300">
-                <div className="flex items-center gap-2">
-                  <div className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
-                  <span className="text-[11px] font-black text-slate-400 uppercase tracking-wider">TAKE PROFIT</span>
+              {selectedIndicatorSystem === 'tsunami' ? (
+                (currentSignal.tps || []).map((tpVal, idx) => {
+                  const isHit = currentSignal.hitTps && currentSignal.hitTps[idx];
+                  return (
+                    <div key={idx} className={`flex items-center justify-between px-4 py-2.5 hover:bg-emerald-950/5 transition-all duration-300 ${isHit ? 'bg-emerald-950/10' : ''}`}>
+                      <div className="flex items-center gap-2">
+                        <div className={`w-1.5 h-1.5 rounded-full ${isHit ? 'bg-emerald-400 shadow-[0_0_8px_#34d399]' : 'bg-slate-500'}`} />
+                        <span className={`text-[11px] font-black uppercase tracking-wider ${isHit ? 'text-emerald-400' : 'text-slate-400'}`}>TAKE PROFIT {idx + 1}</span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        {isHit && <span className="text-[9px] bg-emerald-500/20 text-emerald-400 px-1 py-0.5 rounded font-black font-mono">HIT</span>}
+                        <span className={`text-base font-mono font-black tracking-tighter ${isHit ? 'text-emerald-400' : 'text-white'}`}>{formatPrice(tpVal)}</span>
+                      </div>
+                    </div>
+                  );
+                })
+              ) : (
+                <div className="flex items-center justify-between px-4 py-3 hover:bg-emerald-950/5 transition-all duration-300">
+                  <div className="flex items-center gap-2">
+                    <div className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                    <span className="text-[11px] font-black text-slate-400 uppercase tracking-wider">TAKE PROFIT</span>
+                  </div>
+                  <span className="text-base font-mono font-black text-emerald-400 tracking-tighter">{formatPrice(currentSignal.tp)}</span>
                 </div>
-                <span className="text-base font-mono font-black text-emerald-400 tracking-tighter">{formatPrice(currentSignal.tp)}</span>
-              </div>
+              )}
             </div>
 
             {/* ── LIVE PRICE POSITION GAUGE (SL ↔ live ↔ TP) ── */}
@@ -1918,7 +2074,14 @@ export function TradingChart({ mobileTab }) {
           </div>
         </div>
 
-        {/* 2. TRADER PSYCHOLOGY CARD */}
+        {/* 2. MULTI-TIMEFRAME TREND DASHBOARD */}
+        <MultiTimeframeDashboard
+          selectedSymbol={selectedSymbol}
+          selectedTimeframe={selectedTimeframe}
+          currentSignal={currentSignal}
+        />
+
+        {/* 3. TRADER PSYCHOLOGY CARD */}
         <div className="panel-primary rounded-2xl flex flex-col relative overflow-hidden transition-all duration-500">
           
           {/* Subtle neon glowing aura */}
@@ -2207,6 +2370,7 @@ export function TradingChart({ mobileTab }) {
                   <option value="utbot" className="bg-[#0b0f19] text-white">UT Bot</option>
                   <option value="chandelier" className="bg-[#0b0f19] text-white">Chandelier</option>
                   <option value="trendline" className="bg-[#0b0f19] text-white">Trendlines</option>
+                  <option value="tsunami" className="bg-[#0b0f19] text-white">TSUNAMI (Telegram)</option>
                 </select>
                 <div className="absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none text-amber-500/80 text-[8px]">▼</div>
               </div>
@@ -2414,9 +2578,152 @@ export function TradingChart({ mobileTab }) {
                 <div ref={macdChartContainerRef} className="w-full h-28 relative rounded-xl overflow-hidden" />
               </div>
             )}
+            
+            {/* Tsunami Console Board */}
+            {selectedIndicatorSystem === 'tsunami' && (
+              <TsunamiConsoleBoard />
+            )}
           </div>
         </div>
       </div>
     </>
+  );
+}
+
+function TsunamiConsoleBoard() {
+  const [activeTab, setActiveTab] = React.useState('active_trades');
+  const tsunamiSignals = useTradeStore(state => state.tsunamiSignals) || [];
+  const tsunamiEvents = useTradeStore(state => state.tsunamiEvents) || [];
+
+  const activeTrades = tsunamiSignals.filter(s => s.status === 'active' || s.status === 'hit_tp');
+  
+  return (
+    <div className="panel-primary rounded-2xl border border-amber-500/10 bg-slate-950/40 p-4 mt-6 text-left flex flex-col gap-4">
+      {/* Header with Tabs */}
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 border-b border-white/[0.06] pb-3">
+        <div className="flex items-center gap-2">
+          <div className="h-2 w-2 rounded-full bg-amber-500 animate-ping" />
+          <h3 className="text-sm font-black text-white uppercase tracking-wider font-mono">TSUNAMI CONSOLE</h3>
+        </div>
+        <div className="flex gap-1.5 bg-white/[0.03] border border-white/[0.08] p-0.5 rounded-lg">
+          <button
+            onClick={() => setActiveTab('active_trades')}
+            className={`px-3 py-1 rounded text-xs font-black transition-all ${
+              activeTab === 'active_trades' ? 'bg-amber-500 text-black font-black shadow-[0_0_12px_rgba(234,179,8,0.25)]' : 'text-slate-400 hover:text-slate-200'
+            }`}
+          >
+            Lệnh Đang Chạy ({activeTrades.length})
+          </button>
+          <button
+            onClick={() => setActiveTab('live_logs')}
+            className={`px-3 py-1 rounded text-xs font-black transition-all ${
+              activeTab === 'live_logs' ? 'bg-amber-500 text-black font-black shadow-[0_0_12px_rgba(234,179,8,0.25)]' : 'text-slate-400 hover:text-slate-200'
+            }`}
+          >
+            Nhật Ký Sự Kiện ({tsunamiEvents.length})
+          </button>
+        </div>
+      </div>
+
+      {/* Content Area */}
+      <div className="min-h-[180px] max-h-[250px] overflow-y-auto pr-1">
+        {activeTab === 'active_trades' ? (
+          activeTrades.length === 0 ? (
+            <div className="flex flex-col items-center justify-center h-[180px] text-slate-500 text-xs font-bold gap-2">
+              <Clock className="h-6 w-6 text-slate-600 animate-pulse" />
+              <span>Hiện không có tín hiệu Sóng Thần nào đang chạy</span>
+            </div>
+          ) : (
+            <div className="overflow-x-auto w-full">
+              <table className="w-full text-xs font-medium border-collapse text-slate-300">
+                <thead>
+                  <tr className="border-b border-white/[0.04] text-[10px] font-black text-slate-500 uppercase tracking-widest">
+                    <th className="py-2.5 text-left font-black">Thời gian</th>
+                    <th className="py-2.5 text-left font-black">Cặp tài sản</th>
+                    <th className="py-2.5 text-left font-black">Lệnh</th>
+                    <th className="py-2.5 text-right font-black">Entry</th>
+                    <th className="py-2.5 text-right font-black">Stop Loss</th>
+                    <th className="py-2.5 text-left font-black pl-4">Take Profits (TP1 - TP5)</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-white/[0.02]">
+                  {activeTrades.map(trade => {
+                    const isBuy = trade.action === 'buy';
+                    return (
+                      <tr key={trade.id} className="hover:bg-white/[0.02] transition-colors">
+                        <td className="py-3 font-mono text-slate-400">{trade.timeString || '---'}</td>
+                        <td className="py-3 font-mono font-black text-white">{trade.symbol}</td>
+                        <td className="py-3">
+                          <span className={`px-2 py-0.5 rounded font-black text-[10px] uppercase font-mono ${
+                            isBuy ? 'bg-amber-500/10 border border-amber-500/20 text-amber-500' : 'bg-red-500/10 border border-red-500/20 text-red-500'
+                          }`}>
+                            {trade.action.toUpperCase()}
+                          </span>
+                        </td>
+                        <td className="py-3 text-right font-mono text-white font-bold">{trade.entry}</td>
+                        <td className="py-3 text-right font-mono text-red-400 font-bold">{trade.sl || '---'}</td>
+                        <td className="py-3 pl-4">
+                          <div className="flex flex-wrap gap-1.5">
+                            {trade.tps.map((tpVal, idx) => {
+                              const hit = trade.hitTps && trade.hitTps[idx];
+                              return (
+                                <span key={idx} className={`px-1.5 py-0.5 rounded border text-[9px] font-bold font-mono ${
+                                  hit 
+                                    ? 'bg-emerald-500/15 border-emerald-500/30 text-emerald-400 shadow-[0_0_8px_rgba(16,185,129,0.15)]' 
+                                    : 'bg-slate-900/40 border-zinc-900/60 text-slate-500'
+                                }`}>
+                                  TP{idx + 1}: {tpVal}
+                                </span>
+                              );
+                            })}
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )
+        ) : (
+          /* Live events log */
+          tsunamiEvents.length === 0 ? (
+            <div className="flex flex-col items-center justify-center h-[180px] text-slate-500 text-xs font-bold gap-2">
+              <Activity className="h-6 w-6 text-slate-600" />
+              <span>Chưa có lịch sử sự kiện hit SL/TP nào được ghi nhận</span>
+            </div>
+          ) : (
+            <div className="flex flex-col gap-1.5 font-mono text-xs text-slate-300">
+              {tsunamiEvents.map(event => {
+                const isTp = event.type === 'EVENT_TP';
+                const logTime = event.timeString || new Date(event.timestamp).toLocaleTimeString('vi-VN');
+                return (
+                  <div key={event.id} className="flex items-center gap-2 hover:bg-white/[0.02] p-1 rounded transition-all">
+                    <span className="text-slate-600 font-bold">[{logTime}]</span>
+                    <span className="text-white font-black">{event.symbol}</span>
+                    <span className={`px-1.5 py-0.2 text-[9px] rounded font-black uppercase ${
+                      event.action === 'buy' ? 'bg-amber-500/10 text-amber-500' : 'bg-red-500/10 text-red-500'
+                    }`}>
+                      {event.action.toUpperCase()}
+                    </span>
+                    <span className="text-slate-400">Entry {event.entry}</span>
+                    <span className="text-slate-600">→</span>
+                    {isTp ? (
+                      <span className="text-emerald-400 font-bold">
+                        Hit TP{event.tpLevel} tại {event.hitPrice} (+{event.pips} pips)
+                      </span>
+                    ) : (
+                      <span className="text-red-400 font-bold">
+                        Hit SL tại {event.hitPrice} ({event.pips} pips)
+                      </span>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )
+        )}
+      </div>
+    </div>
   );
 }

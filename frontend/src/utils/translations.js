@@ -30,6 +30,7 @@ export const translations = {
     capitalManagement: "Quản Lý Vốn",
     economicCalendar: "Economic Calendar",
     autoTrade: "Auto Trade",
+    vpsFarm: "MT5 VPS Farm",
 
     // Live Trading Board
     liveTradingBoard: "Live Trading Board",
@@ -266,6 +267,7 @@ export const translations = {
     capitalManagement: "Capital Management",
     economicCalendar: "Economic Calendar",
     autoTrade: "Auto Trade",
+    vpsFarm: "MT5 VPS Farm",
 
     // Live Trading Board
     liveTradingBoard: "Live Trading Board",

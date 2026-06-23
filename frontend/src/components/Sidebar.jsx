@@ -13,7 +13,8 @@ import {
   Calendar,
   HelpCircle,
   Sparkles,
-  Coins
+  Coins,
+  Server
 } from 'lucide-react';
 import { useTradeStore } from '../store/useTradeStore';
 import { useTranslation } from '../utils/translations';
@@ -103,6 +104,24 @@ export function Sidebar() {
               <span className={`transition-all duration-300 whitespace-nowrap text-left ${isSidebarHovered ? 'opacity-100' : 'opacity-0 w-0 pointer-events-none'}`}>{t('autoTrade')}</span>
             </button>
             {currentView === 'autotrade' && (
+              <div className="absolute left-0 top-2 bottom-2 w-[3px] bg-amber-500 rounded-r" />
+            )}
+          </div>
+
+          {/* MT5 VPS Farm Tab */}
+          <div className="relative">
+            <button 
+              onClick={() => setCurrentView('vpsfarm')}
+              className={`w-full flex items-center gap-4 py-2.5 px-3 rounded-xl transition-all cursor-pointer ${
+                currentView === 'vpsfarm'
+                  ? 'bg-amber-500/10 border border-amber-500/20 text-amber-500 text-xs font-black'
+                  : 'text-slate-400 hover:text-white hover:bg-slate-900/40 text-xs font-bold border border-transparent'
+              }`}
+            >
+              <Server className={`h-5 w-5 min-w-[20px] ${currentView === 'vpsfarm' ? 'text-amber-500' : 'text-slate-400'}`} />
+              <span className={`transition-all duration-300 whitespace-nowrap text-left ${isSidebarHovered ? 'opacity-100' : 'opacity-0 w-0 pointer-events-none'}`}>{t('vpsFarm')}</span>
+            </button>
+            {currentView === 'vpsfarm' && (
               <div className="absolute left-0 top-2 bottom-2 w-[3px] bg-amber-500 rounded-r" />
             )}
           </div>

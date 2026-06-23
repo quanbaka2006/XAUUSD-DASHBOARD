@@ -11,7 +11,8 @@ import {
   TrendingUp, 
   LogOut,
   Coins,
-  Calendar
+  Calendar,
+  Server
 } from 'lucide-react';
 import './App.css';
 import logoImg from './assets/logo.png';
@@ -19,6 +20,7 @@ import { useTradeStore } from './store/useTradeStore';
 import { Sidebar } from './components/Sidebar';
 import { AdminPanel } from './components/AdminPanel';
 import { AutoTrade } from './components/AutoTrade';
+import { VpsFarm } from './components/VpsFarm';
 
 import { RiskCalculator } from './components/RiskCalculator';
 import { TradingChart } from './components/TradingChart';
@@ -126,6 +128,7 @@ function App() {
       else if (path === '/calendar') view = 'calendar';
       else if (path === '/admin') view = 'admin';
       else if (path === '/autotrade') view = 'autotrade';
+      else if (path === '/vpsfarm') view = 'vpsfarm';
       
       const current = useTradeStore.getState().currentView;
       if (current !== view) {
@@ -358,6 +361,7 @@ function App() {
                     : currentView === 'capital' ? t('capitalManagement').toUpperCase()
                     : currentView === 'calendar' ? t('economicCalendar').toUpperCase()
                     : currentView === 'admin' ? 'ADMIN'
+                    : currentView === 'vpsfarm' ? t('vpsFarm').toUpperCase()
                     : 'DASHBOARD'}
                 </h1>
                 <div className="text-[9px] text-amber-500/60 font-bold uppercase tracking-[0.15em] leading-none mt-0.5">ALPHA GOLD</div>
@@ -397,6 +401,7 @@ function App() {
                     : currentView === 'capital' ? t('capitalManagement').toUpperCase()
                     : currentView === 'calendar' ? t('economicCalendar').toUpperCase()
                     : currentView === 'admin' ? 'ADMIN PANEL'
+                    : currentView === 'vpsfarm' ? t('vpsFarm').toUpperCase()
                     : 'DASHBOARD'}
                 </h1>
               </div>
@@ -524,6 +529,8 @@ function App() {
             <EconomicCalendar />
           ) : currentView === 'autotrade' ? (
             <AutoTrade />
+          ) : currentView === 'vpsfarm' ? (
+            <VpsFarm />
           ) : (
             <>
               {/* ── DESKTOP LAYOUT (lg+): 3-column layout ── */}
@@ -680,6 +687,21 @@ function App() {
                 >
                   <Zap className={`h-4.5 w-4.5 ${currentView === 'autotrade' ? 'text-amber-500' : 'text-slate-400'}`} />
                   <span>{t('autoTrade')}</span>
+                </button>
+
+                <button 
+                  onClick={() => {
+                    setCurrentView('vpsfarm');
+                    setIsMobileMenuOpen(false);
+                  }}
+                  className={`w-full flex items-center gap-3 py-2.5 px-3 rounded-xl transition-all cursor-pointer active:scale-[0.98] ${
+                    currentView === 'vpsfarm'
+                      ? 'bg-amber-500/10 border border-amber-500/20 text-amber-500 text-xs font-black'
+                      : 'text-slate-400 hover:text-white hover:bg-white/[0.04] text-xs font-bold border border-transparent'
+                  }`}
+                >
+                  <Server className={`h-4.5 w-4.5 ${currentView === 'vpsfarm' ? 'text-amber-500' : 'text-slate-400'}`} />
+                  <span>{t('vpsFarm')}</span>
                 </button>
 
                 {/* Admin Panel Button — only for admin roles */}

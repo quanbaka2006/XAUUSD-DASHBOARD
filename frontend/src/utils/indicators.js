@@ -438,7 +438,20 @@ export function getCurrentSignal({
   trendlineSlopeMult,
   livePrice
 }) {
-  if (!history || history.length < 20) {
+  if (!history || history.length < 21) {
+    return {
+      action: 'stale',
+      entry: 0,
+      sl: 0,
+      tp: 0,
+      confidence: 0,
+      timestamp: Date.now()
+    };
+  }
+
+  // Use only closed candles (excluding the last one which is active and fluctuating with livePrice)
+  const closedHistory = history.slice(0, -1);
+  if (closedHistory.length < 20) {
     return {
       action: 'stale',
       entry: 0,
@@ -452,7 +465,7 @@ export function getCurrentSignal({
   let rawSignal = null;
 
   if (selectedIndicatorSystem === 'zen') {
-    const zenData = calculateZenTrendLines(history, zenFastPeriod, zenSlowPeriod);
+    const zenData = calculateZenTrendLines(closedHistory, zenFastPeriod, zenSlowPeriod);
     if (zenData.length === 0) return { action: 'stale', entry: 0, sl: 0, tp: 0, confidence: 0, timestamp: Date.now() };
     const last = zenData[zenData.length - 1];
     const action = last.trend === 'bullish' ? 'buy' : 'sell';
@@ -465,8 +478,8 @@ export function getCurrentSignal({
         break;
       }
     }
-    crossoverIdx = Math.min(crossoverIdx, history.length - 1);
-    const entry = history[crossoverIdx].close;
+    crossoverIdx = Math.min(crossoverIdx, closedHistory.length - 1);
+    const entry = closedHistory[crossoverIdx].close;
 
     const diffPercent = Math.abs(last.fast - last.slow) / last.slow * 100;
     const confidence = Math.min(95, Math.max(65, Math.round(65 + diffPercent * 50)));
@@ -480,7 +493,7 @@ export function getCurrentSignal({
   }
 
   if (selectedIndicatorSystem === 'utbot') {
-    const utData = calculateUTBotSignals(history, utBotKeyValue, utBotAtrPeriod);
+    const utData = calculateUTBotSignals(closedHistory, utBotKeyValue, utBotAtrPeriod);
     if (utData.length === 0) return { action: 'stale', entry: 0, sl: 0, tp: 0, confidence: 0, timestamp: Date.now() };
     
     let triggerIdx = -1;
@@ -493,7 +506,7 @@ export function getCurrentSignal({
 
     if (triggerIdx === -1) {
       const last = utData[utData.length - 1];
-      const entryCandle = history.length >= 2 ? history[history.length - 2] : history[history.length - 1];
+      const entryCandle = closedHistory.length >= 2 ? closedHistory[closedHistory.length - 2] : closedHistory[closedHistory.length - 1];
       const action = entryCandle.close >= (last.trailingStop || entryCandle.close) ? 'buy' : 'sell';
       const entry = parseFloat(entryCandle.close.toFixed(2));
       rawSignal = {
@@ -505,7 +518,7 @@ export function getCurrentSignal({
     } else {
       const trigger = utData[triggerIdx];
       const action = trigger.buy ? 'buy' : 'sell';
-      const entry = parseFloat(history[triggerIdx].close.toFixed(2));
+      const entry = parseFloat(closedHistory[triggerIdx].close.toFixed(2));
       const age = utData.length - 1 - triggerIdx;
       const confidence = Math.max(60, Math.min(94, 90 - age));
 
@@ -519,7 +532,7 @@ export function getCurrentSignal({
   }
 
   if (selectedIndicatorSystem === 'chandelier') {
-    const chData = calculateChandelierExit(history, chandelierAtrPeriod, chandelierAtrMultiplier);
+    const chData = calculateChandelierExit(closedHistory, chandelierAtrPeriod, chandelierAtrMultiplier);
     if (chData.length === 0) return { action: 'stale', entry: 0, sl: 0, tp: 0, confidence: 0, timestamp: Date.now() };
 
     let triggerIdx = -1;
@@ -532,7 +545,7 @@ export function getCurrentSignal({
 
     if (triggerIdx === -1) {
       const last = chData[chData.length - 1];
-      const entryCandle = history.length >= 2 ? history[history.length - 2] : history[history.length - 1];
+      const entryCandle = closedHistory.length >= 2 ? closedHistory[closedHistory.length - 2] : closedHistory[closedHistory.length - 1];
       const action = last.dir === 1 ? 'buy' : 'sell';
       const entry = parseFloat(entryCandle.close.toFixed(2));
       rawSignal = {
@@ -544,7 +557,7 @@ export function getCurrentSignal({
     } else {
       const trigger = chData[triggerIdx];
       const action = trigger.buy ? 'buy' : 'sell';
-      const entry = parseFloat(history[triggerIdx].close.toFixed(2));
+      const entry = parseFloat(closedHistory[triggerIdx].close.toFixed(2));
       const age = chData.length - 1 - triggerIdx;
       const confidence = Math.max(60, Math.min(94, 90 - age));
 
@@ -558,7 +571,7 @@ export function getCurrentSignal({
   }
 
   if (selectedIndicatorSystem === 'trendline') {
-    const tlData = calculateTrendlinesWithBreaks(history, trendlineLength, trendlineSlopeMult);
+    const tlData = calculateTrendlinesWithBreaks(closedHistory, trendlineLength, trendlineSlopeMult);
     if (tlData.length === 0) return { action: 'stale', entry: 0, sl: 0, tp: 0, confidence: 0, timestamp: Date.now() };
 
     let triggerIdx = -1;
@@ -571,7 +584,7 @@ export function getCurrentSignal({
 
     if (triggerIdx === -1) {
       const last = tlData[tlData.length - 1];
-      const entryCandle = history.length >= 2 ? history[history.length - 2] : history[history.length - 1];
+      const entryCandle = closedHistory.length >= 2 ? closedHistory[closedHistory.length - 2] : closedHistory[closedHistory.length - 1];
       const action = last.upper && entryCandle.close > last.upper ? 'buy' : 'sell';
       const entry = parseFloat(entryCandle.close.toFixed(2));
       rawSignal = {
@@ -583,7 +596,7 @@ export function getCurrentSignal({
     } else {
       const trigger = tlData[triggerIdx];
       const action = trigger.buy ? 'buy' : 'sell';
-      const entry = parseFloat(history[triggerIdx].close.toFixed(2));
+      const entry = parseFloat(closedHistory[triggerIdx].close.toFixed(2));
       const age = tlData.length - 1 - triggerIdx;
       const confidence = Math.max(60, Math.min(94, 85 - age));
 

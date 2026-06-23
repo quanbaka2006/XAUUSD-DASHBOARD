@@ -11,6 +11,10 @@ const helmet = require('helmet');
 const hpp = require('hpp');
 const { rateLimit } = require('express-rate-limit');
 const slowDown = require('express-slow-down');
+const vpsManager = require('./vpsManager');
+const net = require('net');
+const { initTelegramScraper } = require('./telegramScraper');
+let tsunamiScraper = null;
 
 // Load .env file for local development
 try { require('dotenv').config(); } catch(e) {}
@@ -89,7 +93,7 @@ if (!process.env.JWT_SECRET) {
 
 // Allowed browser origins for CORS (comma-separated env override supported)
 const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS ||
-  'https://alphagoldhub.com,https://www.alphagoldhub.com,https://xauusd-dashboard-izrr.onrender.com,http://localhost:5173')
+  'https://alphagoldhub.com,https://www.alphagoldhub.com,https://xauusd-dashboard-izrr.onrender.com,http://localhost:5173,http://localhost:3000,http://localhost:3001')
   .split(',').map(o => o.trim()).filter(Boolean);
 
 // Allow same-origin / server-to-server (no Origin header) + whitelisted origins
@@ -428,10 +432,10 @@ SYMBOLS.forEach((sym) => {
   const pH1_tp = parseFloat((pH1_entry + settings.tp).toFixed(dec));
 
   signals[sym] = {
-    'M1':  { ticker: sym, interval: 'M1',  action: 'buy',   entry: pM1_entry, sl: pM1_sl, tp: pM1_tp, confidence: 84, timestamp: Date.now()-2*60*1000 },
-    'M5':  { ticker: sym, interval: 'M5',  action: 'buy',   entry: pM5_entry, sl: pM5_sl, tp: pM5_tp, confidence: 76, timestamp: Date.now()-8*60*1000 },
-    'M15': { ticker: sym, interval: 'M15', action: 'sell',  entry: pM15_entry, sl: pM15_sl, tp: pM15_tp, confidence: 89, timestamp: Date.now()-10*60*1000 },
-    'H1':  { ticker: sym, interval: 'H1',  action: 'stale', entry: pH1_entry, sl: pH1_sl, tp: pH1_tp, confidence: 65, timestamp: Date.now()-45*60*1000 }
+    'M1':  { ticker: sym, interval: 'M1',  action: 'stale', entry: 0, sl: 0, tp: 0, confidence: 0, timestamp: Date.now() },
+    'M5':  { ticker: sym, interval: 'M5',  action: 'stale', entry: 0, sl: 0, tp: 0, confidence: 0, timestamp: Date.now() },
+    'M15': { ticker: sym, interval: 'M15', action: 'stale', entry: 0, sl: 0, tp: 0, confidence: 0, timestamp: Date.now() },
+    'H1':  { ticker: sym, interval: 'H1',  action: 'stale', entry: 0, sl: 0, tp: 0, confidence: 0, timestamp: Date.now() }
   };
   candleHistory[sym] = { 'M1': [], 'M5': [], 'M15': [], 'H1': [] };
   activeCandles[sym] = { 'M1': null, 'M5': null, 'M15': null, 'H1': null };
@@ -1232,144 +1236,70 @@ async function checkAdminGuard(req, res, next) {
   return res.status(403).json({ success: false, error: 'Forbidden: Bạn không có quyền thực hiện thao tác này.' });
 }
 
-// ==========================================
 // Telegram Bot Integration & Auto-Execution Logic
 // ==========================================
 
-const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
-let lastTelegramUpdateId = 0;
+const { initTelegramBot, sendTelegramNotification, broadcastManualSignalAlert } = require('./telegramBot');
 
-async function sendTelegramNotification(userId, message) {
-  if (!TELEGRAM_BOT_TOKEN) return;
+initTelegramBot({
+  loadUsers,
+  saveUsers,
+  getDb: () => db,
+  getUseMongoDB: () => useMongoDB,
+  vpsManager,
+  decryptPassword,
+  encryptPassword,
+  getSignals: () => signals,
+  getCurrentPrices: () => currentPrices,
+  getTcpClients: () => tcpClients,
+  calculateCustomSlTp
+});
+
+function calculateCustomSlTp(action, entryPrice, slPoints, tpPoints, symbol) {
+  const isBuy = String(action).toLowerCase() === 'buy';
+  const entry = parseFloat(entryPrice);
+  if (isNaN(entry)) return { slPrice: 0, tpPrice: 0 };
   
-  try {
-    let chatId = null;
-    if (useMongoDB) {
-      const user = await db.collection('users').findOne({ username: userId });
-      if (user && user.telegramChatId) {
-        chatId = user.telegramChatId;
-      }
-    } else {
-      const users = await loadUsers();
-      const user = users.find(u => u.username.toLowerCase() === String(userId).toLowerCase());
-      if (user && user.telegramChatId) {
-        chatId = user.telegramChatId;
-      }
-    }
-    
-    if (!chatId && /^\d+$/.test(userId)) {
-      chatId = userId;
-    }
-    
-    if (!chatId) {
-      console.log(`[Telegram] Skipped: No Chat ID linked for user ${userId}`);
-      return;
-    }
-    
-    const url = `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`;
-    const response = await fetchJson(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: {
-        chat_id: chatId,
-        text: message,
-        parse_mode: 'Markdown'
-      }
-    });
-    
-    if (!response.ok) {
-      const errText = await response.json();
-      console.error('[Telegram] Send failed:', errText);
-    }
-  } catch (err) {
-    console.error('[Telegram] Notification error:', err.message);
+  let pointValue = 0.01; // default
+  const sym = String(symbol).toUpperCase();
+  if (sym.includes('XAU') || sym.includes('GOLD')) {
+    pointValue = 0.1;
+  } else if (sym.includes('BTC')) {
+    pointValue = 1.0;
+  } else if (sym.includes('ETH')) {
+    pointValue = 0.1;
+  } else if (sym.includes('WTI') || sym.includes('OIL')) {
+    pointValue = 0.01;
+  } else if (sym.includes('XAG') || sym.includes('SILVER')) {
+    pointValue = 0.01;
+  } else {
+    if (entry > 1000) pointValue = 1.0;
+    else if (entry > 100) pointValue = 0.1;
+    else pointValue = 0.01;
   }
-}
-
-async function pollTelegramUpdates() {
-  if (!TELEGRAM_BOT_TOKEN) return;
-  console.log('[Telegram] Polling call...');
-  try {
-    const url = `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/getUpdates?offset=${lastTelegramUpdateId + 1}&timeout=10`;
-    const response = await fetchJson(url);
-    if (response.ok) {
-      const result = await response.json();
-      const updates = result.result || [];
-      if (updates.length > 0) {
-        console.log(`[Telegram] Received ${updates.length} updates`);
-      }
-      for (const update of updates) {
-        lastTelegramUpdateId = update.update_id;
-        
-        const message = update.message;
-        if (!message || !message.text) continue;
-        
-        const text = message.text.trim();
-        const chatId = message.chat.id;
-        
-        if (text.startsWith('/start')) {
-          const parts = text.split(' ');
-          if (parts.length > 1) {
-            const username = parts[1].trim().toLowerCase();
-            console.log(`[Telegram] User ${username} sent /start. Linking to Chat ID: ${chatId}`);
-            
-            let success = false;
-            if (useMongoDB) {
-              const res = await db.collection('users').updateOne(
-                { username: username },
-                { $set: { telegramChatId: String(chatId) } }
-              );
-              success = res.matchedCount > 0;
-            } else {
-              const users = await loadUsers();
-              const idx = users.findIndex(u => u.username.toLowerCase() === username);
-              if (idx !== -1) {
-                users[idx].telegramChatId = String(chatId);
-                await saveUsers(users);
-                success = true;
-              }
-            }
-            
-            if (success) {
-              await sendTelegramNotification(
-                String(chatId), 
-                `✅ *[ALPHA GOLD]*\n\nTài khoản của bạn (*${username}*) đã được liên kết thành công với Telegram! Bạn sẽ nhận được thông báo giao dịch tự động tại đây.`
-              );
-            } else {
-              await sendTelegramNotification(
-                String(chatId), 
-                `❌ *[ALPHA GOLD]*\n\nKhông tìm thấy tài khoản username *${username}* trong hệ thống. Vui lòng kiểm tra lại.`
-              );
-            }
-          } else {
-            const welcomeMsg = `👋 *Chào mừng bạn đến với Alpha Gold Auto-Execution!*\n\n` +
-              `Để liên kết tài khoản và nhận thông báo, vui lòng truy cập trang web Alpha Gold, vào phần Profile lấy liên kết hoặc gõ theo cú pháp:\n` +
-              `\`/start <tên_đăng_nhập_của_bạn>\`\n\n` +
-              `Ví dụ: \`/start admin\``;
-            await sendTelegramNotification(String(chatId), welcomeMsg);
-          }
-        }
-      }
-    }
-  } catch (err) {
-    console.error('[Telegram] Polling error:', err.message || err);
+  
+  let slPrice = 0;
+  let tpPrice = 0;
+  
+  if (slPoints && slPoints > 0) {
+    slPrice = isBuy ? (entry - slPoints * pointValue) : (entry + slPoints * pointValue);
+    slPrice = parseFloat(slPrice.toFixed(5));
   }
-}
-
-// Start Telegram polling every 5 seconds
-if (TELEGRAM_BOT_TOKEN) {
-  setInterval(pollTelegramUpdates, 5000);
-  console.log('[Telegram] Bot polling active.');
+  if (tpPoints && tpPoints > 0) {
+    tpPrice = isBuy ? (entry + tpPoints * pointValue) : (entry - tpPoints * pointValue);
+    tpPrice = parseFloat(tpPrice.toFixed(5));
+  }
+  
+  return { slPrice, tpPrice };
 }
 
 async function executeSignalOnAllAccounts(signal) {
-  if (!metaApi) {
-    console.warn('[Auto-Execution] Skipped: MetaApi not initialized.');
-    return;
-  }
-  
   const { ticker, action, entry, sl, tp } = signal;
   console.log(`[Auto-Execution] Processing signal for ${ticker} (${action}) - Entry: ${entry}, SL: ${sl}, TP: ${tp}`);
+  
+  let symbol = ticker;
+  if (symbol === 'BTCUSD') symbol = 'BTCUSDT';
+  if (symbol === 'ETHUSD') symbol = 'ETHUSDT'; 
   
   let accounts = [];
   if (useMongoDB) {
@@ -1377,7 +1307,6 @@ async function executeSignalOnAllAccounts(signal) {
       accounts = await db.collection('mt5_accounts').find({}).toArray();
     } catch(err) {
       console.error('[Auto-Execution] Failed to load accounts from DB:', err.message);
-      return;
     }
   } else {
     const testId = process.env.TEST_MT5_ACCOUNT_ID;
@@ -1392,83 +1321,127 @@ async function executeSignalOnAllAccounts(signal) {
     }
   }
   
-  if (accounts.length === 0) {
-    console.log('[Auto-Execution] No active MT5 accounts to copy trade.');
-    return;
+  // 1. Execute via MetaApi (if configured and account is not a VPS Farm account)
+  if (metaApi && accounts.length > 0) {
+    const metaApiAccounts = accounts.filter(acc => !acc.useVpsFarm && acc.metaApiAccountId);
+    metaApiAccounts.forEach(async (acc) => {
+      try {
+        const accountId = acc.metaApiAccountId;
+        console.log(`[Auto-Execution] Copying trade to MT5 account ${acc.login} (${acc.name}) via MetaApi...`);
+        
+        let lotSize = 0.01;
+        const baseLot = 0.1;
+        
+        if (acc.riskConfig && acc.riskConfig.mode === 'fixed') {
+          lotSize = acc.riskConfig.value;
+        } else if (acc.riskConfig) {
+          lotSize = parseFloat((baseLot * acc.riskConfig.value).toFixed(2));
+        }
+        
+        lotSize = Math.max(0.01, Math.min(1.0, lotSize));
+        
+        const account = await metaApi.metatraderAccountApi.getAccount(accountId);
+        
+        const connection = account.getStreamingConnection();
+        await connection.connect();
+        await connection.waitSynchronized();
+        
+        const isBuy = action.toLowerCase() === 'buy';
+        
+        console.log(`[Auto-Execution] Executing market ${isBuy ? 'buy' : 'sell'} order of ${lotSize} lot on ${symbol} (SL: ${sl}, TP: ${tp}) for account ${acc.login}`);
+        
+        let result;
+        if (isBuy) {
+          result = await connection.createMarketBuyOrder(
+            symbol,
+            lotSize,
+            sl ? parseFloat(sl) : undefined,
+            tp ? parseFloat(tp) : undefined,
+            { comment: 'Alpha Gold Auto-Trade' }
+          );
+        } else {
+          result = await connection.createMarketSellOrder(
+            symbol,
+            lotSize,
+            sl ? parseFloat(sl) : undefined,
+            tp ? parseFloat(tp) : undefined,
+            { comment: 'Alpha Gold Auto-Trade' }
+          );
+        }
+        
+        console.log(`[Auto-Execution] Success for account ${acc.login}. Position ID: ${result.positionId}`);
+        
+        await sendTelegramNotification(
+          acc.userId, 
+          `🔔 *[ALPHA GOLD AUTO] - ĐẶT LỆNH THÀNH CÔNG*\n\n` +
+          `• Tài khoản: MT5 - ${acc.login} (${acc.name})\n` +
+          `• Lệnh: *${action.toUpperCase()} ${symbol}*\n` +
+          `• Khối lượng: *${lotSize} lot* (${acc.riskConfig.mode === 'fixed' ? 'Cố định' : `Hệ số ${acc.riskConfig.value}`})\n` +
+          `• Giá SL: ${sl || 'Không có'} | TP: ${tp || 'Không có'}\n` +
+          `• Ticket: \`${result.positionId}\``
+        );
+        
+      } catch(err) {
+        console.error(`[Auto-Execution] Failed for account ${acc.login || 'unknown'}:`, err.message || err);
+        await sendTelegramNotification(
+          acc.userId, 
+          `⚠️ *[ALPHA GOLD AUTO] - LỆNH THẤT BẠI*\n\n` +
+          `• Tài khoản: MT5 - ${acc.login || 'N/A'}\n` +
+          `• Lệnh: *${action.toUpperCase()} ${symbol}*\n` +
+          `• Lỗi: _${err.message || err}_`
+        );
+      }
+    });
+  } else if (!metaApi) {
+    console.log('[Auto-Execution] MetaApi not initialized, skipping MetaApi execution.');
   }
-  
-  let symbol = ticker;
-  if (symbol === 'BTCUSD') symbol = 'BTCUSDT';
-  if (symbol === 'ETHUSD') symbol = 'ETHUSDT'; 
-  
-  accounts.forEach(async (acc) => {
+
+  // 2. Execute via VPS TCP Farm (send to all registered sockets)
+  if (tcpClients.size > 0) {
+    console.log(`[Auto-Execution] Broadcasting signal to ${tcpClients.size} VPS clients...`);
     try {
-      const accountId = acc.metaApiAccountId;
-      console.log(`[Auto-Execution] Copying trade to MT5 account ${acc.login} (${acc.name})...`);
-      
-      let lotSize = 0.01;
-      const baseLot = 0.1;
-      
-      if (acc.riskConfig && acc.riskConfig.mode === 'fixed') {
-        lotSize = acc.riskConfig.value;
-      } else if (acc.riskConfig) {
-        lotSize = parseFloat((baseLot * acc.riskConfig.value).toFixed(2));
-      }
-      
-      lotSize = Math.max(0.01, Math.min(1.0, lotSize));
-      
-      const account = await metaApi.metatraderAccountApi.getAccount(accountId);
-      
-      const connection = account.getStreamingConnection();
-      await connection.connect();
-      await connection.waitSynchronized();
-      
-      const isBuy = action.toLowerCase() === 'buy';
-      
-      console.log(`[Auto-Execution] Executing market ${isBuy ? 'buy' : 'sell'} order of ${lotSize} lot on ${symbol} (SL: ${sl}, TP: ${tp}) for account ${acc.login}`);
-      
-      let result;
-      if (isBuy) {
-        result = await connection.createMarketBuyOrder(
-          symbol,
-          lotSize,
-          sl ? parseFloat(sl) : undefined,
-          tp ? parseFloat(tp) : undefined,
-          { comment: 'Alpha Gold Auto-Trade' }
-        );
-      } else {
-        result = await connection.createMarketSellOrder(
-          symbol,
-          lotSize,
-          sl ? parseFloat(sl) : undefined,
-          tp ? parseFloat(tp) : undefined,
-          { comment: 'Alpha Gold Auto-Trade' }
-        );
-      }
-      
-      console.log(`[Auto-Execution] Success for account ${acc.login}. Position ID: ${result.positionId}`);
-      
-      await sendTelegramNotification(
-        acc.userId, 
-        `🔔 *[ALPHA GOLD AUTO] - ĐẶT LỆNH THÀNH CÔNG*\n\n` +
-        `• Tài khoản: MT5 - ${acc.login} (${acc.name})\n` +
-        `• Lệnh: *${action.toUpperCase()} ${symbol}*\n` +
-        `• Khối lượng: *${lotSize} lot* (${acc.riskConfig.mode === 'fixed' ? 'Cố định' : `Hệ số ${acc.riskConfig.value}`})\n` +
-        `• Giá SL: ${sl || 'Không có'} | TP: ${tp || 'Không có'}\n` +
-        `• Ticket: \`${result.positionId}\``
-      );
-      
-    } catch(err) {
-      console.error(`[Auto-Execution] Failed for account ${acc.login || 'unknown'}:`, err.message || err);
-      await sendTelegramNotification(
-        acc.userId, 
-        `⚠️ *[ALPHA GOLD AUTO] - LỆNH THẤT BẠI*\n\n` +
-        `• Tài khoản: MT5 - ${acc.login || 'N/A'}\n` +
-        `• Lệnh: *${action.toUpperCase()} ${symbol}*\n` +
-        `• Lỗi: _${err.message || err}_`
-      );
+      const dbUsers = await loadUsers();
+      tcpClients.forEach(async (socket, loginStr) => {
+        try {
+          // Find user who owns this MT5 account
+          const user = dbUsers.find(u => u.mt5Configs && String(u.mt5Configs.id) === String(loginStr));
+          if (!user) {
+            console.log(`[Auto-Execution] Skip VPS client ${loginStr} - No linked user found.`);
+            return;
+          }
+
+          const userSettings = user.botSettings && user.botSettings[ticker];
+          if (!userSettings || !userSettings.enabled) {
+            console.log(`[Auto-Execution] Skip VPS client ${loginStr} - Bot settings not enabled for ${ticker}.`);
+            return;
+          }
+
+          const lotSize = userSettings.volume || 0.01;
+          const { slPrice, tpPrice } = calculateCustomSlTp(action, entry, userSettings.sl, userSettings.tp, symbol);
+
+          console.log(`[Auto-Execution] Sending TCP trade command to ${loginStr} - ${action.toUpperCase()} ${symbol} ${lotSize} lot (SL: ${slPrice}, TP: ${tpPrice})`);
+          socket.write(`TRADE|${action.toUpperCase()}|${symbol}|${lotSize}|${entry}|${slPrice || 0}|${tpPrice || 0}\n`);
+
+          await sendTelegramNotification(
+            user.username,
+            `🔔 *[ALPHA GOLD VPS] - GỬI TÍN HIỆU ĐẾN VPS THÀNH CÔNG*\n\n` +
+            `• Tài khoản: MT5 - ${loginStr} (${user.name})\n` +
+            `• Lệnh: *${action.toUpperCase()} ${symbol}*\n` +
+            `• Khối lượng: *${lotSize} lot*\n` +
+            `• Giá SL: ${slPrice || 'Không có'} (cài đặt: ${userSettings.sl} pts)\n` +
+            `• Giá TP: ${tpPrice || 'Không có'} (cài đặt: ${userSettings.tp} pts)\n` +
+            `• Trạng thái: Đã chuyển tiếp lệnh qua VPS local.`
+          );
+        } catch (err) {
+          console.error(`[Auto-Execution] Failed to send TCP command to ${loginStr}:`, err.message);
+        }
+      });
+    } catch (err) {
+      console.error('[Auto-Execution] Error executing signals on VPS clients:', err.message);
     }
-  });
+  } else {
+    console.log('[Auto-Execution] No connected TCP EA clients found.');
+  }
 }
 
 // ==========================================
@@ -1542,8 +1515,8 @@ app.post('/api/webhook', webhookLimiter, (req, res) => {
   }
 
   const { ticker, interval, action, entry, confidence } = req.body;
-  if (!ticker || !interval || !action || entry === undefined) {
-    return res.status(400).json({ error: 'Missing required parameters (ticker, interval, action, entry)' });
+  if (!ticker || !interval || !action) {
+    return res.status(400).json({ error: 'Missing required parameters (ticker, interval, action)' });
   }
 
   const sym = String(ticker).toUpperCase();
@@ -1557,11 +1530,11 @@ app.post('/api/webhook', webhookLimiter, (req, res) => {
     return res.status(400).json({ error: 'Action must be buy or sell' });
   }
 
-  const numEntry = parseFloat(entry);
+  const numEntry = entry !== undefined ? parseFloat(entry) : currentPrices[sym];
   const numConfidence = confidence ? parseInt(confidence, 10) : null;
 
-  if (isNaN(numEntry)) {
-    return res.status(400).json({ error: 'Invalid numeric parameters' });
+  if (isNaN(numEntry) || !numEntry) {
+    return res.status(400).json({ error: 'Invalid or missing entry price' });
   }
 
   // Calculate SL and TP using hardcoded distances (SL 5 prices, TP 7 prices for Gold)
@@ -1600,12 +1573,79 @@ app.post('/api/webhook', webhookLimiter, (req, res) => {
     console.error('[Webhook] executeSignalOnAllAccounts error:', err);
   });
 
+  // Broadcast manual signal alerts to users with auto-trading disabled
+  if (typeof broadcastManualSignalAlert === 'function') {
+    broadcastManualSignalAlert(signals[sym][tfLabel]).catch(err => {
+      console.error('[Webhook] broadcastManualSignalAlert error:', err);
+    });
+  }
+
   res.json({ success: true, signal: signals[sym][tfLabel] });
 });
 
 // Secured API Endpoints
 app.get('/api/signals', requireAuth, (req, res) => res.json(signals));
 app.get('/api/prices', requireAuth, (req, res) => res.json(currentPrices));
+
+// Tsunami Telegram Signals Endpoints
+app.get('/api/tsunami/signals', requireAuth, async (req, res) => {
+  try {
+    if (tsunamiScraper) {
+      const list = await tsunamiScraper.getSignals();
+      res.json(list);
+    } else {
+      res.json([]);
+    }
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/tsunami/events', requireAuth, async (req, res) => {
+  try {
+    if (tsunamiScraper) {
+      const list = await tsunamiScraper.getEvents();
+      res.json(list);
+    } else {
+      res.json([]);
+    }
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// User Bot Settings Endpoints
+app.get('/api/user/settings', requireAuth, async (req, res) => {
+  try {
+    const users = await loadUsers();
+    const user = users.find(u => u.username === req.user.username);
+    if (!user) return res.status(404).json({ error: 'User not found' });
+    res.json({
+      botSettings: user.botSettings || {}
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/user/settings', requireAuth, async (req, res) => {
+  try {
+    const { botSettings } = req.body;
+    const users = await loadUsers();
+    const userIdx = users.findIndex(u => u.username === req.user.username);
+    if (userIdx === -1) return res.status(404).json({ error: 'User not found' });
+    
+    users[userIdx].botSettings = {
+      ...users[userIdx].botSettings,
+      ...botSettings
+    };
+    
+    await saveUsers(users);
+    res.json({ success: true, botSettings: users[userIdx].botSettings });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
 
 app.get('/api/history/:symbol/:interval', requireAuth, (req, res) => {
   const sym = req.params.symbol.toUpperCase();
@@ -1621,36 +1661,38 @@ app.get('/api/history/:symbol/:interval', requireAuth, (req, res) => {
 
 // Connect MT5 Account
 app.post('/api/v1/accounts/connect', requireAuth, async (req, res) => {
-  const { login, password, server, riskConfig, name, reliability } = req.body;
+  const { login, password, server, riskConfig, name, reliability, useVpsFarm } = req.body;
   
   if (!login || !password || !server) {
     return res.status(400).json({ success: false, error: 'Thiếu thông tin bắt buộc (login, password, server).' });
   }
-  
-  if (!metaApi) {
-    return res.status(500).json({ success: false, error: 'Hệ thống Auto-Execution chưa được cấu hình API Token trên Server.' });
-  }
+
+  const isVpsFarm = !!useVpsFarm || !metaApi;
 
   try {
     const username = req.user.username;
-    
-    // 1. Register the account in MetaApi
-    console.log(`[MetaApi] Registering account ${login} on ${server} for user ${username}...`);
-    
+    let metaApiAccountId = null;
     const reliabilityLevel = ['developer', 'standard', 'high'].includes(reliability) ? reliability : 'developer';
     
-    const account = await metaApi.metatraderAccountApi.createAccount({
-      name: name || `MT5-${login}`,
-      type: 'cloud-g2',
-      login: String(login),
-      password: password,
-      server: server,
-      platform: 'mt5',
-      reliability: reliabilityLevel,
-      magic: 777777 // Default magic number for trades
-    });
-    
-    console.log(`[MetaApi] Account created on MetaApi. ID: ${account.id}`);
+    if (!isVpsFarm && metaApi) {
+      // 1. Register the account in MetaApi
+      console.log(`[MetaApi] Registering account ${login} on ${server} for user ${username}...`);
+      
+      const account = await metaApi.metatraderAccountApi.createAccount({
+        name: name || `MT5-${login}`,
+        type: 'cloud-g2',
+        login: String(login),
+        password: password,
+        server: server,
+        platform: 'mt5',
+        reliability: reliabilityLevel,
+        magic: 777777 // Default magic number for trades
+      });
+      metaApiAccountId = account.id;
+      console.log(`[MetaApi] Account created on MetaApi. ID: ${metaApiAccountId}`);
+    } else {
+      console.log(`[VPS Farm] Registering local MT5 account ${login} on ${server}...`);
+    }
     
     // 2. Encrypt the password for our local MongoDB backup
     const encryptedPassword = encryptPassword(password);
@@ -1658,7 +1700,7 @@ app.post('/api/v1/accounts/connect', requireAuth, async (req, res) => {
     // 3. Save to MongoDB collection 'mt5_accounts'
     const accountDoc = {
       userId: username,
-      metaApiAccountId: account.id,
+      metaApiAccountId: metaApiAccountId,
       login: String(login),
       password: encryptedPassword,
       server: server,
@@ -1668,25 +1710,28 @@ app.post('/api/v1/accounts/connect', requireAuth, async (req, res) => {
         value: (riskConfig && typeof riskConfig.value === 'number') ? riskConfig.value : 0.5
       },
       name: name || `MT5-${login}`,
-      status: 'deploying',
+      status: isVpsFarm ? 'stopped' : 'deploying',
+      useVpsFarm: isVpsFarm,
       createdAt: new Date()
     };
     
     if (useMongoDB) {
       await db.collection('mt5_accounts').insertOne(accountDoc);
     } else {
-      console.warn('[Database] MongoDB not active. Saving connection to MetaApi only.');
+      console.warn('[Database] MongoDB not active. Saving connection in-memory or fallback.');
     }
     
     res.json({
       success: true,
-      message: 'Kết nối tài khoản MT5 thành công! Đang tiến hành cài đặt máy chủ ảo.',
-      accountId: account.id
+      message: isVpsFarm 
+        ? 'Đã cấu hình tài khoản MT5 trên hệ thống VPS Farm thành công!'
+        : 'Kết nối tài khoản MT5 thành công! Đang tiến hành cài đặt máy chủ ảo.',
+      accountId: metaApiAccountId
     });
     
   } catch (err) {
-    console.error('[MetaApi] Connection error:', err.message || err);
-    res.status(500).json({ success: false, error: `Lỗi kết nối MetaApi: ${err.message || err}` });
+    console.error('[MT5 Connect] Connection error:', err.message || err);
+    res.status(500).json({ success: false, error: `Lỗi kết nối: ${err.message || err}` });
   }
 });
 
@@ -1701,7 +1746,7 @@ app.get('/api/v1/accounts', requireAuth, async (req, res) => {
     }
     
     // Map accounts to hide encrypted password
-    const sanitized = accounts.map(({ _id, metaApiAccountId, login, server, reliability, riskConfig, name, status }) => ({
+    const sanitized = accounts.map(({ _id, metaApiAccountId, login, server, reliability, riskConfig, name, status, useVpsFarm }) => ({
       id: _id,
       metaApiAccountId,
       login,
@@ -1709,7 +1754,8 @@ app.get('/api/v1/accounts', requireAuth, async (req, res) => {
       reliability,
       riskConfig,
       name,
-      status
+      status,
+      useVpsFarm: !!useVpsFarm
     }));
     
     res.json({ success: true, accounts: sanitized });
@@ -1721,10 +1767,6 @@ app.get('/api/v1/accounts', requireAuth, async (req, res) => {
 // Delete/Disconnect MT5 Account
 app.delete('/api/v1/accounts/:id', requireAuth, async (req, res) => {
   const accountId = req.params.id;
-  
-  if (!metaApi) {
-    return res.status(500).json({ success: false, error: 'MetaApi not configured' });
-  }
   
   try {
     const username = req.user.username;
@@ -1749,11 +1791,20 @@ app.delete('/api/v1/accounts/:id', requireAuth, async (req, res) => {
       return res.status(404).json({ success: false, error: 'Không tìm thấy tài khoản MT5 hoặc bạn không có quyền.' });
     }
     
-    console.log(`[MetaApi] Deleting account ${accountDoc.metaApiAccountId} from MetaApi...`);
-    try {
-      await metaApi.metatraderAccountApi.deleteAccount(accountDoc.metaApiAccountId);
-    } catch(apiErr) {
-      console.warn('[MetaApi] Account already deleted on MetaApi cloud or error:', apiErr.message);
+    if (!accountDoc.useVpsFarm && metaApi && accountDoc.metaApiAccountId) {
+      console.log(`[MetaApi] Deleting account ${accountDoc.metaApiAccountId} from MetaApi...`);
+      try {
+        await metaApi.metatraderAccountApi.deleteAccount(accountDoc.metaApiAccountId);
+      } catch(apiErr) {
+        console.warn('[MetaApi] Account already deleted on MetaApi cloud or error:', apiErr.message);
+      }
+    } else {
+      console.log(`[VPS Farm] Stopping local MT5 slot for account ${accountDoc.login}...`);
+      try {
+        vpsManager.stopSlot(accountDoc.login);
+      } catch(vpsErr) {
+        console.warn('[VPS Farm] Error stopping slot during deletion:', vpsErr.message);
+      }
     }
     
     if (useMongoDB) {
@@ -1763,7 +1814,7 @@ app.delete('/api/v1/accounts/:id', requireAuth, async (req, res) => {
     res.json({ success: true, message: 'Đã ngắt kết nối và xóa tài khoản MT5 thành công!' });
     
   } catch (err) {
-    console.error('[MetaApi] Delete error:', err);
+    console.error('[MT5 Delete] Delete error:', err);
     res.status(500).json({ success: false, error: err.message });
   }
 });
@@ -2309,12 +2360,403 @@ app.get('/api/external/news', requireAuth, async (req, res) => {
   }
 });
 
+// ==========================================
+// MT5 VPS TCP FARM SOCKET SERVER
+// ==========================================
+const tcpClients = new Map();
+const tcpNotifyDebounce = new Map(); // login -> { lastConnect, lastDisconnect } timestamps
+
+const tcpServer = net.createServer((socket) => {
+  console.log('[TCP Server] MT5 client connected from:', socket.remoteAddress, socket.remotePort);
+  
+  let registeredLogin = null;
+  let buffer = '';
+  
+  socket.on('data', (data) => {
+    buffer += data.toString();
+    const lines = buffer.split('\n');
+    buffer = lines.pop(); // keep trailing incomplete line
+    
+    for (const rawLine of lines) {
+      const line = rawLine.trim();
+      if (!line) continue;
+      
+      console.log(`[TCP Server] Received from client: ${line}`);
+      
+      if (line.startsWith('REG|')) {
+        const login = line.split('|')[1];
+        if (login) {
+          registeredLogin = login;
+          tcpClients.set(login, socket);
+          console.log(`[TCP Server] Account registered: ${login}`);
+          socket.write('REG_OK\n');
+          
+          // Send connection notification via Telegram (debounced 60s)
+          const nowConnect = Date.now();
+          const debounceConnect = tcpNotifyDebounce.get(login) || {};
+          if (!debounceConnect.lastConnect || (nowConnect - debounceConnect.lastConnect) > 60000) {
+            debounceConnect.lastConnect = nowConnect;
+            tcpNotifyDebounce.set(login, debounceConnect);
+            (async () => {
+              try {
+                const dbUsers = await loadUsers();
+                const user = dbUsers.find(u => u.mt5Configs && String(u.mt5Configs.id) === String(login));
+                if (user) {
+                  await sendTelegramNotification(
+                    user.username,
+                    `🟢 *[ALPHA GOLD VPS] - ĐÃ KẾT NỐI*\n\nTài khoản MT5 *${login}* đã kết nối thành công tới hệ thống máy chủ.`
+                  );
+                }
+              } catch (err) {
+                console.error('[TCP Server] Error sending connection notification:', err.message);
+              }
+            })();
+          }
+        }
+      } else if (line === 'PING') {
+        socket.write('PONG\n');
+      } else if (line === 'PONG') {
+        // Keepalive acknowledgment from EA — do nothing
+      } else if (line.startsWith('OK|') || line.startsWith('ERR|')) {
+        console.log(`[TCP Server] Feedback from client ${registeredLogin || 'unknown'}: ${line}`);
+        io.emit('vps_feedback', { login: registeredLogin, message: line });
+        
+        // Telegram Notification for trade execution feedback
+        if (registeredLogin) {
+          (async () => {
+            try {
+              const dbUsers = await loadUsers();
+              const user = dbUsers.find(u => u.mt5Configs && String(u.mt5Configs.id) === String(registeredLogin));
+              if (user) {
+                const parts = line.split('|');
+                const status = parts[0]; // OK or ERR
+                const type = parts[1];   // BUY_SUCCESS, BUY_FAILED, SELL_SUCCESS, etc.
+                const sym = parts[2];    // symbol
+                const detail = parts[3];  // ticket or description or closed_count
+                
+                let msg = '';
+                if (status === 'OK') {
+                  if (type === 'BUY_SUCCESS' || type === 'SELL_SUCCESS') {
+                    const actionName = type === 'BUY_SUCCESS' ? 'BUY' : 'SELL';
+                    msg = `✅ *[ALPHA GOLD VPS] - VÀO LỆNH THÀNH CÔNG*\n\n` +
+                          `• Tài khoản: MT5 - ${registeredLogin} (${user.name})\n` +
+                          `• Giao dịch: *${actionName} ${sym}*\n` +
+                          `• Mã lệnh (Ticket): \`${detail}\`\n` +
+                          `• Trạng thái: Lệnh đã được khớp trên MT5.`;
+                  } else if (type === 'CLOSE_SUCCESS') {
+                    msg = `ℹ️ *[ALPHA GOLD VPS] - ĐÃ ĐÓNG VỊ THẾ*\n\n` +
+                          `• Tài khoản: MT5 - ${registeredLogin} (${user.name})\n` +
+                          `• Cặp tài sản: *${sym}*\n` +
+                          `• Số vị thế đã đóng: *${detail}*\n` +
+                          `• Trạng thái: Đã đóng tất cả vị thế của cặp giao dịch này.`;
+                  } else if (type === 'KILL_SUCCESS') {
+                    msg = `⚠️ *[ALPHA GOLD VPS] - KÍCH HOẠT DỪNG KHẨN CẤP*\n\n` +
+                          `• Tài khoản: MT5 - ${registeredLogin} (${user.name})\n` +
+                          `• Chi tiết: _${detail}_\n` +
+                          `• Trạng thái: Toàn bộ vị thế đã được đóng khẩn cấp.`;
+                  }
+                } else if (status === 'ERR') {
+                  const actionName = type.startsWith('BUY') ? 'BUY' : 'SELL';
+                  msg = `❌ *[ALPHA GOLD VPS] - LỆNH THẤT BẠI*\n\n` +
+                        `• Tài khoản: MT5 - ${registeredLogin} (${user.name})\n` +
+                        `• Thử thực hiện: *${actionName} ${sym}*\n` +
+                        `• Lỗi từ MT5: _${detail}_\n` +
+                        `• Vui lòng kiểm tra lại số dư hoặc cài đặt Live Trading trên EA.`;
+                }
+                
+                if (msg) {
+                  await sendTelegramNotification(user.username, msg);
+                }
+              }
+            } catch (err) {
+              console.error('[TCP Server] Error sending feedback notification:', err.message);
+            }
+          })();
+        }
+      }
+    }
+  });
+  
+  socket.on('close', () => {
+    if (registeredLogin) {
+      if (tcpClients.get(registeredLogin) === socket) {
+        tcpClients.delete(registeredLogin);
+        console.log(`[TCP Server] Account disconnected: ${registeredLogin}`);
+        
+        // Send Telegram Notification (debounced 60s)
+        const nowDisconnect = Date.now();
+        const debounceDisconnect = tcpNotifyDebounce.get(registeredLogin) || {};
+        if (!debounceDisconnect.lastDisconnect || (nowDisconnect - debounceDisconnect.lastDisconnect) > 60000) {
+          debounceDisconnect.lastDisconnect = nowDisconnect;
+          tcpNotifyDebounce.set(registeredLogin, debounceDisconnect);
+          (async () => {
+            try {
+              const dbUsers = await loadUsers();
+              const user = dbUsers.find(u => u.mt5Configs && String(u.mt5Configs.id) === String(registeredLogin));
+              if (user) {
+                await sendTelegramNotification(
+                  user.username,
+                  `🔴 *[ALPHA GOLD VPS] - ĐÃ NGẮT KẾT NỐI*\n\nTài khoản MT5 *${registeredLogin}* đã ngắt kết nối khỏi hệ thống máy chủ.`
+                );
+              }
+            } catch (err) {
+              console.error('[TCP Server] Error sending disconnection notification:', err.message);
+            }
+          })();
+        }
+      } else {
+        console.log(`[TCP Server] Stale socket closed for: ${registeredLogin} (ignored delete)`);
+      }
+    }
+  });
+  
+  socket.on('error', (err) => {
+    console.error(`[TCP Server] Socket error for ${registeredLogin || 'unknown'}:`, err.message);
+  });
+});
+
+const TCP_PORT = process.env.TCP_PORT || 7788;
+tcpServer.listen(TCP_PORT, '0.0.0.0', () => {
+  console.log(`[TCP Server] Listening for MT5 EAs on port ${TCP_PORT}`);
+});
+
+function triggerEmergencyKillAll() {
+  console.log('[TCP Server] TRIGGERING EMERGENCY KILL SWITCH FOR ALL VPS CLIENTS!');
+  tcpClients.forEach((socket, login) => {
+    try {
+      socket.write('KILL\n');
+    } catch(err) {
+      console.error(`[TCP Server] Failed to send KILL to client ${login}:`, err.message);
+    }
+  });
+}
+
+// ==========================================
+// MT5 VPS FARM REST ENDPOINTS
+// ==========================================
+
+// GET VPS System resource telemetry
+app.get('/api/v1/vps/status', requireAuth, (req, res) => {
+  try {
+    const resources = vpsManager.getSystemResources();
+    res.json({ success: true, resources });
+  } catch(err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// GET list of all MT5 slots with process & connection status
+app.get('/api/v1/vps/slots', requireAuth, async (req, res) => {
+  try {
+    let dbAccounts = [];
+    if (useMongoDB) {
+      dbAccounts = await db.collection('mt5_accounts').find({}).toArray();
+    }
+    
+    const slots = dbAccounts.map(acc => {
+      const vpsStatus = vpsManager.getSlotStatus(acc.login);
+      const isConnected = tcpClients.has(acc.login);
+      
+      return {
+        id: acc._id,
+        login: acc.login,
+        name: acc.name,
+        server: acc.server,
+        riskConfig: acc.riskConfig,
+        running: vpsStatus.running,
+        pid: vpsStatus.pid,
+        connected: isConnected,
+        useVpsFarm: !!acc.useVpsFarm,
+        status: acc.status
+      };
+    });
+    
+    res.json({ success: true, slots });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// START MT5 slot process
+app.post('/api/v1/vps/slots/start', requireAuth, async (req, res) => {
+  const { login } = req.body;
+  if (!login) return res.status(400).json({ success: false, error: 'Thiếu số tài khoản login.' });
+  
+  try {
+    let acc = null;
+    if (useMongoDB) {
+      acc = await db.collection('mt5_accounts').findOne({ login: String(login) });
+    }
+    
+    if (!acc) return res.status(404).json({ success: false, error: 'Không tìm thấy tài khoản trong cơ sở dữ liệu.' });
+    
+    // Decrypt the password
+    const decryptedPassword = decryptPassword(acc.password);
+    
+    // Update account flag in DB to indicate it uses VPS farm
+    if (useMongoDB) {
+      await db.collection('mt5_accounts').updateOne(
+        { _id: acc._id },
+        { $set: { useVpsFarm: true, status: 'running' } }
+      );
+    }
+    
+    const started = vpsManager.startSlot(acc.login, decryptedPassword, acc.server);
+    if (started) {
+      res.json({ success: true, message: `Khởi chạy máy chủ ảo MT5 cho tài khoản ${login} thành công.` });
+    } else {
+      res.status(500).json({ success: false, error: 'Lỗi khởi chạy tiến trình MT5.' });
+    }
+  } catch(err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// STOP MT5 slot process
+app.post('/api/v1/vps/slots/stop', requireAuth, async (req, res) => {
+  const { login } = req.body;
+  if (!login) return res.status(400).json({ success: false, error: 'Thiếu số tài khoản login.' });
+  
+  try {
+    if (useMongoDB) {
+      await db.collection('mt5_accounts').updateOne(
+        { login: String(login) },
+        { $set: { status: 'stopped' } }
+      );
+    }
+    
+    vpsManager.stopSlot(login);
+    res.json({ success: true, message: `Đã dừng máy chủ ảo MT5 cho tài khoản ${login}.` });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// EMERGENCY KILL SWITCH: Kill all slots and close all trades immediately
+app.post('/api/v1/vps/slots/kill-all', requireAuth, async (req, res) => {
+  try {
+    triggerEmergencyKillAll();
+    
+    // Stop all slots processes
+    let dbAccounts = [];
+    if (useMongoDB) {
+      dbAccounts = await db.collection('mt5_accounts').find({}).toArray();
+      await db.collection('mt5_accounts').updateMany({}, { $set: { status: 'stopped' } });
+    }
+    
+    dbAccounts.forEach(acc => {
+      vpsManager.stopSlot(acc.login);
+    });
+    
+    res.json({ success: true, message: 'ĐÃ KÍCH HOẠT NÚT TẮT KHẨN CẤP! Đã gửi lệnh đóng toàn bộ lệnh và đóng tất cả máy chủ ảo MT5.' });
+  } catch(err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+app.get('/api/test-start-vps', async (req, res) => {
+  try {
+    const users = await loadUsers();
+    const admin = users.find(u => u.username === 'admin');
+    if (admin && admin.mt5Configs) {
+      let pass = admin.mt5Configs.password;
+      if (pass && decryptPassword) {
+        try { pass = decryptPassword(pass); } catch(e){}
+      }
+      const started = vpsManager.startSlot(admin.mt5Configs.id, pass, admin.mt5Configs.server);
+      return res.json({ success: started });
+    }
+    res.json({ success: false, error: 'No admin found' });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 // Serve static frontend in production
 app.use(express.static(path.join(__dirname, '../frontend/dist')));
 app.get('*', (req, res) => res.sendFile(path.join(__dirname, '../frontend/dist/index.html')));
 
 // Make io accessible from req.app for REST drawing endpoints
 app.set('io', io);
+
+// Tsunami Telegram Signal Execution on MT5
+async function executeTsunamiSignalOnAllAccounts(signal) {
+  const { symbol, action, entry, sl, tps } = signal;
+  console.log(`[Tsunami Auto] Processing signal for ${symbol} (${action.toUpperCase()}) - Entry: ${entry}, SL: ${sl}`);
+
+  let accounts = [];
+  if (useMongoDB) {
+    try {
+      accounts = await db.collection('mt5_accounts').find({}).toArray();
+    } catch(err) {
+      console.error('[Tsunami Auto] Failed to load accounts from DB:', err.message);
+    }
+  } else {
+    const testId = process.env.TEST_MT5_ACCOUNT_ID;
+    if (testId) {
+      accounts = [{
+        metaApiAccountId: testId,
+        login: 'TEST',
+        riskConfig: { mode: 'multiplier', value: 0.5 },
+        name: 'Test Account',
+        userId: 'admin'
+      }];
+    }
+  }
+
+  if (tcpClients.size > 0) {
+    console.log(`[Tsunami Auto] Broadcasting signal to ${tcpClients.size} VPS clients...`);
+    try {
+      const dbUsers = await loadUsers();
+      tcpClients.forEach(async (socket, loginStr) => {
+        try {
+          const user = dbUsers.find(u => u.mt5Configs && String(u.mt5Configs.id) === String(loginStr));
+          if (!user) return;
+
+          const tsunamiSettings = user.botSettings && user.botSettings['TSUNAMI'];
+          if (!tsunamiSettings || !tsunamiSettings.enabled) {
+            console.log(`[Tsunami Auto] Skip VPS client ${loginStr} - Bot settings not enabled for TSUNAMI.`);
+            return;
+          }
+
+          const lotSize = tsunamiSettings.volume || 0.01;
+          const targetTpIdx = (tsunamiSettings.tsunamiTpTarget || 1) - 1;
+          const tpPrice = tps[targetTpIdx] || tps[0];
+
+          console.log(`[Tsunami Auto] Sending TCP command to ${loginStr} - ${action.toUpperCase()} ${symbol} ${lotSize} lot (SL: ${sl}, TP: ${tpPrice})`);
+          socket.write(`TRADE|${action.toUpperCase()}|${symbol}|${lotSize}|${entry}|${sl || 0}|${tpPrice || 0}\n`);
+
+          await sendTelegramNotification(
+            user.username,
+            `🔔 *[ALPHA GOLD TSUNAMI] - AUTO-TRADE VPS THÀNH CÔNG*\n\n` +
+            `• Tài khoản: MT5 - ${loginStr} (${user.name})\n` +
+            `• Lệnh: *${action.toUpperCase()} ${symbol}*\n` +
+            `• Khối lượng: *${lotSize} lot*\n` +
+            `• Giá Entry: ${entry}\n` +
+            `• Giá SL: ${sl || 'Không có'}\n` +
+            `• Giá TP: ${tpPrice || 'Không có'} (mục tiêu TP${targetTpIdx + 1})\n` +
+            `• Trạng thái: Đã chuyển tiếp lệnh qua VPS local.`
+          );
+        } catch (err) {
+          console.error(`[Tsunami Auto] Failed to send TCP command to ${loginStr}:`, err.message);
+        }
+      });
+    } catch (err) {
+      console.error('[Tsunami Auto] Error executing signals on VPS clients:', err.message);
+    }
+  } else {
+    console.log('[Tsunami Auto] No connected TCP EA clients found.');
+  }
+}
+
+// Initialize Telegram Scraper for TSUNAMI after 2 seconds to ensure io & db are ready
+setTimeout(() => {
+  tsunamiScraper = initTelegramScraper(io, db, useMongoDB, (signal) => {
+    executeTsunamiSignalOnAllAccounts(signal).catch(err => {
+      console.error('[Tsunami Auto-Trade] Error executing signal:', err);
+    });
+  });
+}, 2000);
 
 // Global Error Handler to hide stack traces in production
 app.use((err, req, res, next) => {

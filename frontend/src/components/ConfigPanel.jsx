@@ -75,7 +75,10 @@ export function ConfigPanel() {
     trendlineSlopeMult,
     setTrendlineSlopeMult,
     showConfigPanel,
-    toggleConfigPanel
+    toggleConfigPanel,
+    userBotSettings,
+    updateUserSettings,
+    fetchUserSettings
   } = useTradeStore();
 
   const [openSection, setOpenSection] = React.useState('system');
@@ -83,6 +86,10 @@ export function ConfigPanel() {
   const toggleSection = (section) => {
     setOpenSection(openSection === section ? null : section);
   };
+
+  React.useEffect(() => {
+    fetchUserSettings();
+  }, []);
 
   return (
     <div className="text-left flex flex-col relative transition-all duration-300">
@@ -572,6 +579,95 @@ export function ConfigPanel() {
                       onChange={(e) => setMacdSignal(Math.max(2, parseInt(e.target.value) || 2))}
                       className="w-full bg-white/[0.04] border border-white/[0.08] rounded-xl px-1 py-1.5 text-xs text-white text-center font-mono focus:outline-none focus:border-amber-500/40"
                     />
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* SECTION 5: TSUNAMI AUTO-TRADE (TELEGRAM) */}
+        <div className="border border-white/[0.06] rounded-xl overflow-hidden bg-white/[0.02]">
+          <button
+            onClick={() => toggleSection('tsunami')}
+            className={`w-full flex justify-between items-center px-3.5 py-2.5 text-xs font-black transition-all text-left cursor-pointer ${
+              openSection === 'tsunami' 
+                ? 'dynamic-theme-accent-text bg-white/[0.04] border-b border-white/[0.06]'
+                : 'text-slate-300 hover:text-white hover:bg-slate-900/10'
+            }`}
+          >
+            <span>CẤU HÌNH TSUNAMI AUTO-TRADE</span>
+            <ChevronDown className={`h-4 w-4 text-slate-400 transition-transform duration-200 ${openSection === 'tsunami' ? 'rotate-180' : ''}`} />
+          </button>
+          
+          {openSection === 'tsunami' && (
+            <div className="p-3 bg-white/[0.02] space-y-3">
+              <div className="panel-surface p-3 rounded-xl space-y-3">
+                <div className="flex justify-between items-center border-b border-white/[0.06] pb-1.5">
+                  <span className="text-xs font-black text-slate-300">AUTO-TRADE STATUS</span>
+                  <button 
+                    onClick={() => {
+                      const enabled = !(userBotSettings?.TSUNAMI?.enabled);
+                      updateUserSettings({
+                        TSUNAMI: {
+                          ...(userBotSettings?.TSUNAMI || { volume: 0.01, tsunamiTpTarget: 1 }),
+                          enabled
+                        }
+                      });
+                    }}
+                    className={`px-2.5 py-1 text-[11px] font-black border rounded-lg transition-all cursor-pointer ${
+                      userBotSettings?.TSUNAMI?.enabled 
+                        ? 'bg-amber-500/10 border-amber-500/30 text-amber-500 shadow-[0_0_12px_rgba(234,179,8,0.15)]' 
+                        : 'bg-white/[0.03] border-white/[0.08] text-slate-600'
+                    }`}
+                  >
+                    {userBotSettings?.TSUNAMI?.enabled ? 'ĐANG BẬT' : 'ĐANG TẮT'}
+                  </button>
+                </div>
+
+                <div className="grid grid-cols-2 gap-2">
+                  <div className="space-y-1">
+                    <label className="text-xs font-bold text-slate-500 uppercase tracking-widest">Khối lượng (Lot)</label>
+                    <input 
+                      type="number"
+                      step="0.01"
+                      min="0.01"
+                      max="5.0"
+                      value={userBotSettings?.TSUNAMI?.volume || 0.01}
+                      onChange={(e) => {
+                        const val = Math.max(0.01, parseFloat(e.target.value) || 0.01);
+                        updateUserSettings({
+                          TSUNAMI: {
+                            ...(userBotSettings?.TSUNAMI || { enabled: false, tsunamiTpTarget: 1 }),
+                            volume: val
+                          }
+                        });
+                      }}
+                      className="w-full bg-white/[0.04] border border-white/[0.08] rounded-xl px-2 py-1 text-xs text-white text-center font-mono focus:outline-none focus:border-amber-500/40"
+                    />
+                  </div>
+
+                  <div className="space-y-1">
+                    <label className="text-xs font-bold text-slate-500 uppercase tracking-widest">Mục tiêu chốt lời</label>
+                    <select 
+                      value={userBotSettings?.TSUNAMI?.tsunamiTpTarget || 1}
+                      onChange={(e) => {
+                        const val = parseInt(e.target.value) || 1;
+                        updateUserSettings({
+                          TSUNAMI: {
+                            ...(userBotSettings?.TSUNAMI || { enabled: false, volume: 0.01 }),
+                            tsunamiTpTarget: val
+                          }
+                        });
+                      }}
+                      className="w-full bg-white/[0.04] border border-white/[0.08] rounded-xl px-2 py-1 text-xs text-white focus:outline-none focus:border-amber-500/40 cursor-pointer"
+                    >
+                      <option value="1">TP 1 (Chốt nhanh)</option>
+                      <option value="2">TP 2</option>
+                      <option value="3">TP 3</option>
+                      <option value="4">TP 4</option>
+                      <option value="5">TP 5 (Chốt tối đa)</option>
+                    </select>
                   </div>
                 </div>
               </div>
