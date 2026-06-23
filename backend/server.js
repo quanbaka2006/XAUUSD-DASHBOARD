@@ -607,7 +607,7 @@ function connectKraken() {
     console.log('[Kraken WS] Connected — streaming XAUUSD/BTCUSD/ETHUSD real-time');
     const subscribeMsg = {
       event: 'subscribe',
-      pair: ['PAXG/USD', 'XBT/USD', 'ETH/USD'],
+      pair: ['XBT/USD', 'ETH/USD'],
       subscription: {
         name: 'ticker'
       }
@@ -625,7 +625,6 @@ function connectKraken() {
           const price = parseFloat(ticker.c[0]);
           if (price && price > 0) {
             const pairMap = {
-              'PAXG/USD': 'XAUUSD',
               'XBT/USD': 'BTCUSD',
               'ETH/USD': 'ETHUSD'
             };
