@@ -1607,6 +1607,40 @@ app.get('/api/history/:symbol/:interval', requireAuth, (req, res) => {
   res.json({ history: candleHistory[sym][tf], active: activeCandles[sym][tf] });
 });
 
+app.get('/api/debug-ws', (req, res) => {
+  const wsState = binanceWs ? binanceWs.readyState : 'NOT_INITIALIZED';
+  const wsStates = { 0: 'CONNECTING', 1: 'OPEN', 2: 'CLOSING', 3: 'CLOSED' };
+  
+  const https = require('https');
+  https.get('https://api.binance.com/api/v3/ticker/price?symbol=PAXGUSDT', (binanceRes) => {
+    let data = '';
+    binanceRes.on('data', c => data += c);
+    binanceRes.on('end', () => {
+      res.json({
+        wsState: wsStates[wsState] || wsState,
+        binanceApiStatus: binanceRes.statusCode,
+        binanceApiData: data,
+        currentPrices,
+        lastTickTimestamp,
+        historyInitialized,
+        isMarketClosed: isMarketClosed(),
+        SYMBOLS
+      });
+    });
+  }).on('error', (err) => {
+    res.json({
+      wsState: wsStates[wsState] || wsState,
+      binanceApiStatus: 'ERROR',
+      binanceApiError: err.message,
+      currentPrices,
+      lastTickTimestamp,
+      historyInitialized,
+      isMarketClosed: isMarketClosed(),
+      SYMBOLS
+    });
+  });
+});
+
 // ==========================================
 // MetaTrader 5 (MT5) Auto-Execution Endpoints
 // ==========================================
