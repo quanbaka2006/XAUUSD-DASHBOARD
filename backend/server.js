@@ -820,41 +820,24 @@ setTimeout(() => {
   }
 }, 10000);
 
-// Yahoo fallback polling — DISABLED for live price updates
-// Reason: Yahoo Finance GC=F returns Gold Futures price (~$25 premium over spot XAUUSD)
-// injecting futures prices creates huge spike candles.
-// Yahoo is only used at server startup for initial seed.
+// Yahoo fallback polling — ENABLED for live price updates in free tier
 let yahooFallbackInterval = null;
 function startYahooFallback() {
-  // No-op: fallback disabled to prevent futures vs spot price spikes
-  // If Finnhub disconnects, prices stay at last known real value
   if (yahooFallbackInterval) return;
-  console.log('[Yahoo] Fallback disabled — keeping last known Finnhub price to avoid futures price spikes');
-}
-
-// Finnhub HTTP polling fallback for free accounts (since free WebSocket doesn't support OANDA Forex/Commodities)
-let finnhubPollingInterval = null;
-let lastWsMessageTime = 0; // initialize as 0 so fallback starts immediately if WS is silent
-
-function startFinnhubHttpPolling() {
-  if (finnhubPollingInterval) return;
-  console.log('[Finnhub Poll] Starting HTTP quote polling fallback (every 5s) for live commodities...');
-  finnhubPollingInterval = setInterval(() => {
+  console.log('[Yahoo] Fallback activated — polling Yahoo Finance every 5s for live commodities...');
+  yahooFallbackInterval = setInterval(() => {
     if (isMarketClosed()) return;
-    // Only poll if no WS messages received in the last 15 seconds
-    if (Date.now() - lastWsMessageTime < 15000) return;
-
     ['XAUUSD', 'XAGUSD', 'WTIUSD'].forEach(sym => {
-      fetchFinnhubSeed(sym, () => {});
+      fetchYahooSeed(sym);
     });
   }, 5000);
 }
 
-function stopFinnhubHttpPolling() {
-  if (finnhubPollingInterval) {
-    clearInterval(finnhubPollingInterval);
-    finnhubPollingInterval = null;
-    console.log('[Finnhub Poll] Stopped HTTP quote polling');
+function stopYahooFallback() {
+  if (yahooFallbackInterval) {
+    clearInterval(yahooFallbackInterval);
+    yahooFallbackInterval = null;
+    console.log('[Yahoo] Fallback stopped');
   }
 }
 
@@ -872,78 +855,8 @@ let finnhubConnected = false;
 let finnhubRetryDelay = 5000; // exponential backoff: starts 5s, max 60s
 
 function connectFinnhub() {
-  // Start polling fallback by default; it will check lastWsMessageTime and run if WS is silent
-  startFinnhubHttpPolling();
-
-  if (!FINNHUB_TOKEN) {
-    startYahooFallback();
-    return;
-  }
-
-  const url = `wss://ws.finnhub.io?token=${FINNHUB_TOKEN}`;
-  finnhubWs = new WebSocket(url);
-
-  finnhubWs.on('open', () => {
-    finnhubConnected = true;
-    finnhubRetryDelay = 5000; // reset backoff on successful connect
-    console.log('[Finnhub WS] Connected — streaming XAUUSD/XAGUSD/WTIUSD via OANDA (~2-3s delay)');
-    // Subscribe to all commodity symbols
-    FINNHUB_SUBSCRIBE.forEach(symbol => {
-      finnhubWs.send(JSON.stringify({ type: 'subscribe', symbol }));
-    });
-    // Stop Yahoo fallback if it was running
-    if (yahooFallbackInterval) {
-      clearInterval(yahooFallbackInterval);
-      yahooFallbackInterval = null;
-      console.log('[Yahoo] Fallback stopped — Finnhub is active');
-    }
-  });
-
-  finnhubWs.on('message', (raw) => {
-    try {
-      const msg = JSON.parse(raw);
-      // msg.type === 'trade' contains live price trades
-      if (msg.type === 'trade' && Array.isArray(msg.data)) {
-        lastWsMessageTime = Date.now(); // update time to suppress HTTP polling
-        msg.data.forEach(trade => {
-          const sym = FINNHUB_SYMBOL_MAP[trade.s];
-          if (!sym) return;
-          if (isMarketClosed()) return; // ignore if market closed
-          const price = parseFloat(trade.p);
-          if (price && price > 0) {
-            applyRealPrice(sym, price);
-          }
-        });
-      } else if (msg.type === 'ping') {
-        // Keep-alive pong
-        finnhubWs.send(JSON.stringify({ type: 'pong' }));
-      }
-    } catch(e) {
-      // ignore
-    }
-  });
-
-  finnhubWs.on('close', (code, reason) => {
-    finnhubConnected = false;
-    // Exponential backoff: double delay each time, cap at 60s
-    finnhubRetryDelay = Math.min(finnhubRetryDelay * 2, 60000);
-    console.warn(`[Finnhub WS] Disconnected (${code}) — reconnecting in ${finnhubRetryDelay/1000}s...`);
-    startYahooFallback();
-    setTimeout(connectFinnhub, finnhubRetryDelay);
-  });
-
-  finnhubWs.on('error', (err) => {
-    console.error('[Finnhub WS] Error:', err.message);
-    finnhubConnected = false;
-    // If 429 rate-limit, wait longer before next attempt
-    if (err.message && err.message.includes('429')) {
-      finnhubRetryDelay = 60000;
-      console.warn('[Finnhub WS] Rate limited (429) — backing off 60s');
-    } else {
-      finnhubRetryDelay = Math.min(finnhubRetryDelay * 2, 60000);
-    }
-    finnhubWs.terminate();
-  });
+  // Free tier: bypass rate-limited Finnhub entirely and use Yahoo Finance polling directly
+  startYahooFallback();
 }
 
 connectFinnhub();
