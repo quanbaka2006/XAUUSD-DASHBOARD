@@ -824,13 +824,13 @@ setTimeout(() => {
 let yahooFallbackInterval = null;
 function startYahooFallback() {
   if (yahooFallbackInterval) return;
-  console.log('[Yahoo] Fallback activated — polling Yahoo Finance every 5s for live commodities...');
+  console.log('[Yahoo] Fallback activated — polling Yahoo Finance every 2s for live commodities...');
   yahooFallbackInterval = setInterval(() => {
     if (isMarketClosed()) return;
     ['XAUUSD', 'XAGUSD', 'WTIUSD'].forEach(sym => {
       fetchYahooSeed(sym);
     });
-  }, 5000);
+  }, 2000);
 }
 
 function stopYahooFallback() {
