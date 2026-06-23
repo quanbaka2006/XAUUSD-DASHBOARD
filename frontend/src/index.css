@@ -870,7 +870,7 @@ input[type="number"] {
   animation: arrow-stream-down 1.6s cubic-bezier(0.4, 0, 0.2, 1) infinite;
 }
 
-/* Hiệu ứng Glow lồng Gradient cao cấp */
+/* Hiệu ứng Glow lồng Gradient siêu sáng rực (Ultra Glow) */
 .hud-signal-text {
   position: relative;
   display: inline-block;
@@ -889,33 +889,38 @@ input[type="number"] {
   transition: all 0.5s ease-in-out;
 }
 
-/* XAUUSD BUY Glow */
+/* XAUUSD BUY Glow - Siêu sáng rực */
 .hud-signal-text-buy::after {
-  text-shadow: 0 0 15px rgba(251, 191, 36, 0.55), 
-               0 0 30px rgba(245, 158, 11, 0.3),
-               0 0 4px rgba(255, 255, 255, 0.5);
+  text-shadow: 0 0 10px rgba(251, 191, 36, 0.9), 
+               0 0 20px rgba(251, 191, 36, 0.8),
+               0 0 35px rgba(245, 158, 11, 0.7),
+               0 0 50px rgba(245, 158, 11, 0.5),
+               0 0 2px rgba(255, 255, 255, 1);
 }
 
-/* XAUUSD SELL Glow */
+/* XAUUSD SELL Glow - Siêu sáng rực */
 .hud-signal-text-sell::after {
-  text-shadow: 0 0 15px rgba(239, 68, 68, 0.6), 
-               0 0 30px rgba(244, 63, 94, 0.3),
-               0 0 4px rgba(255, 255, 255, 0.5);
+  text-shadow: 0 0 10px rgba(239, 68, 68, 0.9), 
+               0 0 20px rgba(239, 68, 68, 0.8),
+               0 0 35px rgba(244, 63, 94, 0.7),
+               0 0 50px rgba(244, 63, 94, 0.5),
+               0 0 2px rgba(255, 255, 255, 1);
 }
 
-/* Ký hiệu ngoặc neon HUD */
-.hud-bracket {
-  opacity: 0.65;
-  font-weight: 300;
-  display: inline-block;
-  transition: all 0.3s ease;
+/* Quét tia sáng scanline HUD */
+@keyframes hud-scanline {
+  0% {
+    top: 0%;
+  }
+  50% {
+    top: 100%;
+  }
+  100% {
+    top: 0%;
+  }
 }
-.hud-bracket-left {
-  margin-right: 0.25em;
-  transform: translateX(-2px);
-}
-.hud-bracket-right {
-  margin-left: 0.25em;
-  transform: translateX(2px);
+
+.animate-scanline {
+  animation: hud-scanline 3s linear infinite;
 }
 

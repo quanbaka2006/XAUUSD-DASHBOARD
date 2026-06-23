@@ -1895,10 +1895,39 @@ export function TradingChart({ mobileTab }) {
                 <Clock className="h-7 w-7 text-slate-500" />
               )}
             </div>
-            <div className="text-left">
-              <span className="text-[11px] font-black text-slate-500 uppercase tracking-widest block">{t('latestDetails')}</span>
-              <div className="flex flex-col mt-1">
-                <h2 className={`text-2xl lg:text-3xl font-black tracking-widest leading-none uppercase bg-clip-text text-transparent animate-text-shimmer hud-signal-text ${
+            <div className="text-left flex-1">
+              <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest block mb-1">{t('latestDetails')}</span>
+              
+              <div className={`relative px-4 py-2.5 rounded-xl border flex items-center justify-between overflow-hidden transition-all duration-500 ${
+                currentSignal.action === 'buy'
+                  ? 'bg-amber-500/[0.02] border-amber-500/20 shadow-[0_0_20px_rgba(245,158,11,0.03)]'
+                  : currentSignal.action === 'sell'
+                  ? 'bg-red-500/[0.02] border-red-500/20 shadow-[0_0_20px_rgba(239,68,68,0.03)]'
+                  : 'bg-slate-950/20 border-slate-800/60'
+              }`}>
+                {/* Tech Corner Crosshairs */}
+                <span className={`absolute top-0 left-0 w-2 h-2 border-t-2 border-l-2 transition-colors duration-500 ${
+                  currentSignal.action === 'buy' ? 'border-amber-400' : currentSignal.action === 'sell' ? 'border-red-400' : 'border-slate-700'
+                }`} />
+                <span className={`absolute top-0 right-0 w-2 h-2 border-t-2 border-r-2 transition-colors duration-500 ${
+                  currentSignal.action === 'buy' ? 'border-amber-400' : currentSignal.action === 'sell' ? 'border-red-400' : 'border-slate-700'
+                }`} />
+                <span className={`absolute bottom-0 left-0 w-2 h-2 border-b-2 border-l-2 transition-colors duration-500 ${
+                  currentSignal.action === 'buy' ? 'border-amber-400' : currentSignal.action === 'sell' ? 'border-red-400' : 'border-slate-700'
+                }`} />
+                <span className={`absolute bottom-0 right-0 w-2 h-2 border-b-2 border-r-2 transition-colors duration-500 ${
+                  currentSignal.action === 'buy' ? 'border-amber-400' : currentSignal.action === 'sell' ? 'border-red-400' : 'border-slate-700'
+                }`} />
+
+                {/* Scanning bar effect */}
+                {currentSignal.action !== 'stale' && (
+                  <div className={`absolute inset-x-0 h-[1px] opacity-15 pointer-events-none animate-scanline ${
+                    currentSignal.action === 'buy' ? 'bg-amber-400' : 'bg-red-400'
+                  }`} />
+                )}
+
+                {/* Glowing text display */}
+                <h2 className={`text-2xl lg:text-3xl font-black tracking-[0.1em] leading-none uppercase bg-clip-text text-transparent animate-text-shimmer hud-signal-text ${
                   currentSignal.action === 'buy'
                     ? 'bg-gradient-to-r from-amber-200 via-yellow-400 to-orange-400 hud-signal-text-buy'
                     : currentSignal.action === 'sell'
@@ -1907,17 +1936,20 @@ export function TradingChart({ mobileTab }) {
                 }`}
                 data-text={currentSignal.action === 'buy' ? 'BUY NOW' : currentSignal.action === 'sell' ? 'SELL NOW' : 'WAITING'}
                 >
-                  <span className={`hud-bracket hud-bracket-left ${currentSignal.action === 'buy' ? 'text-amber-400' : currentSignal.action === 'sell' ? 'text-red-500' : 'text-slate-600'}`}>[</span>
                   {currentSignal.action === 'buy' ? 'BUY NOW' : currentSignal.action === 'sell' ? 'SELL NOW' : t('waiting')}
-                  <span className={`hud-bracket hud-bracket-right ${currentSignal.action === 'buy' ? 'text-amber-400' : currentSignal.action === 'sell' ? 'text-red-500' : 'text-slate-600'}`}>]</span>
                 </h2>
-                <span className="text-[8px] font-mono text-slate-600 uppercase tracking-[0.25em] mt-1">
-                  {currentSignal.action === 'buy' 
-                    ? '● CRITERIA MET // AUTO-COPY ACTIVE' 
-                    : currentSignal.action === 'sell' 
-                    ? '● CRITERIA MET // AUTO-COPY ACTIVE' 
-                    : '○ WAITING FOR SIGNAL TRIGGER'}
-                </span>
+
+                {/* Flashing status dot indicator */}
+                {currentSignal.action !== 'stale' && (
+                  <span className="relative flex h-2 w-2 mr-1">
+                    <span className={`animate-ping absolute inline-flex h-full w-full rounded-full opacity-75 ${
+                      currentSignal.action === 'buy' ? 'bg-amber-400' : 'bg-red-400'
+                    }`}></span>
+                    <span className={`relative inline-flex rounded-full h-2 w-2 ${
+                      currentSignal.action === 'buy' ? 'bg-amber-500' : 'bg-red-500'
+                    }`}></span>
+                  </span>
+                )}
               </div>
             </div>
           </div>
