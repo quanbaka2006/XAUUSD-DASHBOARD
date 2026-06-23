@@ -832,6 +832,32 @@ function startYahooFallback() {
   console.log('[Yahoo] Fallback disabled — keeping last known Finnhub price to avoid futures price spikes');
 }
 
+// Finnhub HTTP polling fallback for free accounts (since free WebSocket doesn't support OANDA Forex/Commodities)
+let finnhubPollingInterval = null;
+let lastWsMessageTime = 0; // initialize as 0 so fallback starts immediately if WS is silent
+
+function startFinnhubHttpPolling() {
+  if (finnhubPollingInterval) return;
+  console.log('[Finnhub Poll] Starting HTTP quote polling fallback (every 5s) for live commodities...');
+  finnhubPollingInterval = setInterval(() => {
+    if (isMarketClosed()) return;
+    // Only poll if no WS messages received in the last 15 seconds
+    if (Date.now() - lastWsMessageTime < 15000) return;
+
+    ['XAUUSD', 'XAGUSD', 'WTIUSD'].forEach(sym => {
+      fetchFinnhubSeed(sym, () => {});
+    });
+  }, 5000);
+}
+
+function stopFinnhubHttpPolling() {
+  if (finnhubPollingInterval) {
+    clearInterval(finnhubPollingInterval);
+    finnhubPollingInterval = null;
+    console.log('[Finnhub Poll] Stopped HTTP quote polling');
+  }
+}
+
 // ==========================================
 // FINNHUB WebSocket — Real-time commodities
 // OANDA data feed: ~2-3s delay (same source as TradingView)
@@ -846,6 +872,9 @@ let finnhubConnected = false;
 let finnhubRetryDelay = 5000; // exponential backoff: starts 5s, max 60s
 
 function connectFinnhub() {
+  // Start polling fallback by default; it will check lastWsMessageTime and run if WS is silent
+  startFinnhubHttpPolling();
+
   if (!FINNHUB_TOKEN) {
     startYahooFallback();
     return;
@@ -875,6 +904,7 @@ function connectFinnhub() {
       const msg = JSON.parse(raw);
       // msg.type === 'trade' contains live price trades
       if (msg.type === 'trade' && Array.isArray(msg.data)) {
+        lastWsMessageTime = Date.now(); // update time to suppress HTTP polling
         msg.data.forEach(trade => {
           const sym = FINNHUB_SYMBOL_MAP[trade.s];
           if (!sym) return;
