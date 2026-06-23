@@ -76,26 +76,22 @@ const STATUS_META = {
   running: { 
     vn: 'ĐANG CHẠY', 
     en: 'ACTIVE', 
-    cls: 'text-emerald-400 bg-emerald-950/50 border-emerald-500/40 shadow-[0_0_15px_rgba(16,185,129,0.35)] font-extrabold', 
-    dot: 'bg-emerald-400' 
+    cls: 'text-emerald-400 bg-emerald-950/40 border-emerald-500/40 shadow-[0_0_15px_rgba(16,185,129,0.25),inset_0_1px_1px_rgba(255,255,255,0.05)] font-black uppercase tracking-wider', 
   },
   tp: { 
     vn: 'ĐÃ CHẠM TP', 
     en: 'TP HIT', 
-    cls: 'text-amber-400 bg-amber-950/50 border-amber-500/40 shadow-[0_0_15px_rgba(245,158,11,0.35)] font-extrabold', 
-    dot: 'bg-amber-400' 
+    cls: 'text-amber-400 bg-amber-950/45 backdrop-blur-md border-amber-500/30 shadow-[0_0_15px_rgba(245,158,11,0.2),inset_0_1px_1px_rgba(255,255,255,0.05)] font-extrabold', 
   },
   sl: { 
     vn: 'ĐÃ CHẠM SL', 
     en: 'SL HIT', 
-    cls: 'text-red-400 bg-red-950/50 border-red-500/40 shadow-[0_0_15px_rgba(239,68,68,0.35)] font-extrabold', 
-    dot: 'bg-red-400' 
+    cls: 'text-red-400 bg-red-950/45 backdrop-blur-md border-red-500/30 shadow-[0_0_15px_rgba(239,68,68,0.2),inset_0_1px_1px_rgba(255,255,255,0.05)] font-extrabold', 
   },
   none: { 
     vn: 'HẾT HIỆU LỰC', 
     en: 'EXPIRED', 
-    cls: 'text-slate-400 bg-slate-900/60 border-slate-800 shadow-none font-bold', 
-    dot: 'bg-slate-500' 
+    cls: 'text-slate-500 bg-slate-950/20 border-dashed border-slate-700/50 bg-[repeating-linear-gradient(45deg,rgba(255,255,255,0.02)_0px,rgba(255,255,255,0.02)_2px,transparent_2px,transparent_6px)] font-bold opacity-60 tracking-wider', 
   },
 };
 
@@ -105,16 +101,27 @@ function SignalStatusBadge({ signal }) {
   const { language } = useTranslation();
   const status = computeSignalStatus(signal, livePrice);
   const m = STATUS_META[status];
-  const running = status === 'running';
+  
+  let icon = null;
+  if (status === 'running') {
+    icon = (
+      <span className="relative flex h-3 w-3 items-center justify-center shrink-0">
+        <span className="animate-ping absolute inline-flex h-full w-full rounded-full opacity-60 bg-emerald-400"></span>
+        <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-400 shadow-[0_0_8px_rgba(16,185,129,0.8)]"></span>
+      </span>
+    );
+  } else if (status === 'tp') {
+    icon = <Star className="h-3 w-3 text-amber-400 fill-amber-400/30 animate-pulse shrink-0" />;
+  } else if (status === 'sl') {
+    icon = <ShieldAlert className="h-3 w-3 text-red-400 animate-bounce shrink-0" />;
+  } else {
+    icon = <Clock className="h-3.5 w-3.5 text-slate-600 shrink-0" />;
+  }
+
   return (
     <span className={`flex items-center gap-2 px-3 py-1 rounded-full text-[10px] font-black tracking-widest uppercase border transition-all duration-300 ${m.cls}`}>
-      <span className="relative flex h-2 w-2">
-        {running && (
-          <span className={`animate-ping absolute inline-flex h-full w-full rounded-full opacity-75 ${m.dot}`}></span>
-        )}
-        <span className={`relative inline-flex rounded-full h-2 w-2 ${m.dot}`}></span>
-      </span>
-      {language === 'en' ? m.en : m.vn}
+      {icon}
+      <span>{language === 'en' ? m.en : m.vn}</span>
     </span>
   );
 }
