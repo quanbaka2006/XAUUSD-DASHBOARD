@@ -542,9 +542,11 @@ function applyRealPrice(sym, newPrice) {
 }
 
 // ==========================================
-// BINANCE WebSocket — Real-time 1s for BTC/ETH/XAUUSD
+// BINANCE & KRAKEN WebSockets — Real-time 1s feeds
 // ==========================================
 let binanceWs = null;
+let binanceConnected = false;
+let binanceRetryDelay = 5000;
 
 function connectBinance() {
   const streams = Object.values(BINANCE_STREAMS).map(s => `${s}@miniTicker`).join('/');
@@ -553,6 +555,8 @@ function connectBinance() {
   binanceWs = new WebSocket(url);
 
   binanceWs.on('open', () => {
+    binanceConnected = true;
+    binanceRetryDelay = 5000;
     console.log('[Binance WS] Connected — streaming BTC/ETH/XAUUSD real-time');
   });
 
@@ -574,18 +578,85 @@ function connectBinance() {
     }
   });
 
-  binanceWs.on('close', () => {
-    console.warn('[Binance WS] Disconnected — reconnecting in 3s...');
-    setTimeout(connectBinance, 3000);
+  binanceWs.on('close', (code) => {
+    binanceConnected = false;
+    binanceRetryDelay = Math.min(binanceRetryDelay * 2, 60000);
+    console.warn(`[Binance WS] Disconnected (${code}) — reconnecting in ${binanceRetryDelay/1000}s...`);
+    setTimeout(connectBinance, binanceRetryDelay);
   });
 
   binanceWs.on('error', (err) => {
     console.error('[Binance WS] Error:', err.message);
+    binanceConnected = false;
     binanceWs.terminate();
   });
 }
 
 connectBinance();
+
+let krakenWs = null;
+let krakenConnected = false;
+let krakenRetryDelay = 5000;
+
+function connectKraken() {
+  const url = 'wss://ws.kraken.com';
+  krakenWs = new WebSocket(url);
+
+  krakenWs.on('open', () => {
+    krakenConnected = true;
+    krakenRetryDelay = 5000;
+    console.log('[Kraken WS] Connected — streaming XAUUSD/BTCUSD/ETHUSD real-time');
+    const subscribeMsg = {
+      event: 'subscribe',
+      pair: ['PAXG/USD', 'XBT/USD', 'ETH/USD'],
+      subscription: {
+        name: 'ticker'
+      }
+    };
+    krakenWs.send(JSON.stringify(subscribeMsg));
+  });
+
+  krakenWs.on('message', (raw) => {
+    try {
+      const msg = JSON.parse(raw);
+      if (Array.isArray(msg) && msg.length === 4 && msg[2] === 'ticker') {
+        const pair = msg[3];
+        const ticker = msg[1];
+        if (ticker && ticker.c && ticker.c[0]) {
+          const price = parseFloat(ticker.c[0]);
+          if (price && price > 0) {
+            const pairMap = {
+              'PAXG/USD': 'XAUUSD',
+              'XBT/USD': 'BTCUSD',
+              'ETH/USD': 'ETHUSD'
+            };
+            const sym = pairMap[pair];
+            if (sym) {
+              applyRealPrice(sym, price);
+            }
+          }
+        }
+      }
+    } catch (e) {
+      // ignore
+    }
+  });
+
+  krakenWs.on('close', (code) => {
+    krakenConnected = false;
+    krakenRetryDelay = Math.min(krakenRetryDelay * 2, 60000);
+    console.warn(`[Kraken WS] Disconnected (${code}) — reconnecting in ${krakenRetryDelay/1000}s...`);
+    setTimeout(connectKraken, krakenRetryDelay);
+  });
+
+  krakenWs.on('error', (err) => {
+    console.error('[Kraken WS] Error:', err.message);
+    krakenConnected = false;
+    krakenWs.terminate();
+  });
+}
+
+connectKraken();
 
 // ==========================================
 // Custom fetch helper using native https
@@ -773,6 +844,104 @@ function fetchYahooSeed(sym, callback) {
   req.end();
 }
 
+const KRAKEN_REST_MAP = {
+  'XAUUSD': { pair: 'PAXGUSD', resultKey: 'PAXGUSD' },
+  'BTCUSD': { pair: 'XBTUSD', resultKey: 'XXBTZUSD' },
+  'ETHUSD': { pair: 'ETHUSD', resultKey: 'XETHZUSD' }
+};
+
+function fetchKrakenSeed(sym, callback) {
+  const cfg = KRAKEN_REST_MAP[sym];
+  if (!cfg) return callback ? callback(null) : null;
+
+  const options = {
+    hostname: 'api.kraken.com',
+    path: `/0/public/Ticker?pair=${cfg.pair}`,
+    method: 'GET',
+    headers: { 'User-Agent': 'Mozilla/5.0' }
+  };
+
+  const req = https.request(options, (res) => {
+    let data = '';
+    res.on('data', c => data += c);
+    res.on('end', () => {
+      try {
+        const json = JSON.parse(data);
+        if (json.error && json.error.length > 0) {
+          console.error(`[Kraken seed] Error ${sym}:`, json.error);
+          return callback ? callback(null) : null;
+        }
+        const ticker = json.result[cfg.resultKey];
+        if (ticker && ticker.c && ticker.c[0]) {
+          const price = parseFloat(ticker.c[0]);
+          if (price && !isNaN(price)) {
+            applyRealPrice(sym, price);
+            console.log(`[Kraken seed] ${sym}: $${currentPrices[sym]}`);
+            if (callback) callback(price);
+            return;
+          }
+        }
+      } catch (e) {
+        console.error(`[Kraken seed] Parse error ${sym}:`, e.message);
+      }
+      if (callback) callback(null);
+    });
+  });
+
+  req.on('error', (err) => {
+    console.error(`[Kraken seed] Request error ${sym}:`, err.message);
+    if (callback) callback(null);
+  });
+  req.setTimeout(5000, () => req.destroy());
+  req.end();
+}
+
+function fetchKrakenMulti(symbols, callback) {
+  const pairs = symbols.map(s => KRAKEN_REST_MAP[s]?.pair).filter(Boolean);
+  if (pairs.length === 0) return callback ? callback() : null;
+
+  const options = {
+    hostname: 'api.kraken.com',
+    path: `/0/public/Ticker?pair=${pairs.join(',')}`,
+    method: 'GET',
+    headers: { 'User-Agent': 'Mozilla/5.0' }
+  };
+
+  const req = https.request(options, (res) => {
+    let data = '';
+    res.on('data', c => data += c);
+    res.on('end', () => {
+      try {
+        const json = JSON.parse(data);
+        if (json.error && json.error.length > 0) {
+          if (callback) callback();
+          return;
+        }
+        symbols.forEach(sym => {
+          const cfg = KRAKEN_REST_MAP[sym];
+          if (!cfg) return;
+          const ticker = json.result[cfg.resultKey];
+          if (ticker && ticker.c && ticker.c[0]) {
+            const price = parseFloat(ticker.c[0]);
+            if (price && !isNaN(price)) {
+              applyRealPrice(sym, price);
+            }
+          }
+        });
+      } catch (e) {
+        // ignore
+      }
+      if (callback) callback();
+    });
+  });
+
+  req.on('error', () => {
+    if (callback) callback();
+  });
+  req.setTimeout(5000, () => req.destroy());
+  req.end();
+}
+
 // ==========================================
 // Delayed History Init — wait for real prices before building candle history
 // ==========================================
@@ -796,8 +965,15 @@ SYMBOLS.forEach(sym => {
       if (price) {
         onSeedReceived(sym);
       } else {
-        // 2. Fallback to Yahoo
-        fetchYahooSeed(sym, () => onSeedReceived(sym));
+        // 2. Try Kraken (spot/PAXG) second
+        fetchKrakenSeed(sym, (krakenPrice) => {
+          if (krakenPrice) {
+            onSeedReceived(sym);
+          } else {
+            // 3. Fallback to Yahoo (futures/GC=F) as last resort
+            fetchYahooSeed(sym, () => onSeedReceived(sym));
+          }
+        });
       }
     });
   } else {
@@ -821,24 +997,44 @@ setTimeout(() => {
   }
 }, 10000);
 
-// Yahoo fallback polling — ENABLED for live price updates in free tier
+// Yahoo/Kraken fallback polling — ENABLED for live price updates in free tier
 let yahooFallbackInterval = null;
 function startYahooFallback() {
   if (yahooFallbackInterval) return;
-  console.log('[Yahoo] Fallback activated — polling Yahoo Finance every 1s when clients are active...');
+  console.log('[Yahoo/Kraken] Fallback activated — polling every 1s when clients are active...');
   yahooFallbackInterval = setInterval(() => {
     if (isMarketClosed()) return;
     
     // Check if there are active connected web clients
     const activeClients = io && io.engine ? io.engine.clientsCount : 0;
     
-    // If no clients are connected, skip polling to avoid Yahoo IP bans/rate limits
+    // If no clients are connected, skip polling to avoid IP bans/rate limits
     if (activeClients === 0) return;
 
-    // XAUUSD is now updated in real-time via Binance WebSocket (PAXGUSDT)
-    ['XAGUSD', 'WTIUSD'].forEach(sym => {
-      fetchYahooSeed(sym);
-    });
+    const krakenActive = krakenConnected;
+    const binanceActive = binanceWs && binanceWs.readyState === 1;
+    const finnhubActive = finnhubConnected;
+
+    // Check if we need to poll Kraken for BTC/ETH/XAU
+    const pollSyms = [];
+    if (!finnhubActive && !krakenActive) {
+      pollSyms.push('XAUUSD');
+    }
+    if (!binanceActive && !krakenActive) {
+      pollSyms.push('BTCUSD');
+      pollSyms.push('ETHUSD');
+    }
+
+    if (pollSyms.length > 0) {
+      fetchKrakenMulti(pollSyms);
+    }
+
+    // Always poll Yahoo for XAGUSD and WTIUSD if Finnhub WS is down
+    if (!finnhubActive) {
+      ['XAGUSD', 'WTIUSD'].forEach(sym => {
+        fetchYahooSeed(sym);
+      });
+    }
   }, 1000);
 }
 
@@ -1609,6 +1805,7 @@ app.get('/api/history/:symbol/:interval', requireAuth, (req, res) => {
 
 app.get('/api/debug-ws', (req, res) => {
   const wsState = binanceWs ? binanceWs.readyState : 'NOT_INITIALIZED';
+  const krakenWsState = krakenWs ? krakenWs.readyState : 'NOT_INITIALIZED';
   const wsStates = { 0: 'CONNECTING', 1: 'OPEN', 2: 'CLOSING', 3: 'CLOSED' };
   
   const https = require('https');
@@ -1617,7 +1814,8 @@ app.get('/api/debug-ws', (req, res) => {
     binanceRes.on('data', c => data += c);
     binanceRes.on('end', () => {
       res.json({
-        wsState: wsStates[wsState] || wsState,
+        binanceWsState: wsStates[wsState] || wsState,
+        krakenWsState: wsStates[krakenWsState] || krakenWsState,
         binanceApiStatus: binanceRes.statusCode,
         binanceApiData: data,
         currentPrices,
@@ -1629,7 +1827,8 @@ app.get('/api/debug-ws', (req, res) => {
     });
   }).on('error', (err) => {
     res.json({
-      wsState: wsStates[wsState] || wsState,
+      binanceWsState: wsStates[wsState] || wsState,
+      krakenWsState: wsStates[krakenWsState] || krakenWsState,
       binanceApiStatus: 'ERROR',
       binanceApiError: err.message,
       currentPrices,
