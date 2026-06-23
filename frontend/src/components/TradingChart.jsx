@@ -1897,15 +1897,28 @@ export function TradingChart({ mobileTab }) {
             </div>
             <div className="text-left">
               <span className="text-[11px] font-black text-slate-500 uppercase tracking-widest block">{t('latestDetails')}</span>
-              <h2 className={`text-3xl font-black tracking-wider leading-none mt-1.5 uppercase bg-clip-text text-transparent animate-text-shimmer ${
-                currentSignal.action === 'buy'
-                  ? 'bg-gradient-to-r from-amber-200 via-yellow-400 to-orange-400 animate-glow-buy'
-                  : currentSignal.action === 'sell'
-                  ? 'bg-gradient-to-r from-rose-300 via-red-400 to-orange-500 animate-glow-sell'
-                  : 'bg-gradient-to-r from-slate-300 to-slate-500'
-              }`}>
-                {currentSignal.action === 'buy' ? 'BUY NOW' : currentSignal.action === 'sell' ? 'SELL NOW' : t('waiting')}
-              </h2>
+              <div className="flex flex-col mt-1">
+                <h2 className={`text-2xl lg:text-3xl font-black tracking-widest leading-none uppercase bg-clip-text text-transparent animate-text-shimmer hud-signal-text ${
+                  currentSignal.action === 'buy'
+                    ? 'bg-gradient-to-r from-amber-200 via-yellow-400 to-orange-400 hud-signal-text-buy'
+                    : currentSignal.action === 'sell'
+                    ? 'bg-gradient-to-r from-rose-300 via-red-400 to-orange-500 hud-signal-text-sell'
+                    : 'bg-gradient-to-r from-slate-300 to-slate-500'
+                }`}
+                data-text={currentSignal.action === 'buy' ? 'BUY NOW' : currentSignal.action === 'sell' ? 'SELL NOW' : 'WAITING'}
+                >
+                  <span className={`hud-bracket hud-bracket-left ${currentSignal.action === 'buy' ? 'text-amber-400' : currentSignal.action === 'sell' ? 'text-red-500' : 'text-slate-600'}`}>[</span>
+                  {currentSignal.action === 'buy' ? 'BUY NOW' : currentSignal.action === 'sell' ? 'SELL NOW' : t('waiting')}
+                  <span className={`hud-bracket hud-bracket-right ${currentSignal.action === 'buy' ? 'text-amber-400' : currentSignal.action === 'sell' ? 'text-red-500' : 'text-slate-600'}`}>]</span>
+                </h2>
+                <span className="text-[8px] font-mono text-slate-600 uppercase tracking-[0.25em] mt-1">
+                  {currentSignal.action === 'buy' 
+                    ? '● CRITERIA MET // AUTO-COPY ACTIVE' 
+                    : currentSignal.action === 'sell' 
+                    ? '● CRITERIA MET // AUTO-COPY ACTIVE' 
+                    : '○ WAITING FOR SIGNAL TRIGGER'}
+                </span>
+              </div>
             </div>
           </div>
 
