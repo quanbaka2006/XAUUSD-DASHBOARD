@@ -1023,9 +1023,11 @@ function startYahooFallback() {
       fetchKrakenMulti(pollSyms);
     }
 
-    // WTIUSD is polled from Yahoo. Finnhub handles XAUUSD and XAGUSD via WebSocket.
-    if (!finnhubConnected) {
-      // If WS is completely down, try falling back to Yahoo for XAUUSD/XAGUSD
+    // WTIUSD is always polled from Yahoo.
+    // Finnhub handles XAUUSD and XAGUSD via WebSocket.
+    // We ONLY fallback to Yahoo for XAUUSD if no Finnhub token is provided.
+    // If Finnhub momentarily disconnects, we do NOT fallback to Yahoo because Yahoo's GC=F has a huge price offset and will cause fake spikes.
+    if (!FINNHUB_TOKEN) {
       ['XAUUSD', 'XAGUSD'].forEach(sym => {
         fetchYahooSeed(sym);
       });
