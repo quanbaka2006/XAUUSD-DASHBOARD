@@ -1024,11 +1024,19 @@ function startYahooFallback() {
       fetchKrakenMulti(pollSyms);
     }
 
-    // Always poll Yahoo for XAGUSD, WTIUSD, and XAUUSD if Finnhub WS is down
+    // Always poll Finnhub for XAUUSD (Spot Gold) and XAGUSD
     if (!finnhubActive) {
-      ['XAGUSD', 'WTIUSD', 'XAUUSD'].forEach(sym => {
-        fetchYahooSeed(sym);
+      ['XAUUSD', 'XAGUSD'].forEach(sym => {
+        fetchFinnhubSeed(sym, (price) => {
+          if (price) {
+            onSeedReceived(sym);
+          } else {
+            // Fallback to Yahoo if Finnhub fails
+            fetchYahooSeed(sym);
+          }
+        });
       });
+      fetchYahooSeed('WTIUSD');
     }
   }, 1000);
 }
