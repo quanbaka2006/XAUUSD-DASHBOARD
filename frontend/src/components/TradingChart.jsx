@@ -1026,8 +1026,12 @@ export function TradingChart({ mobileTab }) {
                 const chandelierData = calculateChandelierExit(history, chandelierAtrPeriod, chandelierAtrMultiplier);
                 if (chandelierData.length > 0) {
                   const last = chandelierData[chandelierData.length - 1];
-                  chandelierLongStopSeriesRef.current.update({ time: last.time, value: last.longStop });
-                  chandelierShortStopSeriesRef.current.update({ time: last.time, value: last.shortStop });
+                  if (last.longStop !== null) {
+                    chandelierLongStopSeriesRef.current.update({ time: last.time, value: last.longStop });
+                  }
+                  if (last.shortStop !== null) {
+                    chandelierShortStopSeriesRef.current.update({ time: last.time, value: last.shortStop });
+                  }
 
                   // Re-apply markers
                   const markers = [];
