@@ -158,92 +158,7 @@ function SignalProgressBar({ signal, symbol }) {
   );
 }
 
-function MultiTimeframeDashboard({ selectedSymbol, selectedTimeframe, currentSignal }) {
-  const { t } = useTranslation();
-  const signals = useTradeStore(state => state.signals[selectedSymbol]) || {};
-  const setSelectedTimeframe = useTradeStore(state => state.setSelectedTimeframe);
 
-  const timeframes = ['M1', 'M5', 'M15', 'H1'];
-
-  return (
-    <div className="panel-primary rounded-2xl flex flex-col relative overflow-hidden transition-all duration-500 p-4">
-      {/* Subtle top amber glow line */}
-      <div className="absolute top-0 left-0 right-0 h-[1px] bg-gradient-to-r from-transparent via-amber-400/30 to-transparent" />
-
-      {/* Header */}
-      <div className="flex items-center justify-between border-b border-white/[0.06] pb-2.5 mb-3">
-        <div className="flex items-center gap-2">
-          <Activity className="h-4 w-4 text-amber-500 animate-pulse" />
-          <span className="text-xs font-black text-white tracking-widest uppercase">
-            XU HƯỚNG ĐA KHUNG GIỜ
-          </span>
-        </div>
-        <span className="text-[9px] bg-amber-500/10 text-amber-500 px-1.5 py-0.5 rounded font-black tracking-widest font-mono">
-          MTF CONFLUENCE
-        </span>
-      </div>
-
-      {/* Grid of timeframes */}
-      <div className="flex flex-col gap-2">
-        {timeframes.map((tf) => {
-          const isSelected = selectedTimeframe === tf;
-          
-          let action = 'stale';
-          let source = 'System Webhook';
-          
-          if (isSelected) {
-            action = currentSignal?.action || 'stale';
-            source = 'Client Indicator';
-          } else {
-            action = signals[tf]?.action || 'stale';
-          }
-
-          // Format classes based on action
-          let badgeClass = 'bg-slate-900/50 border-slate-800 text-slate-500';
-          let trendText = 'STALE / CHỜ';
-          if (action === 'buy') {
-            badgeClass = 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400 font-black shadow-[0_0_12px_rgba(16,185,129,0.1)]';
-            trendText = 'BULLISH / TĂNG';
-          } else if (action === 'sell') {
-            badgeClass = 'bg-red-500/10 border-red-500/20 text-red-400 font-black shadow-[0_0_12px_rgba(239,68,68,0.1)]';
-            trendText = 'BEARISH / GIẢM';
-          }
-
-          return (
-            <button
-              key={tf}
-              onClick={() => setSelectedTimeframe(tf)}
-              className={`flex items-center justify-between p-2 rounded-xl border transition-all duration-300 cursor-pointer ${
-                isSelected 
-                  ? 'bg-amber-500/5 border-amber-500/30' 
-                  : 'bg-white/[0.02] border-white/[0.04] hover:bg-white/[0.04] hover:border-white/[0.08]'
-              }`}
-            >
-              <div className="flex items-center gap-2.5">
-                <span className={`w-8 text-center text-xs font-black font-mono py-1 rounded ${
-                  isSelected ? 'bg-amber-500 text-black' : 'bg-slate-800 text-slate-400'
-                }`}>
-                  {tf}
-                </span>
-                <span className="text-[9px] text-slate-500 font-mono font-bold">
-                  {source}
-                </span>
-              </div>
-              <div className={`px-2.5 py-1 rounded text-[10px] font-black border font-mono tracking-wide ${badgeClass}`}>
-                {trendText}
-              </div>
-            </button>
-          );
-        })}
-      </div>
-      
-      {/* Dynamic Confluence Tip */}
-      <div className="mt-3.5 pt-2.5 border-t border-white/[0.06] text-[10px] text-slate-500 font-bold text-left leading-relaxed">
-        💡 <span className="text-slate-400">Mẹo giao dịch:</span> Đợi tín hiệu đồng thuận ở cả khung giờ lớn (M15, H1) và khung giờ giao dịch (M1, M5) để đạt tỷ lệ thắng cao nhất, hạn chế đánh ngược xu hướng chính.
-      </div>
-    </div>
-  );
-}
 
 export function TradingChart({ mobileTab }) {
   const { t } = useTranslation();
@@ -2099,12 +2014,7 @@ export function TradingChart({ mobileTab }) {
           </div>
         </div>
 
-        {/* 2. MULTI-TIMEFRAME TREND DASHBOARD */}
-        <MultiTimeframeDashboard
-          selectedSymbol={selectedSymbol}
-          selectedTimeframe={selectedTimeframe}
-          currentSignal={currentSignal}
-        />
+
 
         {/* 3. TRADER PSYCHOLOGY CARD */}
         <div className="panel-primary rounded-2xl flex flex-col relative overflow-hidden transition-all duration-500">
