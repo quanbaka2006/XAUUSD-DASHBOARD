@@ -1881,8 +1881,8 @@ export function TradingChart({ mobileTab }) {
           </div>
 
           {/* ── HERO ZONE: Technical action arrow ── */}
-          <div className="px-3 lg:px-5 py-4 lg:py-6 flex items-center gap-4">
-            <div className={`h-14 w-14 rounded-2xl flex items-center justify-center border transition-all duration-500 relative group overflow-hidden ${
+          <div className="px-3 lg:px-5 py-4 lg:py-6 flex items-end gap-4">
+            <div className={`h-14 w-14 shrink-0 rounded-2xl flex items-center justify-center border transition-all duration-500 relative group overflow-hidden ${
               currentSignal.action === 'buy'
                 ? 'bg-gradient-to-br from-amber-500/10 to-yellow-600/5 border-amber-500/30 text-amber-400 shadow-[0_0_25px_rgba(234,179,8,0.2)]'
                 : currentSignal.action === 'sell'
@@ -1898,10 +1898,10 @@ export function TradingChart({ mobileTab }) {
                 <Clock className="h-7 w-7 text-slate-500" />
               )}
             </div>
-            <div className="text-left flex-1">
-              <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest block mb-1">{t('latestDetails')}</span>
+            <div className="text-center flex-1 flex flex-col justify-end">
+              <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest block mb-1.5">{t('latestDetails')}</span>
               
-              <div className={`relative px-4 py-2.5 rounded-xl flex items-center justify-between overflow-hidden transition-all duration-500 ${
+              <div className={`relative h-14 rounded-xl flex items-center justify-center overflow-hidden transition-all duration-500 ${
                 currentSignal.action === 'buy'
                   ? 'bg-amber-500/[0.02] glow-neon-border-buy'
                   : currentSignal.action === 'sell'
@@ -1943,18 +1943,6 @@ export function TradingChart({ mobileTab }) {
                 >
                   {(currentSignal.status === 'hit_tp' || currentSignal.status === 'closed' || currentSignal.status === 'sl') ? 'FINISHED' : currentSignal.action === 'buy' ? 'BUY NOW' : currentSignal.action === 'sell' ? 'SELL NOW' : t('waiting')}
                 </h2>
-
-                {/* Flashing status dot indicator */}
-                {currentSignal.action !== 'stale' && currentSignal.status !== 'hit_tp' && currentSignal.status !== 'closed' && currentSignal.status !== 'sl' && (
-                  <span className="relative flex h-2 w-2 mr-1">
-                    <span className={`animate-ping absolute inline-flex h-full w-full rounded-full opacity-75 ${
-                      currentSignal.action === 'buy' ? 'bg-amber-400' : 'bg-red-400'
-                    }`}></span>
-                    <span className={`relative inline-flex rounded-full h-2 w-2 ${
-                      currentSignal.action === 'buy' ? 'bg-amber-500' : 'bg-red-500'
-                    }`}></span>
-                  </span>
-                )}
               </div>
             </div>
           </div>
