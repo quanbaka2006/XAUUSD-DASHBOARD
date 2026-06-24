@@ -142,7 +142,7 @@ function SignalProgressBar({ signal, symbol }) {
   const entryPct = clamp(((signal.entry - lo) / span) * 100);
   const hasPrice = livePrice != null && !isNaN(livePrice) && livePrice !== 0;
   const pricePct = hasPrice ? clamp(((livePrice - lo) / span) * 100) : entryPct;
-  const tpAtRight = tpValue >= signal.sl; // buy: TP is the high end (right); sell: TP is the low end (left)
+  const tpAtRight = signal.action === 'buy'; 
   const trackGradient = tpAtRight
     ? 'linear-gradient(90deg, rgba(244,63,94,0.55), rgba(148,163,184,0.18) 50%, rgba(16,185,129,0.6))'
     : 'linear-gradient(90deg, rgba(16,185,129,0.6), rgba(148,163,184,0.18) 50%, rgba(244,63,94,0.55))';
@@ -156,15 +156,64 @@ function SignalProgressBar({ signal, symbol }) {
         <span className={tpAtRight ? 'text-emerald-400' : 'text-rose-400'}>{tpAtRight ? 'TP' : 'SL'} {rightVal.toFixed(dec)}</span>
       </div>
       <div className="relative h-2.5 rounded-full" style={{ background: trackGradient }}>
-        {/* entry marker removed per user request */}
-        {/* live price marker */}
         <span className="absolute top-1/2 -translate-x-1/2 -translate-y-1/2 w-3.5 h-3.5 rounded-full bg-white border-2 border-amber-400 shadow-[0_0_12px_rgba(251,191,36,0.95)]" style={{ left: `${pricePct}%` }} />
       </div>
     </div>
   );
 }
 
+function HeroActionDisplay({ currentSignal }) {
+  const livePrice = useTradeStore(s => s.livePrice);
+  const { t } = useTranslation();
+  const status = computeSignalStatus(currentSignal, livePrice);
+  const isFinished = status === 'tp' || status === 'sl' || currentSignal.status === 'closed';
 
+  return (
+    <div className={`relative h-14 rounded-xl flex items-center justify-center overflow-hidden transition-all duration-500 ${
+      currentSignal.action === 'buy' && !isFinished
+        ? 'bg-amber-500/[0.02] glow-neon-border-buy'
+        : currentSignal.action === 'sell' && !isFinished
+        ? 'bg-red-500/[0.02] glow-neon-border-sell'
+        : 'bg-slate-950/20 border-slate-800/60'
+    }`}>
+      {/* Tech Corner Crosshairs */}
+      <span className={`absolute top-0 left-0 w-2 h-2 border-t-2 border-l-2 transition-colors duration-500 ${
+        !isFinished && currentSignal.action === 'buy' ? 'border-amber-400' : !isFinished && currentSignal.action === 'sell' ? 'border-red-400' : 'border-slate-700'
+      }`} />
+      <span className={`absolute top-0 right-0 w-2 h-2 border-t-2 border-r-2 transition-colors duration-500 ${
+        !isFinished && currentSignal.action === 'buy' ? 'border-amber-400' : !isFinished && currentSignal.action === 'sell' ? 'border-red-400' : 'border-slate-700'
+      }`} />
+      <span className={`absolute bottom-0 left-0 w-2 h-2 border-b-2 border-l-2 transition-colors duration-500 ${
+        !isFinished && currentSignal.action === 'buy' ? 'border-amber-400' : !isFinished && currentSignal.action === 'sell' ? 'border-red-400' : 'border-slate-700'
+      }`} />
+      <span className={`absolute bottom-0 right-0 w-2 h-2 border-b-2 border-r-2 transition-colors duration-500 ${
+        !isFinished && currentSignal.action === 'buy' ? 'border-amber-400' : !isFinished && currentSignal.action === 'sell' ? 'border-red-400' : 'border-slate-700'
+      }`} />
+
+      {/* Scanning bar effect */}
+      {currentSignal.action !== 'stale' && !isFinished && (
+        <div className={`absolute inset-x-0 h-[1px] opacity-15 pointer-events-none animate-scanline ${
+          currentSignal.action === 'buy' ? 'bg-amber-400' : 'bg-red-400'
+        }`} />
+      )}
+
+      {/* Glowing text display */}
+      <h2 className={`text-2xl lg:text-3xl font-black tracking-[0.1em] leading-none uppercase animate-text-shimmer hud-signal-text ${
+        isFinished
+          ? 'text-slate-400'
+          : currentSignal.action === 'buy'
+          ? 'text-amber-300 glow-neon-buy'
+          : currentSignal.action === 'sell'
+          ? 'text-red-300 glow-neon-sell'
+          : 'text-slate-300'
+      }`}
+      data-text={isFinished ? 'FINISHED' : currentSignal.action === 'buy' ? 'BUY NOW' : currentSignal.action === 'sell' ? 'SELL NOW' : 'WAITING'}
+      >
+        {isFinished ? 'FINISHED' : currentSignal.action === 'buy' ? 'BUY NOW' : currentSignal.action === 'sell' ? 'SELL NOW' : t('waiting')}
+      </h2>
+    </div>
+  );
+}
 
 export function TradingChart({ mobileTab }) {
   const { t } = useTranslation();
@@ -1901,49 +1950,7 @@ export function TradingChart({ mobileTab }) {
             <div className="text-center flex-1 flex flex-col justify-end">
               <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest block mb-1.5">{t('latestDetails')}</span>
               
-              <div className={`relative h-14 rounded-xl flex items-center justify-center overflow-hidden transition-all duration-500 ${
-                currentSignal.action === 'buy'
-                  ? 'bg-amber-500/[0.02] glow-neon-border-buy'
-                  : currentSignal.action === 'sell'
-                  ? 'bg-red-500/[0.02] glow-neon-border-sell'
-                  : 'bg-slate-950/20 border-slate-800/60'
-              }`}>
-                {/* Tech Corner Crosshairs */}
-                <span className={`absolute top-0 left-0 w-2 h-2 border-t-2 border-l-2 transition-colors duration-500 ${
-                  currentSignal.action === 'buy' ? 'border-amber-400' : currentSignal.action === 'sell' ? 'border-red-400' : 'border-slate-700'
-                }`} />
-                <span className={`absolute top-0 right-0 w-2 h-2 border-t-2 border-r-2 transition-colors duration-500 ${
-                  currentSignal.action === 'buy' ? 'border-amber-400' : currentSignal.action === 'sell' ? 'border-red-400' : 'border-slate-700'
-                }`} />
-                <span className={`absolute bottom-0 left-0 w-2 h-2 border-b-2 border-l-2 transition-colors duration-500 ${
-                  currentSignal.action === 'buy' ? 'border-amber-400' : currentSignal.action === 'sell' ? 'border-red-400' : 'border-slate-700'
-                }`} />
-                <span className={`absolute bottom-0 right-0 w-2 h-2 border-b-2 border-r-2 transition-colors duration-500 ${
-                  currentSignal.action === 'buy' ? 'border-amber-400' : currentSignal.action === 'sell' ? 'border-red-400' : 'border-slate-700'
-                }`} />
-
-                {/* Scanning bar effect */}
-                {currentSignal.action !== 'stale' && (
-                  <div className={`absolute inset-x-0 h-[1px] opacity-15 pointer-events-none animate-scanline ${
-                    currentSignal.action === 'buy' ? 'bg-amber-400' : 'bg-red-400'
-                  }`} />
-                )}
-
-                {/* Glowing text display */}
-                <h2 className={`text-2xl lg:text-3xl font-black tracking-[0.1em] leading-none uppercase animate-text-shimmer hud-signal-text ${
-                  (currentSignal.status === 'hit_tp' || currentSignal.status === 'closed' || currentSignal.status === 'sl')
-                    ? 'text-slate-400'
-                    : currentSignal.action === 'buy'
-                    ? 'text-amber-300 glow-neon-buy'
-                    : currentSignal.action === 'sell'
-                    ? 'text-red-300 glow-neon-sell'
-                    : 'text-slate-300'
-                }`}
-                data-text={(currentSignal.status === 'hit_tp' || currentSignal.status === 'closed' || currentSignal.status === 'sl') ? 'FINISHED' : currentSignal.action === 'buy' ? 'BUY NOW' : currentSignal.action === 'sell' ? 'SELL NOW' : 'WAITING'}
-                >
-                  {(currentSignal.status === 'hit_tp' || currentSignal.status === 'closed' || currentSignal.status === 'sl') ? 'FINISHED' : currentSignal.action === 'buy' ? 'BUY NOW' : currentSignal.action === 'sell' ? 'SELL NOW' : t('waiting')}
-                </h2>
-              </div>
+              <HeroActionDisplay currentSignal={currentSignal} />
             </div>
           </div>
 
