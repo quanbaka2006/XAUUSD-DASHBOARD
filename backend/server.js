@@ -998,7 +998,7 @@ setTimeout(() => {
 let yahooFallbackInterval = null;
 function startYahooFallback() {
   if (yahooFallbackInterval) return;
-  console.log('[Yahoo/Kraken] Fallback activated — polling every 1s when clients are active...');
+  console.log('[Yahoo/Kraken] Fallback activated — polling every 5s when clients are active...');
   yahooFallbackInterval = setInterval(() => {
     if (isMarketClosed()) return;
     
@@ -1010,7 +1010,6 @@ function startYahooFallback() {
 
     const krakenActive = krakenConnected;
     const binanceActive = binanceWs && binanceWs.readyState === 1;
-    const finnhubActive = finnhubConnected;
 
     // Check if we need to poll Kraken for BTC/ETH
     const pollSyms = [];
@@ -1026,14 +1025,14 @@ function startYahooFallback() {
     // WTIUSD is always polled from Yahoo.
     // Finnhub handles XAUUSD and XAGUSD via WebSocket.
     // We ONLY fallback to Yahoo for XAUUSD if no Finnhub token is provided.
-    // If Finnhub momentarily disconnects, we do NOT fallback to Yahoo because Yahoo's GC=F has a huge price offset and will cause fake spikes.
+    // Stagger the requests to avoid rate limiting
+    setTimeout(() => fetchYahooSeed('WTIUSD'), 0);
+    
     if (!FINNHUB_TOKEN) {
-      ['XAUUSD', 'XAGUSD'].forEach(sym => {
-        fetchYahooSeed(sym);
-      });
+      setTimeout(() => fetchYahooSeed('XAUUSD'), 1500);
+      setTimeout(() => fetchYahooSeed('XAGUSD'), 3000);
     }
-    fetchYahooSeed('WTIUSD');
-  }, 1000);
+  }, 5000);
 }
 
 function stopYahooFallback() {
