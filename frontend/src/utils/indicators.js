@@ -417,7 +417,7 @@ export function calculateTrendlinesWithBreaks(data, length = 14, k = 1.0) {
 }
 
 const STATIC_SIGNAL_SETTINGS = {
-  'XAUUSD': { sl: 5.0, tp: 7.0 },
+  'XAUUSD': { sl: 3.0, tp: 1.0 },
   'WTIUSD': { sl: 0.5, tp: 0.7 },
   'XAGUSD': { sl: 0.2, tp: 0.28 },
   'BTCUSD': { sl: 300.0, tp: 420.0 },
@@ -621,7 +621,7 @@ export function getCurrentSignal({
   }
 
   // Calculate static TP / SL
-  const settings = STATIC_SIGNAL_SETTINGS[selectedSymbol] || { sl: 5.0, tp: 7.0 };
+  const settings = STATIC_SIGNAL_SETTINGS[selectedSymbol] || { sl: 3.0, tp: 1.0 };
   const decimalPlaces = (selectedSymbol === 'XAGUSD') ? 4 : 2;
   
   let sl = 0;

@@ -402,7 +402,7 @@ const hasAlignedHistory = {
 const drawingsStore = new Map();
 
 const SIGNAL_SETTINGS = {
-  'XAUUSD': { sl: 5.0, tp: 7.0 },
+  'XAUUSD': { sl: 3.0, tp: 1.0 },
   'WTIUSD': { sl: 0.5, tp: 0.7 },
   'XAGUSD': { sl: 0.2, tp: 0.28 },
   'BTCUSD': { sl: 300.0, tp: 420.0 },
@@ -410,7 +410,7 @@ const SIGNAL_SETTINGS = {
 };
 
 SYMBOLS.forEach((sym) => {
-  const settings = SIGNAL_SETTINGS[sym] || { sl: 5.0, tp: 7.0 };
+  const settings = SIGNAL_SETTINGS[sym] || { sl: 3.0, tp: 1.0 };
   const price = defaultPrices[sym];
   
   // Format based on asset type
@@ -1738,7 +1738,7 @@ app.post('/api/webhook', webhookLimiter, (req, res) => {
   }
 
   // Calculate SL and TP using hardcoded distances (SL 5 prices, TP 7 prices for Gold)
-  const settings = SIGNAL_SETTINGS[sym] || { sl: 5.0, tp: 7.0 };
+  const settings = SIGNAL_SETTINGS[sym] || { sl: 3.0, tp: 1.0 };
   let computedSl = 0;
   let computedTp = 0;
   if (formattedAction === 'buy') {
