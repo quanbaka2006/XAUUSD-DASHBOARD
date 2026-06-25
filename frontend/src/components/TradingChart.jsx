@@ -173,8 +173,8 @@ function SignalProgressBar({ signal, symbol }) {
         {tp1Value !== tp2Value && (
           <>
             <span className="absolute top-0 bottom-0 w-0.5 bg-blue-400/50 -translate-x-1/2" style={{ left: `${tp1Pct}%` }} />
-            <span className="absolute top-4 text-[9px] font-black text-blue-400/80 -translate-x-1/2" style={{ left: `${tp1Pct}%` }}>
-              TP1
+            <span className="absolute top-4 text-[9px] font-black text-blue-400/80 -translate-x-1/2 whitespace-nowrap" style={{ left: `${tp1Pct}%` }}>
+              TP1 {tp1Value.toFixed(dec)}
             </span>
           </>
         )}
