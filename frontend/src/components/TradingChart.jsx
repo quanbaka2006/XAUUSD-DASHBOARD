@@ -162,23 +162,21 @@ function SignalProgressBar({ signal, symbol }) {
   const leftVal = tpAtRight ? signal.sl : tp2Value;
   const rightVal = tpAtRight ? tp2Value : signal.sl;
   return (
-    <div className="px-1 pt-1">
-      <div className="flex justify-between text-[10px] font-black tracking-wider mb-1.5 relative">
+    <div className="px-1 pt-1 pb-3 relative">
+      <div className="flex justify-between text-[10px] font-black tracking-wider mb-1.5">
         <span className={tpAtRight ? 'text-rose-400' : 'text-emerald-400'}>{tpAtRight ? 'SL' : 'TP2'} {leftVal.toFixed(dec)}</span>
         <span className="opacity-0">HIDDEN</span>
         <span className={tpAtRight ? 'text-emerald-400' : 'text-rose-400'}>{tpAtRight ? 'TP2' : 'SL'} {rightVal.toFixed(dec)}</span>
-        
-        {/* TP1 Marker Label */}
-        {tp1Value !== tp2Value && (
-          <span className="absolute top-0 text-blue-400 -translate-x-1/2" style={{ left: `${tp1Pct}%` }}>
-            TP1 {tp1Value.toFixed(dec)}
-          </span>
-        )}
       </div>
       <div className="relative h-2.5 rounded-full" style={{ background: trackGradient }}>
-        {/* TP1 Marker Line */}
+        {/* TP1 Marker Line & Label below */}
         {tp1Value !== tp2Value && (
-          <span className="absolute top-0 bottom-0 w-0.5 bg-blue-400/50 -translate-x-1/2" style={{ left: `${tp1Pct}%` }} />
+          <>
+            <span className="absolute top-0 bottom-0 w-0.5 bg-blue-400/50 -translate-x-1/2" style={{ left: `${tp1Pct}%` }} />
+            <span className="absolute top-4 text-[9px] font-black text-blue-400/80 -translate-x-1/2" style={{ left: `${tp1Pct}%` }}>
+              TP1
+            </span>
+          </>
         )}
         <span className="absolute top-1/2 -translate-x-1/2 -translate-y-1/2 w-3.5 h-3.5 rounded-full bg-white border-2 border-amber-400 shadow-[0_0_12px_rgba(251,191,36,0.95)]" style={{ left: `${pricePct}%` }} />
       </div>
@@ -2012,19 +2010,20 @@ export function TradingChart({ mobileTab }) {
                 }
                 const label = arr.length > 1 ? `TAKE PROFIT ${idx + 1}` : 'TAKE PROFIT';
                 const hitText = idx === 0 && arr.length > 1 ? 'TP1' : idx === 1 ? 'TP2' : 'HIT';
-                const colorCls = isHit && idx === 0 && arr.length > 1 ? 'text-blue-400' : isHit ? 'text-emerald-400' : 'text-slate-400';
-                const bgCls = isHit && idx === 0 && arr.length > 1 ? 'bg-blue-400 shadow-[0_0_8px_#60a5fa]' : isHit ? 'bg-emerald-400 shadow-[0_0_8px_#34d399]' : 'bg-slate-500';
+                const labelColorCls = isHit && idx === 0 && arr.length > 1 ? 'text-blue-400' : isHit ? 'text-emerald-400' : 'text-slate-400';
+                const valueColorCls = idx === 0 && arr.length > 1 ? 'text-blue-400' : 'text-emerald-400'; // Always color the value
+                const bgCls = isHit && idx === 0 && arr.length > 1 ? 'bg-blue-400 shadow-[0_0_8px_#60a5fa]' : isHit ? 'bg-emerald-400 shadow-[0_0_8px_#34d399]' : idx === 0 && arr.length > 1 ? 'bg-blue-500' : 'bg-emerald-500';
                 const hitBgCls = isHit && idx === 0 && arr.length > 1 ? 'bg-blue-500/20 text-blue-400' : 'bg-emerald-500/20 text-emerald-400';
                 
                 return (
                   <div key={idx} className={`flex items-center justify-between px-4 py-2.5 hover:bg-slate-900/20 transition-all duration-300 ${isHit ? 'bg-white/[0.02]' : ''}`}>
                     <div className="flex items-center gap-2">
                       <div className={`w-1.5 h-1.5 rounded-full ${bgCls}`} />
-                      <span className={`text-[11px] font-black uppercase tracking-wider ${colorCls}`}>{label}</span>
+                      <span className={`text-[11px] font-black uppercase tracking-wider ${labelColorCls}`}>{label}</span>
                     </div>
                     <div className="flex items-center gap-2">
                       {isHit && <span className={`text-[9px] px-1 py-0.5 rounded font-black font-sans ${hitBgCls}`}>{hitText}</span>}
-                      <span className={`text-base font-sans font-black tracking-tighter ${colorCls}`}>{formatPrice(tpVal)}</span>
+                      <span className={`text-base font-sans font-black tracking-tighter ${valueColorCls}`}>{formatPrice(tpVal)}</span>
                     </div>
                   </div>
                 );
