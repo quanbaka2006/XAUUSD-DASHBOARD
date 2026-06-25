@@ -402,15 +402,15 @@ const hasAlignedHistory = {
 const drawingsStore = new Map();
 
 const SIGNAL_SETTINGS = {
-  'XAUUSD': { sl: 3.0, tp: 1.0 },
-  'WTIUSD': { sl: 0.5, tp: 0.7 },
-  'XAGUSD': { sl: 0.2, tp: 0.28 },
-  'BTCUSD': { sl: 300.0, tp: 420.0 },
-  'ETHUSD': { sl: 15.0, tp: 21.0 }
+  'XAUUSD': { sl: 10.0, tp1: 5.0, tp2: 7.5 },
+  'WTIUSD': { sl: 1.0, tp1: 0.5, tp2: 0.75 },
+  'XAGUSD': { sl: 0.4, tp1: 0.2, tp2: 0.3 },
+  'BTCUSD': { sl: 600.0, tp1: 300.0, tp2: 450.0 },
+  'ETHUSD': { sl: 30.0, tp1: 15.0, tp2: 22.5 }
 };
 
 SYMBOLS.forEach((sym) => {
-  const settings = SIGNAL_SETTINGS[sym] || { sl: 3.0, tp: 1.0 };
+  const settings = SIGNAL_SETTINGS[sym] || { sl: 10.0, tp1: 5.0, tp2: 7.5 };
   const price = defaultPrices[sym];
   
   // Format based on asset type
@@ -1736,22 +1736,26 @@ app.post('/api/webhook', webhookLimiter, (req, res) => {
     return res.status(400).json({ error: 'Invalid or missing entry price' });
   }
 
-  // Calculate SL and TP using hardcoded distances (SL 5 prices, TP 7 prices for Gold)
-  const settings = SIGNAL_SETTINGS[sym] || { sl: 3.0, tp: 1.0 };
+  // Calculate SL and TPs using dynamic distances
+  const settings = SIGNAL_SETTINGS[sym] || { sl: 10.0, tp1: 5.0, tp2: 7.5 };
   let computedSl = 0;
-  let computedTp = 0;
+  let computedTp1 = 0;
+  let computedTp2 = 0;
   if (formattedAction === 'buy') {
     computedSl = numEntry - settings.sl;
-    computedTp = numEntry + settings.tp;
+    computedTp1 = numEntry + settings.tp1;
+    computedTp2 = numEntry + settings.tp2;
   } else {
     computedSl = numEntry + settings.sl;
-    computedTp = numEntry - settings.tp;
+    computedTp1 = numEntry - settings.tp1;
+    computedTp2 = numEntry - settings.tp2;
   }
 
   // Round values depending on asset type (XAGUSD needs 4 decimals, others 2)
   const decimalPlaces = (sym === 'XAGUSD') ? 4 : 2;
   const finalSl = parseFloat(computedSl.toFixed(decimalPlaces));
-  const finalTp = parseFloat(computedTp.toFixed(decimalPlaces));
+  const finalTp1 = parseFloat(computedTp1.toFixed(decimalPlaces));
+  const finalTp2 = parseFloat(computedTp2.toFixed(decimalPlaces));
   const finalEntry = parseFloat(numEntry.toFixed(decimalPlaces));
 
   signals[sym][tfLabel] = {
@@ -1760,7 +1764,7 @@ app.post('/api/webhook', webhookLimiter, (req, res) => {
     action: formattedAction,
     entry: finalEntry, 
     sl: finalSl, 
-    tp: finalTp,
+    tps: [finalTp1, finalTp2],
     confidence: numConfidence && !isNaN(numConfidence) ? numConfidence : Math.floor(Math.random() * 20) + 75,
     timestamp: Date.now()
   };

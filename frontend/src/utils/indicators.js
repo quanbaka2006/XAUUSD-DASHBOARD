@@ -417,11 +417,11 @@ export function calculateTrendlinesWithBreaks(data, length = 14, k = 1.0) {
 }
 
 const STATIC_SIGNAL_SETTINGS = {
-  'XAUUSD': { sl: 3.0, tp: 1.0 },
-  'WTIUSD': { sl: 0.5, tp: 0.7 },
-  'XAGUSD': { sl: 0.2, tp: 0.28 },
-  'BTCUSD': { sl: 300.0, tp: 420.0 },
-  'ETHUSD': { sl: 15.0, tp: 21.0 }
+  'XAUUSD': { sl: 10.0, tp1: 5.0, tp2: 7.5 },
+  'WTIUSD': { sl: 1.0, tp1: 0.5, tp2: 0.75 },
+  'XAGUSD': { sl: 0.4, tp1: 0.2, tp2: 0.3 },
+  'BTCUSD': { sl: 600.0, tp1: 300.0, tp2: 450.0 },
+  'ETHUSD': { sl: 30.0, tp1: 15.0, tp2: 22.5 }
 };
 
 export function getCurrentSignal({
@@ -621,17 +621,20 @@ export function getCurrentSignal({
   }
 
   // Calculate static TP / SL
-  const settings = STATIC_SIGNAL_SETTINGS[selectedSymbol] || { sl: 3.0, tp: 1.0 };
+  const settings = STATIC_SIGNAL_SETTINGS[selectedSymbol] || { sl: 10.0, tp1: 5.0, tp2: 7.5 };
   const decimalPlaces = (selectedSymbol === 'XAGUSD') ? 4 : 2;
   
   let sl = 0;
-  let tp = 0;
+  let tp1 = 0;
+  let tp2 = 0;
   if (rawSignal.action === 'buy') {
     sl = parseFloat((rawSignal.entry - settings.sl).toFixed(decimalPlaces));
-    tp = parseFloat((rawSignal.entry + settings.tp).toFixed(decimalPlaces));
+    tp1 = parseFloat((rawSignal.entry + settings.tp1).toFixed(decimalPlaces));
+    tp2 = parseFloat((rawSignal.entry + settings.tp2).toFixed(decimalPlaces));
   } else if (rawSignal.action === 'sell') {
     sl = parseFloat((rawSignal.entry + settings.sl).toFixed(decimalPlaces));
-    tp = parseFloat((rawSignal.entry - settings.tp).toFixed(decimalPlaces));
+    tp1 = parseFloat((rawSignal.entry - settings.tp1).toFixed(decimalPlaces));
+    tp2 = parseFloat((rawSignal.entry - settings.tp2).toFixed(decimalPlaces));
   }
 
   // Override confidence to a random 93-97% based on entry price and timestamp
@@ -647,7 +650,7 @@ export function getCurrentSignal({
     ...rawSignal,
     confidence: finalConfidence || rawSignal.confidence,
     sl,
-    tp
+    tps: [tp1, tp2]
   };
 }
 

@@ -59,15 +59,20 @@ function computeSignalStatus(signal, livePrice) {
     return 'none';
   }
   if (signal.status === 'hit_tp') return 'tp';
-  if (signal.hitTps && signal.hitTps.some(x => x)) return 'tp';
+  if (signal.hitTps && signal.hitTps[1]) return 'tp';
+  if (signal.hitTps && signal.hitTps[0]) return 'tp1';
 
-  const tpValue = signal.tp || (signal.tps && signal.tps[0]) || 0;
+  const tp1Value = (signal.tps && signal.tps[0]) || signal.tp || 0;
+  const tp2Value = (signal.tps && signal.tps[1]) || tp1Value;
+
   if (signal.action === 'sell') {
-    if (tpValue && livePrice <= tpValue) return 'tp';
+    if (tp2Value && livePrice <= tp2Value) return 'tp';
     if (signal.sl && livePrice >= signal.sl) return 'sl';
+    if (tp1Value && livePrice <= tp1Value) return 'tp1';
   } else if (signal.action === 'buy') {
-    if (tpValue && livePrice >= tpValue) return 'tp';
+    if (tp2Value && livePrice >= tp2Value) return 'tp';
     if (signal.sl && livePrice <= signal.sl) return 'sl';
+    if (tp1Value && livePrice >= tp1Value) return 'tp1';
   }
   return 'running';
 }
@@ -78,9 +83,14 @@ const STATUS_META = {
     en: 'ACTIVE', 
     cls: 'text-emerald-400 bg-emerald-950/40 border-emerald-500/40 shadow-[0_0_15px_rgba(16,185,129,0.25),inset_0_1px_1px_rgba(255,255,255,0.05)] font-black uppercase tracking-wider', 
   },
+  tp1: { 
+    vn: 'ĐÃ CHẠM TP1', 
+    en: 'TP1 HIT', 
+    cls: 'text-blue-400 bg-blue-950/45 backdrop-blur-md border-blue-500/30 shadow-[0_0_15px_rgba(59,130,246,0.2),inset_0_1px_1px_rgba(255,255,255,0.05)] font-extrabold tracking-wider', 
+  },
   tp: { 
-    vn: 'ĐÃ CHẠM TP', 
-    en: 'TP HIT', 
+    vn: 'ĐÃ CHẠM TP2', 
+    en: 'TP2 HIT', 
     cls: 'text-amber-400 bg-amber-950/45 backdrop-blur-md border-amber-500/30 shadow-[0_0_15px_rgba(245,158,11,0.2),inset_0_1px_1px_rgba(255,255,255,0.05)] font-extrabold', 
   },
   sl: { 
@@ -110,7 +120,7 @@ function SignalStatusBadge({ signal }) {
         <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-400 shadow-[0_0_8px_rgba(16,185,129,0.8)]"></span>
       </span>
     );
-  } else if (status === 'tp') {
+  } else if (status === 'tp' || status === 'tp1') {
     icon = <Star className="h-3 w-3 text-amber-400 fill-amber-400/30 animate-pulse shrink-0" />;
   } else if (status === 'sl') {
     icon = <ShieldAlert className="h-3 w-3 text-red-400 animate-bounce shrink-0" />;
@@ -129,33 +139,47 @@ function SignalStatusBadge({ signal }) {
 // Live price position between SL and TP — vivid visual gauge
 function SignalProgressBar({ signal, symbol }) {
   const livePrice = useTradeStore(s => s.livePrice);
-  const { language } = useTranslation();
   
-  const tpValue = signal.tp || (signal.tps && signal.tps[signal.tps.length - 1]) || 0;
-  if (!signal || signal.action === 'stale' || !signal.entry || !signal.sl || !tpValue) return null;
+  const tp1Value = signal.tps && signal.tps[0] ? signal.tps[0] : signal.tp;
+  const tp2Value = signal.tps && signal.tps.length > 1 ? signal.tps[1] : tp1Value;
+  
+  if (!signal || signal.action === 'stale' || !signal.entry || !signal.sl || !tp2Value) return null;
 
   const dec = symbol === 'XAGUSD' ? 4 : 2;
-  const lo = Math.min(signal.sl, tpValue);
-  const hi = Math.max(signal.sl, tpValue);
+  const lo = Math.min(signal.sl, tp2Value);
+  const hi = Math.max(signal.sl, tp2Value);
   const span = (hi - lo) || 1;
   const clamp = (v) => Math.max(0, Math.min(100, v));
   const entryPct = clamp(((signal.entry - lo) / span) * 100);
+  const tp1Pct = clamp(((tp1Value - lo) / span) * 100);
+  
   const hasPrice = livePrice != null && !isNaN(livePrice) && livePrice !== 0;
   const pricePct = hasPrice ? clamp(((livePrice - lo) / span) * 100) : entryPct;
   const tpAtRight = signal.action === 'buy'; 
   const trackGradient = tpAtRight
     ? 'linear-gradient(90deg, rgba(244,63,94,0.55), rgba(148,163,184,0.18) 50%, rgba(16,185,129,0.6))'
     : 'linear-gradient(90deg, rgba(16,185,129,0.6), rgba(148,163,184,0.18) 50%, rgba(244,63,94,0.55))';
-  const leftVal = tpAtRight ? signal.sl : tpValue;
-  const rightVal = tpAtRight ? tpValue : signal.sl;
+  const leftVal = tpAtRight ? signal.sl : tp2Value;
+  const rightVal = tpAtRight ? tp2Value : signal.sl;
   return (
     <div className="px-1 pt-1">
-      <div className="flex justify-between text-[10px] font-black tracking-wider mb-1.5">
-        <span className={tpAtRight ? 'text-rose-400' : 'text-emerald-400'}>{tpAtRight ? 'SL' : 'TP'} {leftVal.toFixed(dec)}</span>
-        <span className="text-amber-300/90 uppercase">{language === 'en' ? 'Live' : 'Giá hiện tại'}</span>
-        <span className={tpAtRight ? 'text-emerald-400' : 'text-rose-400'}>{tpAtRight ? 'TP' : 'SL'} {rightVal.toFixed(dec)}</span>
+      <div className="flex justify-between text-[10px] font-black tracking-wider mb-1.5 relative">
+        <span className={tpAtRight ? 'text-rose-400' : 'text-emerald-400'}>{tpAtRight ? 'SL' : 'TP2'} {leftVal.toFixed(dec)}</span>
+        <span className="opacity-0">HIDDEN</span>
+        <span className={tpAtRight ? 'text-emerald-400' : 'text-rose-400'}>{tpAtRight ? 'TP2' : 'SL'} {rightVal.toFixed(dec)}</span>
+        
+        {/* TP1 Marker Label */}
+        {tp1Value !== tp2Value && (
+          <span className="absolute top-0 text-blue-400 -translate-x-1/2" style={{ left: `${tp1Pct}%` }}>
+            TP1 {tp1Value.toFixed(dec)}
+          </span>
+        )}
       </div>
       <div className="relative h-2.5 rounded-full" style={{ background: trackGradient }}>
+        {/* TP1 Marker Line */}
+        {tp1Value !== tp2Value && (
+          <span className="absolute top-0 bottom-0 w-0.5 bg-blue-400/50 -translate-x-1/2" style={{ left: `${tp1Pct}%` }} />
+        )}
         <span className="absolute top-1/2 -translate-x-1/2 -translate-y-1/2 w-3.5 h-3.5 rounded-full bg-white border-2 border-amber-400 shadow-[0_0_12px_rgba(251,191,36,0.95)]" style={{ left: `${pricePct}%` }} />
       </div>
     </div>
@@ -1976,31 +2000,35 @@ export function TradingChart({ mobileTab }) {
               </div>
 
               {/* Take Profit (TP) */}
-              {selectedIndicatorSystem === 'tsunami' ? (
-                (currentSignal.tps || []).map((tpVal, idx) => {
-                  const isHit = currentSignal.hitTps && currentSignal.hitTps[idx];
-                  return (
-                    <div key={idx} className={`flex items-center justify-between px-4 py-2.5 hover:bg-emerald-950/5 transition-all duration-300 ${isHit ? 'bg-emerald-950/10' : ''}`}>
-                      <div className="flex items-center gap-2">
-                        <div className={`w-1.5 h-1.5 rounded-full ${isHit ? 'bg-emerald-400 shadow-[0_0_8px_#34d399]' : 'bg-slate-500'}`} />
-                        <span className={`text-[11px] font-black uppercase tracking-wider ${isHit ? 'text-emerald-400' : 'text-slate-400'}`}>TAKE PROFIT {idx + 1}</span>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        {isHit && <span className="text-[9px] bg-emerald-500/20 text-emerald-400 px-1 py-0.5 rounded font-black font-sans">HIT</span>}
-                        <span className={`text-base font-sans font-black tracking-tighter ${isHit ? 'text-emerald-400' : 'text-white'}`}>{formatPrice(tpVal)}</span>
-                      </div>
+              {(currentSignal.tps || [currentSignal.tp]).map((tpVal, idx, arr) => {
+                if (!tpVal) return null;
+                const status = computeSignalStatus(currentSignal, useTradeStore.getState().livePrice);
+                let isHit = false;
+                if (currentSignal.hitTps) {
+                  isHit = currentSignal.hitTps[idx];
+                } else {
+                  if (idx === 0 && (status === 'tp1' || status === 'tp')) isHit = true;
+                  if (idx === 1 && status === 'tp') isHit = true;
+                }
+                const label = arr.length > 1 ? `TAKE PROFIT ${idx + 1}` : 'TAKE PROFIT';
+                const hitText = idx === 0 && arr.length > 1 ? 'TP1' : idx === 1 ? 'TP2' : 'HIT';
+                const colorCls = isHit && idx === 0 && arr.length > 1 ? 'text-blue-400' : isHit ? 'text-emerald-400' : 'text-slate-400';
+                const bgCls = isHit && idx === 0 && arr.length > 1 ? 'bg-blue-400 shadow-[0_0_8px_#60a5fa]' : isHit ? 'bg-emerald-400 shadow-[0_0_8px_#34d399]' : 'bg-slate-500';
+                const hitBgCls = isHit && idx === 0 && arr.length > 1 ? 'bg-blue-500/20 text-blue-400' : 'bg-emerald-500/20 text-emerald-400';
+                
+                return (
+                  <div key={idx} className={`flex items-center justify-between px-4 py-2.5 hover:bg-slate-900/20 transition-all duration-300 ${isHit ? 'bg-white/[0.02]' : ''}`}>
+                    <div className="flex items-center gap-2">
+                      <div className={`w-1.5 h-1.5 rounded-full ${bgCls}`} />
+                      <span className={`text-[11px] font-black uppercase tracking-wider ${colorCls}`}>{label}</span>
                     </div>
-                  );
-                })
-              ) : (
-                <div className="flex items-center justify-between px-4 py-3 hover:bg-emerald-950/5 transition-all duration-300">
-                  <div className="flex items-center gap-2">
-                    <div className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
-                    <span className="text-[11px] font-black text-slate-400 uppercase tracking-wider">TAKE PROFIT</span>
+                    <div className="flex items-center gap-2">
+                      {isHit && <span className={`text-[9px] px-1 py-0.5 rounded font-black font-sans ${hitBgCls}`}>{hitText}</span>}
+                      <span className={`text-base font-sans font-black tracking-tighter ${colorCls}`}>{formatPrice(tpVal)}</span>
+                    </div>
                   </div>
-                  <span className="text-base font-sans font-black text-emerald-400 tracking-tighter">{formatPrice(currentSignal.tp)}</span>
-                </div>
-              )}
+                );
+              })}
             </div>
 
             {/* ── LIVE PRICE POSITION GAUGE (SL ↔ live ↔ TP) ── */}
