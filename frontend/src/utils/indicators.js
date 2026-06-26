@@ -646,11 +646,66 @@ export function getCurrentSignal({
     finalConfidence = 93 + Math.abs(seed);
   }
 
+  // --- Calculate hitTps by scanning from signal timestamp to present ---
+  let hitTps = [false, false];
+  let finalStatus = 'running';
+  
+  if (rawSignal.timestamp > 0) {
+    const signalTime = rawSignal.timestamp / 1000;
+    // Find the first candle that includes or comes after the signal time
+    let startIdx = closedHistory.findIndex(c => c.time === signalTime);
+    if (startIdx === -1) {
+      startIdx = closedHistory.findIndex(c => c.time >= signalTime);
+    }
+    
+    if (startIdx !== -1) {
+      let maxSince = rawSignal.entry;
+      let minSince = rawSignal.entry;
+      
+      // Include the live price as well in case the current candle hasn't closed yet
+      const currentLivePrice = prices ? prices[prices.length - 1] : null;
+      if (currentLivePrice) {
+        if (currentLivePrice > maxSince) maxSince = currentLivePrice;
+        if (currentLivePrice < minSince) minSince = currentLivePrice;
+      }
+      
+      for (let i = startIdx; i < closedHistory.length; i++) {
+        if (closedHistory[i].high > maxSince) maxSince = closedHistory[i].high;
+        if (closedHistory[i].low < minSince) minSince = closedHistory[i].low;
+      }
+      
+      if (rawSignal.action === 'buy') {
+        if (minSince <= sl) {
+          finalStatus = 'sl';
+        } else if (maxSince >= tp2) {
+          hitTps = [true, true];
+          finalStatus = 'finished';
+        } else if (maxSince >= tp1) {
+          hitTps = [true, false];
+          finalStatus = 'tp1';
+        }
+      } else if (rawSignal.action === 'sell') {
+        if (maxSince >= sl) {
+          finalStatus = 'sl';
+        } else if (minSince <= tp2) {
+          hitTps = [true, true];
+          finalStatus = 'finished';
+        } else if (minSince <= tp1) {
+          hitTps = [true, false];
+          finalStatus = 'tp1';
+        }
+      }
+    }
+  }
+  // --- end hitTps logic ---
+
   return {
     ...rawSignal,
     confidence: finalConfidence || rawSignal.confidence,
     sl,
-    tps: [tp1, tp2]
+    tps: [tp1, tp2],
+    hitTps,
+    status: finalStatus
   };
 }
 

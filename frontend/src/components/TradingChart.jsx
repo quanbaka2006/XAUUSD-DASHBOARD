@@ -50,15 +50,14 @@ const SYMBOLS_DISPLAY = {
 // ── Live signal status: compares the latest live price against SL/TP ──
 function computeSignalStatus(signal, livePrice) {
   if (!signal || signal.action === 'stale' || !signal.entry) return 'none';
+  
+  // If the signal has already been permanently flagged as finished or sl by indicators.js, return it immediately
+  if (signal.status === 'finished') return 'tp';
+  if (signal.status === 'sl') return 'sl';
+  if (signal.status === 'closed') return 'none'; // Optional legacy
+
   if (livePrice == null || isNaN(livePrice) || livePrice === 0) return 'running';
 
-  if (signal.status === 'closed') {
-    if (signal.sl && ((signal.action === 'buy' && livePrice <= signal.sl) || (signal.action === 'sell' && livePrice >= signal.sl))) {
-      return 'sl';
-    }
-    return 'none';
-  }
-  if (signal.status === 'hit_tp') return 'tp';
   if (signal.hitTps && signal.hitTps[1]) return 'tp';
   if (signal.hitTps && signal.hitTps[0]) return 'tp1';
 
@@ -145,6 +144,9 @@ function SignalProgressBar({ signal, symbol }) {
   
   if (!signal || signal.action === 'stale' || !signal.entry || !signal.sl || !tp2Value) return null;
 
+  const status = computeSignalStatus(signal, livePrice);
+  const isFinished = status === 'tp' || status === 'sl';
+
   const dec = symbol === 'XAGUSD' ? 4 : 2;
   const lo = Math.min(signal.sl, tp2Value);
   const hi = Math.max(signal.sl, tp2Value);
@@ -153,8 +155,14 @@ function SignalProgressBar({ signal, symbol }) {
   const entryPct = clamp(((signal.entry - lo) / span) * 100);
   const tp1Pct = clamp(((tp1Value - lo) / span) * 100);
   
-  const hasPrice = livePrice != null && !isNaN(livePrice) && livePrice !== 0;
-  const pricePct = hasPrice ? clamp(((livePrice - lo) / span) * 100) : entryPct;
+  let effectiveLivePrice = livePrice;
+  if (isFinished) {
+    if (status === 'tp') effectiveLivePrice = tp2Value;
+    else if (status === 'sl') effectiveLivePrice = signal.sl;
+  }
+  
+  const hasPrice = effectiveLivePrice != null && !isNaN(effectiveLivePrice) && effectiveLivePrice !== 0;
+  const pricePct = hasPrice ? clamp(((effectiveLivePrice - lo) / span) * 100) : entryPct;
   const tpAtRight = signal.action === 'buy'; 
   const trackGradient = tpAtRight
     ? 'linear-gradient(90deg, rgba(244,63,94,0.55), rgba(148,163,184,0.18) 50%, rgba(16,185,129,0.6))'
@@ -178,7 +186,14 @@ function SignalProgressBar({ signal, symbol }) {
             </span>
           </>
         )}
-        <span className="absolute top-1/2 -translate-x-1/2 -translate-y-1/2 w-3.5 h-3.5 rounded-full bg-white border-2 border-amber-400 shadow-[0_0_12px_rgba(251,191,36,0.95)]" style={{ left: `${pricePct}%` }} />
+        <div className="absolute top-1/2 -translate-x-1/2 -translate-y-1/2" style={{ left: `${pricePct}%` }}>
+          <div className={`w-1.5 h-1.5 rounded-full bg-white shadow-[0_0_10px_white] ring-2 ring-slate-900 mb-0.5 mx-auto ${isFinished ? 'opacity-50' : ''}`} />
+          {hasPrice && (
+            <div className={`px-2 py-0.5 bg-slate-800 text-white text-[10px] font-black rounded-md whitespace-nowrap shadow-lg border border-slate-700 before:content-[''] before:absolute before:-top-1 before:left-1/2 before:-translate-x-1/2 before:border-4 before:border-transparent before:border-b-slate-700 ${isFinished ? 'opacity-50' : ''}`}>
+              {effectiveLivePrice.toFixed(dec)}
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );
