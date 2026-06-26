@@ -827,18 +827,69 @@ function fetchYahooSeed(sym, callback) {
           console.log(`[Yahoo seed] ${sym}: $${currentPrices[sym]}`);
           if (callback) callback(price);
         } else {
-          callback(null);
+          fallbackToPaxgIfNeeded(sym, callback);
         }
       } catch(e) {
         console.error(`[Yahoo seed] Error ${sym}:`, e.message);
-        callback(null);
+        fallbackToPaxgIfNeeded(sym, callback);
       }
     });
   });
   req.on('error', () => {
-    callback(null);
+    fallbackToPaxgIfNeeded(sym, callback);
   });
   req.setTimeout(8000, () => req.destroy());
+  req.end();
+}
+
+let lastPaxgPrice = null;
+function fallbackToPaxgIfNeeded(sym, callback) {
+  if (sym !== 'XAUUSD') {
+    if (callback) callback(null);
+    return;
+  }
+  const options = {
+    hostname: 'api.binance.com',
+    path: '/api/v3/ticker/price?symbol=PAXGUSDT',
+    method: 'GET'
+  };
+  const req = https.request(options, (res) => {
+    let data = '';
+    res.on('data', c => data += c);
+    res.on('end', () => {
+      try {
+        const paxgPrice = parseFloat(JSON.parse(data).price);
+        if (paxgPrice && !isNaN(paxgPrice)) {
+          if (lastPaxgPrice && currentPrices['XAUUSD']) {
+            const delta = paxgPrice - lastPaxgPrice;
+            if (delta !== 0) {
+              const newPrice = currentPrices['XAUUSD'] + delta;
+              applyRealPrice('XAUUSD', newPrice);
+              console.log(`[PAXG Fallback] XAUUSD updated via PAXG delta: $${newPrice.toFixed(2)}`);
+              if (callback) callback(newPrice);
+            } else {
+               lastTickTimestamp['XAUUSD'] = Date.now();
+               if (callback) callback(currentPrices['XAUUSD']);
+            }
+          } else {
+            if (!currentPrices['XAUUSD']) {
+               applyRealPrice('XAUUSD', paxgPrice);
+               if (callback) callback(paxgPrice);
+            } else {
+               if (callback) callback(currentPrices['XAUUSD']);
+            }
+          }
+          lastPaxgPrice = paxgPrice;
+        } else {
+          if (callback) callback(null);
+        }
+      } catch(e) {
+        if (callback) callback(null);
+      }
+    });
+  });
+  req.on('error', () => { if (callback) callback(null); });
+  req.setTimeout(5000, () => req.destroy());
   req.end();
 }
 
@@ -1023,13 +1074,14 @@ function startYahooFallback() {
     }
 
     // WTIUSD is always polled from Yahoo.
-    // Finnhub handles XAUUSD and XAGUSD via WebSocket.
-    // We ONLY fallback to Yahoo for XAUUSD if no Finnhub token is provided.
-    // Stagger the requests to avoid rate limiting
     setTimeout(() => fetchYahooSeed('WTIUSD'), 0);
     
-    if (!FINNHUB_TOKEN) {
+    const now = Date.now();
+    // Fallback if no ticks received in the last 15 seconds (catches invalid Finnhub token or dropped WS)
+    if (!FINNHUB_TOKEN || (now - (lastTickTimestamp['XAUUSD'] || 0) > 15000)) {
       setTimeout(() => fetchYahooSeed('XAUUSD'), 1500);
+    }
+    if (!FINNHUB_TOKEN || (now - (lastTickTimestamp['XAGUSD'] || 0) > 15000)) {
       setTimeout(() => fetchYahooSeed('XAGUSD'), 3000);
     }
   }, 5000);
