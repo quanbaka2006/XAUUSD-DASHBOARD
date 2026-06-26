@@ -663,7 +663,7 @@ export function getCurrentSignal({
       let minSince = rawSignal.entry;
       
       // Include the live price as well in case the current candle hasn't closed yet
-      const currentLivePrice = prices ? prices[prices.length - 1] : null;
+      const currentLivePrice = typeof livePrice !== 'undefined' ? livePrice : null;
       if (currentLivePrice) {
         if (currentLivePrice > maxSince) maxSince = currentLivePrice;
         if (currentLivePrice < minSince) minSince = currentLivePrice;
