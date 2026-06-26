@@ -2013,7 +2013,6 @@ export function TradingChart({ mobileTab }) {
                 const labelColorCls = isHit && idx === 0 && arr.length > 1 ? 'text-blue-400' : isHit ? 'text-emerald-400' : 'text-slate-400';
                 const valueColorCls = idx === 0 && arr.length > 1 ? 'text-blue-400' : 'text-emerald-400'; // Always color the value
                 const bgCls = isHit && idx === 0 && arr.length > 1 ? 'bg-blue-400 shadow-[0_0_8px_#60a5fa]' : isHit ? 'bg-emerald-400 shadow-[0_0_8px_#34d399]' : idx === 0 && arr.length > 1 ? 'bg-blue-500' : 'bg-emerald-500';
-                const hitBgCls = isHit && idx === 0 && arr.length > 1 ? 'bg-blue-500/20 text-blue-400' : 'bg-emerald-500/20 text-emerald-400';
                 
                 return (
                   <div key={idx} className={`flex items-center justify-between px-4 py-2.5 hover:bg-slate-900/20 transition-all duration-300 ${isHit ? 'bg-white/[0.02]' : ''}`}>
@@ -2021,8 +2020,13 @@ export function TradingChart({ mobileTab }) {
                       <div className={`w-1.5 h-1.5 rounded-full ${bgCls}`} />
                       <span className={`text-[11px] font-black uppercase tracking-wider ${labelColorCls}`}>{label}</span>
                     </div>
-                    <div className="flex items-center gap-2">
-                      {isHit && <span className={`text-[9px] px-1 py-0.5 rounded font-black font-sans ${hitBgCls}`}>{hitText}</span>}
+                    <div className="flex items-center gap-3">
+                      {isHit && (
+                        <div className={`flex items-center gap-1.5 px-2 py-0.5 rounded border border-dashed ${idx === 0 && arr.length > 1 ? 'border-blue-500/50 bg-blue-500/10 text-blue-400 shadow-[0_0_10px_rgba(59,130,246,0.15)]' : 'border-emerald-500/50 bg-emerald-500/10 text-emerald-400 shadow-[0_0_10px_rgba(16,185,129,0.15)]'}`}>
+                          <svg className="w-3.5 h-3.5 drop-shadow-[0_0_3px_currentColor]" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={3}><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" /></svg>
+                          <span className="text-[10px] font-black uppercase tracking-widest">{hitText}</span>
+                        </div>
+                      )}
                       <span className={`text-base font-sans font-black tracking-tighter ${valueColorCls}`}>{formatPrice(tpVal)}</span>
                     </div>
                   </div>
