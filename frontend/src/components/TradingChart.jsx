@@ -104,6 +104,33 @@ const STATUS_META = {
   },
 };
 
+// Utility function to play a sleek notification sound
+const playNotificationSound = () => {
+  try {
+    const AudioContext = window.AudioContext || window.webkitAudioContext;
+    if (!AudioContext) return;
+    const ctx = new AudioContext();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(880, ctx.currentTime);
+    osc.frequency.exponentialRampToValueAtTime(1760, ctx.currentTime + 0.1);
+    
+    gain.gain.setValueAtTime(0, ctx.currentTime);
+    gain.gain.linearRampToValueAtTime(0.3, ctx.currentTime + 0.05);
+    gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.5);
+    
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    
+    osc.start();
+    osc.stop(ctx.currentTime + 0.5);
+  } catch (e) {
+    console.warn('Audio play failed (maybe browser policy)', e);
+  }
+};
+
 // Small isolated component: only THIS re-renders on each price tick (not the whole chart)
 function SignalStatusBadge({ signal }) {
   const livePrice = useTradeStore(s => s.livePrice);
@@ -946,17 +973,25 @@ export function TradingChart({ mobileTab }) {
     });
 
     socket.on('signal_update', (updatedSignal) => {
-      setSignals(prev => ({
-        ...prev,
-        [updatedSignal.ticker]: {
-          ...prev[updatedSignal.ticker],
-          [updatedSignal.interval]: updatedSignal
+      setSignals(prev => {
+        const oldSignal = prev[updatedSignal.ticker]?.[updatedSignal.interval];
+        // If it's a completely new signal, play sound
+        if (updatedSignal.action !== 'stale' && (!oldSignal || oldSignal.timestamp !== updatedSignal.timestamp)) {
+          playNotificationSound();
         }
-      }));
+        return {
+          ...prev,
+          [updatedSignal.ticker]: {
+            ...prev[updatedSignal.ticker],
+            [updatedSignal.interval]: updatedSignal
+          }
+        };
+      });
     });
 
     // Tsunami socket events
     socket.on('tsunami_new_signal', (signal) => {
+      playNotificationSound();
       const state = useTradeStore.getState();
       useTradeStore.setState(prev => ({
         tsunamiSignals: [signal, ...prev.tsunamiSignals].slice(0, 100)
