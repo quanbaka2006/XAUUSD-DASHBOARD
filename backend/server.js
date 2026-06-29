@@ -580,15 +580,26 @@ function connectBinance() {
     }
   });
 
+  let is451Error = false;
+
   binanceWs.on('close', (code) => {
     binanceConnected = false;
+    if (is451Error) {
+      console.warn(`[Binance WS] Connection permanently disabled due to 451 Region Block. Using Fallback.`);
+      return; // Stop reconnecting
+    }
     binanceRetryDelay = Math.min(binanceRetryDelay * 2, 60000);
     console.warn(`[Binance WS] Disconnected (${code}) — reconnecting in ${binanceRetryDelay/1000}s...`);
     setTimeout(connectBinance, binanceRetryDelay);
   });
 
   binanceWs.on('error', (err) => {
-    console.error('[Binance WS] Error:', err.message);
+    if (err.message && err.message.includes('451')) {
+      is451Error = true;
+      console.error('[Binance WS] IP is blocked by Binance (Error 451). Switching to Kraken/Yahoo fallbacks.');
+    } else {
+      console.error('[Binance WS] Error:', err.message);
+    }
     binanceConnected = false;
     binanceWs.terminate();
   });

@@ -31,6 +31,7 @@ function fetchChannelHTML() {
       let html = '';
       res.on('data', (chunk) => html += chunk);
       res.on('end', () => resolve(html));
+      res.on('error', (err) => reject(err));
     }).on('error', (err) => reject(err));
   });
 }
