@@ -280,6 +280,7 @@ function HeroActionDisplay({ currentSignal }) {
 }
 function TimeAgoDisplay({ timestamp }) {
   const [mins, setMins] = useState(0);
+  const { language } = useTranslation();
 
   useEffect(() => {
     if (!timestamp) return;
@@ -290,11 +291,15 @@ function TimeAgoDisplay({ timestamp }) {
   }, [timestamp]);
 
   if (!timestamp) return null;
+  
+  const label = language === 'en' ? 'REPORTED:' : 'ĐÃ BÁO:';
+  const justNow = language === 'en' ? 'JUST NOW' : 'VỪA XONG';
+  const minsAgo = language === 'en' ? `${mins} MINS AGO` : `${mins} PHÚT TRƯỚC`;
 
   return (
     <div className="flex justify-center mb-2">
       <span className="px-3 py-1 rounded-full bg-slate-900/50 border border-white/[0.05] text-[10px] font-black tracking-widest text-slate-400 uppercase">
-        Đã báo: <span className="text-amber-500">{mins === 0 ? 'Vừa xong' : `${mins} phút trước`}</span>
+        {label} <span className="text-amber-500">{mins === 0 ? justNow : minsAgo}</span>
       </span>
     </div>
   );
@@ -2066,7 +2071,7 @@ export function TradingChart({ mobileTab }) {
               <div className="flex items-center justify-between px-4 py-3 hover:bg-red-950/5 transition-all duration-300">
                 <div className="flex items-center gap-2">
                   <div className="w-1.5 h-1.5 rounded-full bg-red-500" />
-                  <span className="text-[11px] font-black text-slate-400 uppercase tracking-wider">STOP LOSS</span>
+                  <span className="text-[11px] font-black text-slate-400 uppercase tracking-wider">{t('stopLoss')}</span>
                 </div>
                 <span className="text-base font-sans font-black text-red-400 tracking-tighter">{formatPrice(currentSignal.sl)}</span>
               </div>
@@ -2082,7 +2087,7 @@ export function TradingChart({ mobileTab }) {
                   if (idx === 0 && (status === 'tp1' || status === 'tp')) isHit = true;
                   if (idx === 1 && status === 'tp') isHit = true;
                 }
-                const label = arr.length > 1 ? `TAKE PROFIT ${idx + 1}` : 'TAKE PROFIT';
+                const label = arr.length > 1 ? `${t('takeProfit')} ${idx + 1}` : t('takeProfit');
                 const hitText = idx === 0 && arr.length > 1 ? 'TP1' : idx === 1 ? 'TP2' : 'HIT';
                 const labelColorCls = isHit && idx === 0 && arr.length > 1 ? 'text-blue-400' : isHit ? 'text-emerald-400' : 'text-slate-400';
                 const valueColorCls = idx === 0 && arr.length > 1 ? 'text-blue-400' : 'text-emerald-400'; // Always color the value
