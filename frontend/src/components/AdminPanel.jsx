@@ -5,7 +5,12 @@ import {
   Check, 
   X, 
   Key, 
-  Trash2 
+  Trash2,
+  ChevronDown,
+  ChevronRight,
+  Copy,
+  Send,
+  Calendar
 } from 'lucide-react';
 import { useTradeStore, SOCKET_URL } from '../store/useTradeStore';
 import { useTranslation } from '../utils/translations';
@@ -42,6 +47,57 @@ export function AdminPanel() {
   const [editPasswordVal, setEditPasswordVal] = useState('');
   const [editTelegramVal, setEditTelegramVal] = useState('');
   const [editRefCodeVal, setEditRefCodeVal] = useState('');
+
+  // Accordion State
+  const [expandedAdmins, setExpandedAdmins] = useState({});
+  const toggleExpand = (username) => {
+    setExpandedAdmins(prev => ({ ...prev, [username]: !prev[username] }));
+  };
+
+  // Build Hierarchy
+  const buildTree = (users) => {
+    const userMap = {};
+    const roots = [];
+    
+    // First pass
+    users.forEach(u => {
+      userMap[u.username] = { ...u, children: [] };
+    });
+    
+    // Second pass
+    users.forEach(u => {
+      if (u.createdBy && userMap[u.createdBy]) {
+        userMap[u.createdBy].children.push(userMap[u.username]);
+      } else {
+        roots.push(userMap[u.username]);
+      }
+    });
+    
+    // Sort
+    const sortHierarchy = (nodes) => {
+      const roleWeight = { 'SuperAdmin': 4, 'Administrator': 3, 'Employee': 2, 'User': 1 };
+      nodes.sort((a, b) => roleWeight[b.role] - roleWeight[a.role]);
+      nodes.forEach(n => sortHierarchy(n.children));
+    };
+    sortHierarchy(roots);
+    return roots;
+  };
+
+  const hierarchicalUsers = buildTree(adminUsers);
+
+  const getVisibleRows = () => {
+    const rows = [];
+    const traverse = (node, level) => {
+      rows.push({ ...node, level });
+      if (expandedAdmins[node.username] && node.children && node.children.length > 0) {
+        node.children.forEach(child => traverse(child, level + 1));
+      }
+    };
+    hierarchicalUsers.forEach(root => traverse(root, 0));
+    return rows;
+  };
+
+  const visibleRows = getVisibleRows();
 
   // Audit Logs local states
   const [logs, setLogs] = useState([]);
@@ -335,13 +391,15 @@ export function AdminPanel() {
               <table className="w-full text-left border-collapse">
                 <thead>
                   <tr className="border-b border-white/[0.06] text-[11px] font-black text-slate-500 uppercase tracking-wider">
-                    <th className="py-3 px-4">{t('memberHeader')}</th>
+                    <th className="py-3 px-4 w-1/3">Thành viên</th>
+                    <th className="py-3 px-4">Trạng thái</th>
+                    <th className="py-3 px-4">Giới thiệu & Liên hệ</th>
                     <th className="py-3 px-4">{t('roleHeader')}</th>
-                    <th className="py-3 px-4">{t('actionHeader')}</th>
+                    <th className="py-3 px-4 text-right">{t('actionHeader')}</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-white/[0.04] text-xs text-slate-300">
-                  {adminUsers.map((u) => {
+                  {visibleRows.map((u) => {
                     const isSelf = u.username.toLowerCase() === user?.username?.toLowerCase();
                     const isEmployee = user?.role === 'Employee';
                     const isSuperAdmin = user?.role === 'SuperAdmin';
@@ -356,78 +414,124 @@ export function AdminPanel() {
                       (user?.role === 'Administrator' && u.role === 'Administrator' && u.createdBy !== user?.username)
                     );
                     
+                    const hasChildren = u.children && u.children.length > 0;
+                    const isExpanded = expandedAdmins[u.username];
+                    const indentPadding = u.level * 28;
+
                     return (
-                      <tr key={u.username} className="hover:bg-slate-950/20 transition-colors">
+                      <tr key={u.username} className={`hover:bg-slate-950/40 transition-colors ${u.level > 0 ? 'bg-black/20' : ''}`}>
+                        {/* COLUMN 1: PROFILE */}
                         <td className="py-4 px-4 font-sans text-left">
-                          <div className="font-bold text-white text-sm">{u.name}</div>
-                          <div className="text-xs font-mono text-slate-500 mt-0.5">
-                            @{u.username} {isSelf && <span className="text-amber-500/80 font-bold">({t('you')})</span>}
-                            {u.createdBy && <span className="text-slate-600 ml-2 font-sans">(Tạo bởi: @{u.createdBy})</span>}
+                          <div className="flex items-center gap-3" style={{ paddingLeft: `${indentPadding}px` }}>
+                            {/* Expand/Collapse Button */}
+                            <div className="w-5 flex justify-center flex-shrink-0">
+                              {hasChildren ? (
+                                <button 
+                                  onClick={() => toggleExpand(u.username)} 
+                                  className="text-slate-400 hover:text-amber-500 bg-white/[0.02] hover:bg-amber-500/10 p-1 rounded-md border border-white/[0.05] transition-all cursor-pointer"
+                                >
+                                  {isExpanded ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+                                </button>
+                              ) : (
+                                <div className="w-4" />
+                              )}
+                            </div>
+                            
+                            {/* User Info */}
+                            <div className="flex flex-col">
+                              <div className="font-bold text-white text-sm flex items-center gap-2">
+                                {u.name}
+                                {hasChildren && (
+                                  <span className="text-[9px] bg-slate-800 border border-slate-700 px-1.5 py-0.5 rounded-md text-slate-400">
+                                    {u.children.length} tuyến dưới
+                                  </span>
+                                )}
+                              </div>
+                              <div className="text-xs font-mono text-slate-500 mt-0.5">
+                                @{u.username} {isSelf && <span className="text-amber-500/80 font-bold ml-1">({t('you')})</span>}
+                                {u.createdBy && u.level === 0 && <span className="text-slate-600 ml-2 font-sans text-[10px] hidden lg:inline">(Tạo bởi: @{u.createdBy})</span>}
+                              </div>
+                            </div>
                           </div>
-                          <div className="text-[11px] mt-2 flex items-center gap-1.5 flex-wrap font-sans">
-                            <span className="text-slate-500 font-bold">Hạn dùng:</span>
+                        </td>
+
+                        {/* COLUMN 2: STATUS & EXPIRY */}
+                        <td className="py-4 px-4 text-left font-sans">
+                          <div className="flex flex-col gap-2">
+                            {/* Status Badge */}
+                            <div>
+                              {u.expiresAt ? (
+                                new Date(u.expiresAt).getTime() < Date.now() ? (
+                                  <span className="text-red-400 text-[10px] font-black uppercase tracking-wider bg-red-500/10 border border-red-500/20 px-2 py-1 rounded-md shadow-[0_0_10px_rgba(239,68,68,0.1)]">Hết hạn</span>
+                                ) : (
+                                  <span className="text-emerald-400 text-[10px] font-black uppercase tracking-wider bg-emerald-500/10 border border-emerald-500/20 px-2 py-1 rounded-md shadow-[0_0_10px_rgba(16,185,129,0.1)]">Hoạt động</span>
+                                )
+                              ) : (
+                                <span className="text-cyan-400 text-[10px] font-black uppercase tracking-wider bg-cyan-500/10 border border-cyan-500/20 px-2 py-1 rounded-md shadow-[0_0_10px_rgba(34,211,238,0.1)]">Vô hạn</span>
+                              )}
+                            </div>
+                            
+                            {/* Expiry Date */}
                             {isSelf || isBlockedFromEditing ? (
-                              <span className="text-slate-400 font-bold">
-                                {u.expiresAt ? new Date(u.expiresAt).toLocaleDateString('vi-VN') : 'Vô thời hạn'}
-                              </span>
+                              <div className="flex items-center gap-1.5 text-[11px] text-slate-400 font-bold">
+                                <Calendar className="h-3 w-3 opacity-70" />
+                                {u.expiresAt ? new Date(u.expiresAt).toLocaleDateString('vi-VN') : '---'}
+                              </div>
                             ) : (
-                              <div className="flex items-center gap-2">
+                              <div className="flex items-center gap-1.5">
+                                <Calendar className="h-3 w-3 text-slate-500" />
                                 <input
                                   type="date"
                                   disabled={isBlockedFromEditing}
                                   value={u.expiresAt ? u.expiresAt.split('T')[0] : ''}
                                   onChange={(e) => handleUpdateExpiration(u.username, e.target.value)}
-                                  className="bg-white/[0.03] border border-white/[0.08] hover:border-amber-500/30 rounded-lg px-2 py-0.5 text-[11px] text-slate-300 focus:outline-none cursor-pointer transition-colors font-sans"
+                                  className="bg-white/[0.03] border border-white/[0.08] hover:border-amber-500/30 rounded-md px-1.5 py-0.5 text-[11px] text-slate-300 focus:outline-none cursor-pointer transition-colors"
                                 />
-                                {u.expiresAt ? (
-                                  new Date(u.expiresAt).getTime() < Date.now() ? (
-                                    <span className="text-red-400 text-[10px] font-black uppercase tracking-wider bg-red-500/10 border border-red-500/20 px-1.5 py-0.5 rounded-md">Hết hạn</span>
-                                  ) : (
-                                    <span className="text-emerald-400 text-[10px] font-black uppercase tracking-wider bg-emerald-500/10 border border-emerald-500/20 px-1.5 py-0.5 rounded-md">Hoạt động</span>
-                                  )
-                                ) : (
-                                  <span className="text-slate-500 text-[10px] font-bold uppercase tracking-wider bg-slate-800/20 border border-slate-700/20 px-1.5 py-0.5 rounded-md">Vô hạn</span>
-                                )}
                               </div>
                             )}
                           </div>
+                        </td>
 
-                          {u.refCode && (
-                            <div className="text-[11px] mt-2 flex flex-col gap-1 font-sans">
-                              <div className="flex items-center gap-2 flex-wrap">
-                                <span className="text-slate-500 font-bold">Mã giới thiệu:</span>
-                                <span className="text-amber-500 font-bold font-mono bg-amber-500/10 px-1.5 py-0.5 rounded border border-amber-500/20">{u.refCode}</span>
-                              </div>
-                              <div className="flex items-center gap-2 flex-wrap mt-0.5">
-                                <span className="text-slate-500 font-bold">Link giới thiệu:</span>
-                                <span className="text-amber-500/80 font-bold font-mono select-all break-all">{window.location.origin}/?ref={u.refCode}</span>
+                        {/* COLUMN 3: REFERRAL & CONTACT */}
+                        <td className="py-4 px-4 text-left font-sans">
+                          <div className="flex flex-col gap-2">
+                            {u.refCode ? (
+                              <div className="flex items-center gap-2">
+                                <span className="text-amber-500 font-bold font-mono bg-amber-500/10 px-2 py-0.5 rounded border border-amber-500/20 text-[11px]">
+                                  {u.refCode}
+                                </span>
                                 <button
                                   onClick={() => {
                                     navigator.clipboard.writeText(`${window.location.origin}/?ref=${u.refCode}`);
-                                    setAdminSuccess('Đã sao chép link giới thiệu vào bộ nhớ tạm!');
+                                    setAdminSuccess('Đã sao chép link giới thiệu!');
                                   }}
-                                  className="text-[10px] bg-amber-500/10 hover:bg-amber-500/20 text-amber-500 px-1.5 py-0.5 rounded border border-amber-500/20 transition-all cursor-pointer font-sans font-bold"
+                                  title="Copy Link"
+                                  className="text-slate-400 hover:text-amber-500 bg-white/[0.03] hover:bg-amber-500/10 p-1 rounded-md border border-white/[0.05] transition-all cursor-pointer"
                                 >
-                                  Sao chép
+                                  <Copy className="h-3.5 w-3.5" />
                                 </button>
                               </div>
-                            </div>
-                          )}
+                            ) : (
+                              <span className="text-slate-600 text-[11px] italic">Không có ref</span>
+                            )}
 
-                          {u.telegramSupport && (
-                            <div className="text-[11px] mt-2 flex items-center gap-1.5 flex-wrap font-sans">
-                              <span className="text-slate-500 font-bold">Telegram Support:</span>
-                              <a href={u.telegramSupport} target="_blank" rel="noopener noreferrer" className="text-sky-400 hover:text-sky-300 font-bold font-mono underline break-all">
-                                {u.telegramSupport}
-                              </a>
-                            </div>
-                          )}
+                            {u.telegramSupport && (
+                              <div className="flex items-center gap-1.5">
+                                <a href={u.telegramSupport} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1.5 text-sky-400 hover:text-sky-300 font-bold bg-sky-500/10 hover:bg-sky-500/20 px-2 py-0.5 rounded border border-sky-500/20 transition-colors text-[11px]">
+                                  <Send className="h-3 w-3" />
+                                  <span>Liên hệ Telegram</span>
+                                </a>
+                              </div>
+                            )}
+                          </div>
                         </td>
+
+                        {/* COLUMN 4: ROLE */}
                         <td className="py-4 px-4 text-left">
                           {isSelf || isBlockedFromEditing ? (
-                            <span className={`px-3 py-1 rounded-lg text-xs font-black tracking-wide uppercase ${
+                            <span className={`px-2.5 py-1 rounded-lg text-[10px] font-black tracking-wide uppercase shadow-sm ${
                               u.role === 'SuperAdmin'
-                                ? 'bg-red-500/10 border border-red-500/30 text-red-400'
+                                ? 'bg-purple-500/10 border border-purple-500/30 text-purple-400 shadow-[0_0_10px_rgba(168,85,247,0.1)]'
                                 : u.role === 'Administrator'
                                 ? 'bg-amber-500/10 border border-amber-500/30 text-amber-500'
                                 : u.role === 'Employee'
@@ -442,17 +546,19 @@ export function AdminPanel() {
                               onChange={(e) => handleChangeRole(u.username, e.target.value)}
                               className="bg-white/[0.04] border border-white/[0.08] rounded-lg px-2 py-1 text-[11px] text-white focus:outline-none focus:border-amber-500/40 cursor-pointer transition-colors"
                             >
-                              <option value="User">User</option>
-                              <option value="Employee">Employee</option>
-                              <option value="Administrator">Administrator</option>
+                              <option value="User" className="bg-[#050507]">User</option>
+                              <option value="Employee" className="bg-[#050507]">Employee</option>
+                              <option value="Administrator" className="bg-[#050507]">Administrator</option>
                               {isSuperAdmin && (
-                                <option value="SuperAdmin">SuperAdmin</option>
+                                <option value="SuperAdmin" className="bg-[#050507]">SuperAdmin</option>
                               )}
                             </select>
                           )}
                         </td>
-                        <td className="py-4 px-4 text-left">
-                          <div className="flex flex-wrap items-center gap-3">
+
+                        {/* COLUMN 5: ACTIONS */}
+                        <td className="py-4 px-4 text-right">
+                          <div className="flex flex-wrap items-center justify-end gap-3">
                             {isBlockedFromEditing ? (
                               <span className="text-slate-600 text-xs italic font-bold font-sans">Chỉ xem</span>
                             ) : editingUser === u.username ? (
