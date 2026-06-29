@@ -146,6 +146,17 @@ async function processParsedMessage(item, triggerAutoTradeCallback) {
       await dbInstance.collection('tsunami_processed_ids').insertOne({ id: item.id, type: item.type, processedAt: new Date() });
 
       if (item.type === 'SIGNAL_NEW') {
+        // Check if there is an active signal for the same symbol
+        const activeSignal = await dbInstance.collection('tsunami_signals').findOne({
+          symbol: item.symbol,
+          status: { $in: ['active', 'hit_tp'] }
+        });
+
+        if (activeSignal) {
+          console.log(`[Tsunami Scraper] Skipped new signal for ${item.symbol} because an older signal is still active (FIFO logic).`);
+          return;
+        }
+
         // Save new signal
         await dbInstance.collection('tsunami_signals').insertOne(item);
         console.log(`[Tsunami Scraper] New signal saved: ID ${item.id} - ${item.symbol} ${item.action.toUpperCase()} Entry: ${item.entry}`);
@@ -214,6 +225,12 @@ async function processParsedMessage(item, triggerAutoTradeCallback) {
     if (alreadyProcessed) return;
 
     if (item.type === 'SIGNAL_NEW') {
+      const activeSignal = memorySignals.find(s => s.symbol === item.symbol && (s.status === 'active' || s.status === 'hit_tp'));
+      if (activeSignal) {
+        console.log(`[Tsunami Scraper-Mem] Skipped new signal for ${item.symbol} because an older signal is still active (FIFO logic).`);
+        return;
+      }
+
       memorySignals.unshift(item);
       if (memorySignals.length > 100) memorySignals.pop();
       console.log(`[Tsunami Scraper-Mem] New signal saved: ID ${item.id} - ${item.symbol} ${item.action.toUpperCase()}`);

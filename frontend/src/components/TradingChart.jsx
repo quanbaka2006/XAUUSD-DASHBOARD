@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useMemo } from 'react';
+import React, { useEffect, useRef, useMemo, useState } from 'react';
 import { io } from 'socket.io-client';
 import { createChart, ColorType, LineStyle } from 'lightweight-charts';
 import {
@@ -248,6 +248,27 @@ function HeroActionDisplay({ currentSignal }) {
       >
         {isFinished ? 'FINISHED' : currentSignal.action === 'buy' ? 'BUY NOW' : currentSignal.action === 'sell' ? 'SELL NOW' : t('waiting')}
       </h2>
+    </div>
+  );
+}
+function TimeAgoDisplay({ timestamp }) {
+  const [mins, setMins] = useState(0);
+
+  useEffect(() => {
+    if (!timestamp) return;
+    const calc = () => setMins(Math.floor((Date.now() - timestamp) / 60000));
+    calc();
+    const iv = setInterval(calc, 60000);
+    return () => clearInterval(iv);
+  }, [timestamp]);
+
+  if (!timestamp) return null;
+
+  return (
+    <div className="flex justify-center mb-2">
+      <span className="px-3 py-1 rounded-full bg-slate-900/50 border border-white/[0.05] text-[10px] font-black tracking-widest text-slate-400 uppercase">
+        Đã báo: <span className="text-amber-500">{mins === 0 ? 'Vừa xong' : `${mins} phút trước`}</span>
+      </span>
     </div>
   );
 }
@@ -1993,6 +2014,9 @@ export function TradingChart({ mobileTab }) {
 
           {/* ── PARAMETERS & METRIC AREA ── */}
           <div className="px-3 lg:px-5 pb-4 lg:pb-5 flex flex-col gap-4 lg:gap-5">
+            {currentSignal && currentSignal.action !== 'stale' && (
+              <TimeAgoDisplay timestamp={currentSignal.timestamp} />
+            )}
             <div className="divide-y divide-white/[0.05] panel-surface rounded-2xl overflow-hidden">
               {/* Entry Price */}
               <div className="flex items-center justify-between px-4 py-3 hover:bg-slate-900/20 transition-all duration-300">
