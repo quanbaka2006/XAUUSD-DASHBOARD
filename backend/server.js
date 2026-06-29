@@ -359,7 +359,10 @@ const candleHistory = {};
 const activeCandles = {};
 const currentPrices = { ...defaultPrices };
 // Last confirmed real price from external source (anchor)
-const lastRealPrices = { ...defaultPrices };
+let lastRealPrices = {};
+
+// Spread Compensation Tracker (Finnhub OANDA vs Yahoo GC)
+const sourceOffsets = { XAUUSD: 0, XAGUSD: 0 };
 
 // Track timestamp of last received real price tick per symbol
 const lastTickTimestamp = {
@@ -808,7 +811,7 @@ function fetchBinanceSeed(sym, callback) {
 // ==========================================
 // Yahoo Finance — used ONLY as fallback seed
 // ==========================================
-function fetchYahooSeed(sym, callback) {
+function fetchYahooSeed(sym, callback, apply = true) {
   const ticker = YAHOO_TICKERS[sym];
   const options = {
     hostname: 'query2.finance.yahoo.com',
@@ -823,8 +826,11 @@ function fetchYahooSeed(sym, callback) {
       try {
         const price = JSON.parse(data).chart.result[0].meta.regularMarketPrice;
         if (price && typeof price === 'number') {
-          applyRealPrice(sym, price);
-          console.log(`[Yahoo seed] ${sym}: $${currentPrices[sym]}`);
+          if (apply) {
+            const adjustedPrice = price + (sourceOffsets[sym] || 0);
+            applyRealPrice(sym, adjustedPrice);
+            console.log(`[Yahoo seed] ${sym}: GC=$${price}, Offset=${(sourceOffsets[sym]||0).toFixed(4)}, Adjusted=$${currentPrices[sym]}`);
+          }
           if (callback) callback(price);
         } else {
           fallbackToPaxgIfNeeded(sym, callback);
@@ -1079,18 +1085,21 @@ function startYahooFallback() {
     const now = Date.now();
     // Fallback if no ticks received in the last 15 seconds (catches invalid Finnhub token or dropped WS)
     if (!FINNHUB_TOKEN) {
-      if (now - (lastTickTimestamp['XAUUSD'] || 0) > 15000) {
-        setTimeout(() => fetchYahooSeed('XAUUSD'), 1500);
-      }
-      if (now - (lastTickTimestamp['XAGUSD'] || 0) > 15000) {
-        setTimeout(() => fetchYahooSeed('XAGUSD'), 3000);
-      }
+      if (now - (lastTickTimestamp['XAUUSD'] || 0) > 15000) setTimeout(() => fetchYahooSeed('XAUUSD'), 1500);
+      if (now - (lastTickTimestamp['XAGUSD'] || 0) > 15000) setTimeout(() => fetchYahooSeed('XAGUSD'), 3000);
     } else {
-      // If we have a Finnhub token, fallback to Finnhub REST API to keep the exact OANDA price feed
-      if (now - (lastTickTimestamp['XAUUSD'] || 0) > 15000) {
+      // Multi-layer fallback
+      if (now - (lastTickTimestamp['XAUUSD'] || 0) > 30000) {
+        // Tầng 3: Finnhub chết hoàn toàn > 30s -> Dùng Yahoo + Spread Bù Trừ
+        setTimeout(() => fetchYahooSeed('XAUUSD'), 1500);
+      } else if (now - (lastTickTimestamp['XAUUSD'] || 0) > 15000) {
+        // Tầng 2: Mất tín hiệu 15s -> Gọi Finnhub REST (để giữ nguyên giá OANDA)
         setTimeout(() => fetchFinnhubSeed('XAUUSD'), 1500);
       }
-      if (now - (lastTickTimestamp['XAGUSD'] || 0) > 15000) {
+      
+      if (now - (lastTickTimestamp['XAGUSD'] || 0) > 30000) {
+        setTimeout(() => fetchYahooSeed('XAGUSD'), 3000);
+      } else if (now - (lastTickTimestamp['XAGUSD'] || 0) > 15000) {
         setTimeout(() => fetchFinnhubSeed('XAGUSD'), 3000);
       }
     }
@@ -1118,6 +1127,28 @@ let finnhubWs = null;
 let finnhubConnected = false;
 let finnhubRetryDelay = 5000;
 
+let spreadTrackerInterval = null;
+function startSpreadTracker() {
+  if (spreadTrackerInterval) return;
+  console.log('[Spread Tracker] Activated — monitoring Finnhub vs Yahoo offsets...');
+  spreadTrackerInterval = setInterval(() => {
+    if (!FINNHUB_TOKEN || !finnhubConnected) return; // Only track spread when Finnhub is healthy
+    const syms = ['XAUUSD', 'XAGUSD'];
+    syms.forEach(sym => {
+      const finnhubPrice = currentPrices[sym];
+      if (finnhubPrice) {
+        // Fetch Yahoo price without applying it to the chart
+        fetchYahooSeed(sym, (yahooPrice) => {
+          if (yahooPrice) {
+            sourceOffsets[sym] = finnhubPrice - yahooPrice;
+            // console.log(`[Spread Tracker] ${sym} Spread updated: ${sourceOffsets[sym].toFixed(4)}`);
+          }
+        }, false);
+      }
+    });
+  }, 120000); // Check every 2 minutes
+}
+
 function connectFinnhub() {
   if (!FINNHUB_TOKEN) {
     console.warn('[Finnhub WS] No token provided. Falling back to Yahoo.');
@@ -1139,6 +1170,8 @@ function connectFinnhub() {
     
     // Also start Yahoo fallback for WTIUSD only (since Finnhub WS doesn't have free WTIUSD)
     startYahooFallback();
+    // Start the dynamic spread tracker
+    startSpreadTracker();
   });
 
   finnhubWs.on('message', (data) => {
