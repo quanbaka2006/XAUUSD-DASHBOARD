@@ -1078,11 +1078,21 @@ function startYahooFallback() {
     
     const now = Date.now();
     // Fallback if no ticks received in the last 15 seconds (catches invalid Finnhub token or dropped WS)
-    if (!FINNHUB_TOKEN || (now - (lastTickTimestamp['XAUUSD'] || 0) > 15000)) {
-      setTimeout(() => fetchYahooSeed('XAUUSD'), 1500);
-    }
-    if (!FINNHUB_TOKEN || (now - (lastTickTimestamp['XAGUSD'] || 0) > 15000)) {
-      setTimeout(() => fetchYahooSeed('XAGUSD'), 3000);
+    if (!FINNHUB_TOKEN) {
+      if (now - (lastTickTimestamp['XAUUSD'] || 0) > 15000) {
+        setTimeout(() => fetchYahooSeed('XAUUSD'), 1500);
+      }
+      if (now - (lastTickTimestamp['XAGUSD'] || 0) > 15000) {
+        setTimeout(() => fetchYahooSeed('XAGUSD'), 3000);
+      }
+    } else {
+      // If we have a Finnhub token, fallback to Finnhub REST API to keep the exact OANDA price feed
+      if (now - (lastTickTimestamp['XAUUSD'] || 0) > 15000) {
+        setTimeout(() => fetchFinnhubSeed('XAUUSD'), 1500);
+      }
+      if (now - (lastTickTimestamp['XAGUSD'] || 0) > 15000) {
+        setTimeout(() => fetchFinnhubSeed('XAGUSD'), 3000);
+      }
     }
   }, 5000);
 }
