@@ -1852,6 +1852,8 @@ export function TradingChart({ mobileTab }) {
   // when a new candle CLOSES (historyCount changes), not on every live tick.
   const currentSignal = useTradeStore(state => state.currentSignal) || { action: 'stale', entry: 0, sl: 0, tp: 0, confidence: 0 };
   const historyCount = useTradeStore(state => state.historyCount);
+  const prevSignalRef = useRef(null);
+  const prevParamsRef = useRef({ symbol: selectedSymbol, timeframe: selectedTimeframe, system: selectedIndicatorSystem });
 
   useEffect(() => {
     const history = candlesHistoryRef.current || [];
@@ -1868,6 +1870,36 @@ export function TradingChart({ mobileTab }) {
       trendlineLength,
       trendlineSlopeMult,
     });
+
+    // Only play sound and show pop-up notification for client-calculated signals
+    // if a new signal is generated *while* the user is actively on this asset/timeframe/indicator.
+    // Skip if it is the first 5 seconds of loading the page, or if they just switched settings.
+    const isInitialLoad = (Date.now() - pageLoadTimeRef.current) < 5000;
+    const paramsChanged = prevParamsRef.current.symbol !== selectedSymbol ||
+                          prevParamsRef.current.timeframe !== selectedTimeframe ||
+                          prevParamsRef.current.system !== selectedIndicatorSystem;
+
+    if (!isInitialLoad && !paramsChanged && sig && sig.action !== 'stale') {
+      const prevSig = prevSignalRef.current;
+      const isNew = !prevSig || prevSig.action !== sig.action || prevSig.timestamp !== sig.timestamp;
+      if (isNew && selectedSymbol === 'XAUUSD') {
+        playNotificationSound();
+        useTradeStore.getState().addToast({
+          ticker: selectedSymbol,
+          system: selectedIndicatorSystem,
+          interval: selectedTimeframe,
+          action: sig.action,
+          entry: sig.entry,
+          sl: sig.sl,
+          tp: sig.tp,
+          confidence: sig.confidence || 100,
+          timestamp: sig.timestamp || Date.now()
+        });
+      }
+    }
+
+    prevSignalRef.current = sig;
+    prevParamsRef.current = { symbol: selectedSymbol, timeframe: selectedTimeframe, system: selectedIndicatorSystem };
 
     useTradeStore.setState({ currentSignal: sig });
   }, [
