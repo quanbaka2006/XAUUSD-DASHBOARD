@@ -1818,7 +1818,7 @@ app.post('/api/webhook', webhookLimiter, (req, res) => {
     return res.status(401).json({ error: 'Unauthorized: Invalid webhook secret' });
   }
 
-  const { ticker, interval, action, entry, confidence } = req.body;
+  const { ticker, interval, action, entry, confidence, system } = req.body;
   if (!ticker || !interval || !action) {
     return res.status(400).json({ error: 'Missing required parameters (ticker, interval, action)' });
   }
@@ -1871,7 +1871,8 @@ app.post('/api/webhook', webhookLimiter, (req, res) => {
     sl: finalSl, 
     tps: [finalTp1, finalTp2],
     confidence: numConfidence && !isNaN(numConfidence) ? numConfidence : Math.floor(Math.random() * 20) + 75,
-    timestamp: Date.now()
+    timestamp: Date.now(),
+    system: system || 'SYSTEM'
   };
 
   io.emit('signal_update', signals[sym][tfLabel]);

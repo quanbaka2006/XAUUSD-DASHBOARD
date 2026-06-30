@@ -413,9 +413,63 @@ export function TradingChart({ mobileTab }) {
   // Keyboard shortcut toast hint
   const [keyHint, setKeyHint] = React.useState(null);
   const keyHintTimerRef = React.useRef(null);
-
   const drawingsSyncDebounceRef = React.useRef(null);
   const pageLoadTimeRef = React.useRef(Date.now());
+  const allCandlesHistoryRef = React.useRef({
+    'M1': [],
+    'M5': [],
+    'M15': [],
+    'H1': []
+  });
+  const lastSignalsRef = React.useRef({});
+
+  // Background Multi-Indicator Signal Scanner Pre-fetch
+  useEffect(() => {
+    if (!isLoggedIn) return;
+    const token = localStorage.getItem('auth_token');
+    const timeframes = ['M1', 'M5', 'M15', 'H1'];
+    timeframes.forEach(tf => {
+      fetch(`${SOCKET_URL}/api/history/XAUUSD/${tf}`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      })
+        .then(res => res.json())
+        .then(data => {
+          const rawHistory = data.history || [];
+          if (data.active) rawHistory.push(data.active);
+          rawHistory.sort((a, b) => a.time - b.time);
+          const history = [];
+          for (const item of rawHistory) {
+            if (history.length === 0 || history[history.length - 1].time !== item.time) {
+              history.push(item);
+            } else {
+              history[history.length - 1] = item;
+            }
+          }
+          allCandlesHistoryRef.current[tf] = history;
+
+          // Initialize background signals
+          const state = useTradeStore.getState();
+          const systems = ['zen', 'utbot', 'chandelier', 'trendline'];
+          systems.forEach(sys => {
+            const sig = getCurrentSignal({
+              history,
+              selectedSymbol: 'XAUUSD',
+              selectedIndicatorSystem: sys,
+              zenFastPeriod: state.zenFastPeriod,
+              zenSlowPeriod: state.zenSlowPeriod,
+              utBotKeyValue: state.utBotKeyValue,
+              utBotAtrPeriod: state.utBotAtrPeriod,
+              chandelierAtrPeriod: state.chandelierAtrPeriod,
+              chandelierAtrMultiplier: state.chandelierAtrMultiplier,
+              trendlineLength: state.trendlineLength,
+              trendlineSlopeMult: state.trendlineSlopeMult,
+            });
+            lastSignalsRef.current[`${tf}:${sys}`] = sig;
+          });
+        })
+        .catch(err => console.error('Failed to pre-fetch history for scanner:', tf, err));
+    });
+  }, [isLoggedIn]);
 
   const showKeyHint = (text) => {
     setKeyHint(text);
@@ -1049,6 +1103,64 @@ export function TradingChart({ mobileTab }) {
     });
 
     socket.on('candle_update', (data) => {
+      const sym = data.ticker;
+      const tf = data.interval;
+      const candle = data.candle;
+
+      // Update background candles history for XAUUSD multi-indicator scanner
+      if (sym === 'XAUUSD' && allCandlesHistoryRef.current[tf]) {
+        const history = allCandlesHistoryRef.current[tf];
+        if (history.length > 0) {
+          const last = history[history.length - 1];
+          const isNew = candle.time > last.time;
+          if (isNew) {
+            history.push(candle);
+            if (history.length > 200) history.shift();
+
+            // Run calculations for all indicators
+            const state = useTradeStore.getState();
+            const systems = ['zen', 'utbot', 'chandelier', 'trendline'];
+            systems.forEach(sys => {
+              const sig = getCurrentSignal({
+                history,
+                selectedSymbol: 'XAUUSD',
+                selectedIndicatorSystem: sys,
+                zenFastPeriod: state.zenFastPeriod,
+                zenSlowPeriod: state.zenSlowPeriod,
+                utBotKeyValue: state.utBotKeyValue,
+                utBotAtrPeriod: state.utBotAtrPeriod,
+                chandelierAtrPeriod: state.chandelierAtrPeriod,
+                chandelierAtrMultiplier: state.chandelierAtrMultiplier,
+                trendlineLength: state.trendlineLength,
+                trendlineSlopeMult: state.trendlineSlopeMult,
+              });
+
+              const key = `${tf}:${sys}`;
+              const lastSig = lastSignalsRef.current[key];
+              const isInitialLoad = (Date.now() - pageLoadTimeRef.current) < 5000;
+
+              if (!isInitialLoad && lastSig && sig && sig.action !== 'stale' && (lastSig.action !== sig.action || lastSig.timestamp !== sig.timestamp)) {
+                playNotificationSound();
+                useTradeStore.getState().addToast({
+                  ticker: 'XAUUSD',
+                  system: sys.toUpperCase(),
+                  interval: tf,
+                  action: sig.action,
+                  entry: sig.entry,
+                  sl: sig.sl,
+                  tp: sig.tp,
+                  confidence: sig.confidence || 100,
+                  timestamp: sig.timestamp || Date.now()
+                });
+              }
+              lastSignalsRef.current[key] = sig;
+            });
+          } else {
+            history[history.length - 1] = candle;
+          }
+        }
+      }
+
       const state = useTradeStore.getState();
       const currentSelectedSymbol = state.selectedSymbol;
       const currentSelectedTimeframe = state.selectedTimeframe;
