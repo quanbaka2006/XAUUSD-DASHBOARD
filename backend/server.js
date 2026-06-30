@@ -13,8 +13,7 @@ const { rateLimit } = require('express-rate-limit');
 const slowDown = require('express-slow-down');
 const vpsManager = require('./vpsManager');
 const net = require('net');
-const { initTelegramScraper } = require('./telegramScraper');
-let tsunamiScraper = null;
+
 
 // Load .env file for local development
 try { require('dotenv').config(); } catch(e) {}

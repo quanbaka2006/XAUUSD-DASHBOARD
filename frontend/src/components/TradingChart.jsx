@@ -139,7 +139,7 @@ function ToastContainer() {
     window.demoSignal = () => {
       const mockSignal = {
         ticker: 'XAUUSD',
-        system: 'TSUNAMI VIP',
+        system: 'UT BOT',
         interval: 'M15',
         action: 'buy',
         entry: 2045.50
@@ -1051,37 +1051,6 @@ export function TradingChart({ mobileTab }) {
       });
     });
 
-    // Tsunami socket events
-    socket.on('tsunami_new_signal', (signal) => {
-      const sym = signal.ticker || signal.symbol;
-      if (sym === 'XAUUSD') {
-        playNotificationSound();
-        useTradeStore.getState().addToast(signal);
-      }
-      const state = useTradeStore.getState();
-      useTradeStore.setState(prev => ({
-        tsunamiSignals: [signal, ...prev.tsunamiSignals].slice(0, 100)
-      }));
-      if (state.selectedIndicatorSystem === 'tsunami') {
-        useTradeStore.setState({ currentSignal: signal });
-      }
-    });
-
-    socket.on('tsunami_signal_update', (updatedSignal) => {
-      const state = useTradeStore.getState();
-      useTradeStore.setState(prev => ({
-        tsunamiSignals: prev.tsunamiSignals.map(s => s.id === updatedSignal.id ? updatedSignal : s)
-      }));
-      if (state.selectedIndicatorSystem === 'tsunami' && state.currentSignal?.id === updatedSignal.id) {
-        useTradeStore.setState({ currentSignal: updatedSignal });
-      }
-    });
-
-    socket.on('tsunami_event', (event) => {
-      useTradeStore.setState(prev => ({
-        tsunamiEvents: [event, ...prev.tsunamiEvents].slice(0, 150)
-      }));
-    });
 
     socket.on('price_update', (data) => {
       const state = useTradeStore.getState();
@@ -2530,7 +2499,6 @@ export function TradingChart({ mobileTab }) {
                   <option value="utbot" className="bg-[#0b0f19] text-white">UT Bot</option>
                   <option value="chandelier" className="bg-[#0b0f19] text-white">Chandelier</option>
                   <option value="trendline" className="bg-[#0b0f19] text-white">Trendlines</option>
-                  <option value="tsunami" className="bg-[#0b0f19] text-white">TSUNAMI (Telegram)</option>
                 </select>
                 <div className="absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none text-amber-500/80 text-[8px]">▼</div>
               </div>
@@ -2739,151 +2707,5 @@ export function TradingChart({ mobileTab }) {
               </div>
             )}
             
-            {/* Tsunami Console Board */}
-            {selectedIndicatorSystem === 'tsunami' && (
-              <TsunamiConsoleBoard />
-            )}
-          </div>
-        </div>
-      </div>
-    </>
-  );
-}
-
-function TsunamiConsoleBoard() {
-  const [activeTab, setActiveTab] = React.useState('active_trades');
-  const tsunamiSignals = useTradeStore(state => state.tsunamiSignals) || [];
-  const tsunamiEvents = useTradeStore(state => state.tsunamiEvents) || [];
-
-  const activeTrades = tsunamiSignals.filter(s => s.status === 'active' || s.status === 'hit_tp');
-  
-  return (
-    <div className="panel-primary rounded-2xl border border-amber-500/10 bg-slate-950/40 p-4 mt-6 text-left flex flex-col gap-4">
-      {/* Header with Tabs */}
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 border-b border-white/[0.06] pb-3">
-        <div className="flex items-center gap-2">
-          <div className="h-2 w-2 rounded-full bg-amber-500 animate-ping" />
-          <h3 className="text-sm font-black text-white uppercase tracking-wider font-mono">TSUNAMI CONSOLE</h3>
-        </div>
-        <div className="flex gap-1.5 bg-white/[0.03] border border-white/[0.08] p-0.5 rounded-lg">
-          <button
-            onClick={() => setActiveTab('active_trades')}
-            className={`px-3 py-1 rounded text-xs font-black transition-all ${
-              activeTab === 'active_trades' ? 'bg-amber-500 text-black font-black shadow-[0_0_12px_rgba(234,179,8,0.25)]' : 'text-slate-400 hover:text-slate-200'
-            }`}
-          >
-            Lệnh Đang Chạy ({activeTrades.length})
-          </button>
-          <button
-            onClick={() => setActiveTab('live_logs')}
-            className={`px-3 py-1 rounded text-xs font-black transition-all ${
-              activeTab === 'live_logs' ? 'bg-amber-500 text-black font-black shadow-[0_0_12px_rgba(234,179,8,0.25)]' : 'text-slate-400 hover:text-slate-200'
-            }`}
-          >
-            Nhật Ký Sự Kiện ({tsunamiEvents.length})
-          </button>
-        </div>
-      </div>
-
-      {/* Content Area */}
-      <div className="min-h-[180px] max-h-[250px] overflow-y-auto pr-1">
-        {activeTab === 'active_trades' ? (
-          activeTrades.length === 0 ? (
-            <div className="flex flex-col items-center justify-center h-[180px] text-slate-500 text-xs font-bold gap-2">
-              <Clock className="h-6 w-6 text-slate-600 animate-pulse" />
-              <span>Hiện không có tín hiệu Sóng Thần nào đang chạy</span>
-            </div>
-          ) : (
-            <div className="overflow-x-auto w-full">
-              <table className="w-full text-xs font-medium border-collapse text-slate-300">
-                <thead>
-                  <tr className="border-b border-white/[0.04] text-[10px] font-black text-slate-500 uppercase tracking-widest">
-                    <th className="py-2.5 text-left font-black">Thời gian</th>
-                    <th className="py-2.5 text-left font-black">Cặp tài sản</th>
-                    <th className="py-2.5 text-left font-black">Lệnh</th>
-                    <th className="py-2.5 text-right font-black">Entry</th>
-                    <th className="py-2.5 text-right font-black">Stop Loss</th>
-                    <th className="py-2.5 text-left font-black pl-4">Take Profits (TP1 - TP5)</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-white/[0.02]">
-                  {activeTrades.map(trade => {
-                    const isBuy = trade.action === 'buy';
-                    return (
-                      <tr key={trade.id} className="hover:bg-white/[0.02] transition-colors">
-                        <td className="py-3 font-mono text-slate-400">{trade.timeString || '---'}</td>
-                        <td className="py-3 font-mono font-black text-white">{trade.symbol}</td>
-                        <td className="py-3">
-                          <span className={`px-2 py-0.5 rounded font-black text-[10px] uppercase font-mono ${
-                            isBuy ? 'bg-amber-500/10 border border-amber-500/20 text-amber-500' : 'bg-red-500/10 border border-red-500/20 text-red-500'
-                          }`}>
-                            {trade.action.toUpperCase()}
-                          </span>
-                        </td>
-                        <td className="py-3 text-right font-mono text-white font-bold">{trade.entry}</td>
-                        <td className="py-3 text-right font-mono text-red-400 font-bold">{trade.sl || '---'}</td>
-                        <td className="py-3 pl-4">
-                          <div className="flex flex-wrap gap-1.5">
-                            {trade.tps.map((tpVal, idx) => {
-                              const hit = trade.hitTps && trade.hitTps[idx];
-                              return (
-                                <span key={idx} className={`px-1.5 py-0.5 rounded border text-[9px] font-bold font-mono ${
-                                  hit 
-                                    ? 'bg-emerald-500/15 border-emerald-500/30 text-emerald-400 shadow-[0_0_8px_rgba(16,185,129,0.15)]' 
-                                    : 'bg-slate-900/40 border-zinc-900/60 text-slate-500'
-                                }`}>
-                                  TP{idx + 1}: {tpVal}
-                                </span>
-                              );
-                            })}
-                          </div>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-          )
-        ) : (
-          /* Live events log */
-          tsunamiEvents.length === 0 ? (
-            <div className="flex flex-col items-center justify-center h-[180px] text-slate-500 text-xs font-bold gap-2">
-              <Activity className="h-6 w-6 text-slate-600" />
-              <span>Chưa có lịch sử sự kiện hit SL/TP nào được ghi nhận</span>
-            </div>
-          ) : (
-            <div className="flex flex-col gap-1.5 font-sans text-xs text-slate-300">
-              {tsunamiEvents.map(event => {
-                const isTp = event.type === 'EVENT_TP';
-                const logTime = event.timeString || new Date(event.timestamp).toLocaleTimeString('vi-VN');
-                return (
-                  <div key={event.id} className="flex items-center gap-2 hover:bg-white/[0.02] p-1 rounded transition-all">
-                    <span className="text-slate-600 font-bold">[{logTime}]</span>
-                    <span className="text-white font-black">{event.symbol}</span>
-                    <span className={`px-1.5 py-0.2 text-[9px] rounded font-black uppercase ${
-                      event.action === 'buy' ? 'bg-amber-500/10 text-amber-500' : 'bg-red-500/10 text-red-500'
-                    }`}>
-                      {event.action.toUpperCase()}
-                    </span>
-                    <span className="text-slate-400">Entry {event.entry}</span>
-                    <span className="text-slate-600">→</span>
-                    {isTp ? (
-                      <span className="text-emerald-400 font-bold">
-                        Hit TP{event.tpLevel} tại {event.hitPrice} (+{event.pips} pips)
-                      </span>
-                    ) : (
-                      <span className="text-red-400 font-bold">
-                        Hit SL tại {event.hitPrice} ({event.pips} pips)
-                      </span>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-          )
-        )}
-      </div>
-    </div>
-  );
-}
+            
+export default TradingChart;
