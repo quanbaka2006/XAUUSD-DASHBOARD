@@ -415,6 +415,7 @@ export function TradingChart({ mobileTab }) {
   const keyHintTimerRef = React.useRef(null);
 
   const drawingsSyncDebounceRef = React.useRef(null);
+  const pageLoadTimeRef = React.useRef(Date.now());
 
   const showKeyHint = (text) => {
     setKeyHint(text);
@@ -1010,8 +1011,12 @@ export function TradingChart({ mobileTab }) {
     socket.on('signal_update', (updatedSignal) => {
       setSignals(prev => {
         const oldSignal = prev[updatedSignal.ticker]?.[updatedSignal.interval];
+        // Only show pop-up notifications and play sound for new signals generated while online
+        // Skip pop-ups for signals that exist during the first 5 seconds of loading/refreshing
+        const isInitialLoad = (Date.now() - pageLoadTimeRef.current) < 5000;
+
         // If it's a completely new signal, play sound and show toast
-        if (updatedSignal.action !== 'stale' && (!oldSignal || oldSignal.timestamp !== updatedSignal.timestamp)) {
+        if (!isInitialLoad && updatedSignal.action !== 'stale' && (!oldSignal || oldSignal.timestamp !== updatedSignal.timestamp)) {
           const sym = updatedSignal.ticker || updatedSignal.symbol;
           if (sym === 'XAUUSD') {
             playNotificationSound();

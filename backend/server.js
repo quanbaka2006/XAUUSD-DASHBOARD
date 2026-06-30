@@ -1895,32 +1895,6 @@ app.post('/api/webhook', webhookLimiter, (req, res) => {
 app.get('/api/signals', requireAuth, (req, res) => res.json(signals));
 app.get('/api/prices', requireAuth, (req, res) => res.json(currentPrices));
 
-// Tsunami Telegram Signals Endpoints
-app.get('/api/tsunami/signals', requireAuth, async (req, res) => {
-  try {
-    if (tsunamiScraper) {
-      const list = await tsunamiScraper.getSignals();
-      res.json(list);
-    } else {
-      res.json([]);
-    }
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-app.get('/api/tsunami/events', requireAuth, async (req, res) => {
-  try {
-    if (tsunamiScraper) {
-      const list = await tsunamiScraper.getEvents();
-      res.json(list);
-    } else {
-      res.json([]);
-    }
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
 
 // User Bot Settings Endpoints
 app.get('/api/user/settings', requireAuth, async (req, res) => {
