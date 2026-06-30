@@ -2682,4 +2682,12 @@ export function TradingChart({ mobileTab }) {
             )}
             
             
+
+          </div>
+        </div>
+      </div>
+    </>
+  );
+}
+
 export default TradingChart;
