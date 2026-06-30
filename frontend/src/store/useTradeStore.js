@@ -183,6 +183,17 @@ const calculatePsychology = (history, maxDrawdown) => {
 };
 
 export const useTradeStore = create((set, get) => ({
+  toasts: [],
+  addToast: (signal) => {
+    const id = Date.now() + Math.random();
+    set((state) => ({ toasts: [...state.toasts, { id, signal }] }));
+    setTimeout(() => {
+      get().removeToast(id);
+    }, 7000);
+  },
+  removeToast: (id) => {
+    set((state) => ({ toasts: state.toasts.filter(t => t.id !== id) }));
+  },
   // Authentication State
   isLoggedIn: !!getSavedToken(),
   user: getSavedUser(),

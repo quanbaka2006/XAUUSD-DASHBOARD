@@ -131,6 +131,33 @@ const playNotificationSound = () => {
   }
 };
 
+function ToastContainer() {
+  const toasts = useTradeStore(s => s.toasts);
+  
+  if (!toasts || toasts.length === 0) return null;
+  
+  return (
+    <div className="fixed top-24 right-4 lg:right-[340px] xl:right-[380px] z-50 flex flex-col gap-3 pointer-events-none">
+      {toasts.map(toast => {
+        const sig = toast.signal;
+        const isBuy = sig.action === 'buy';
+        return (
+          <div key={toast.id} className={`pointer-events-auto p-4 w-72 rounded-xl backdrop-blur-xl border shadow-2xl transition-all duration-500 animate-in fade-in slide-in-from-right-8 ${isBuy ? 'bg-emerald-950/90 border-emerald-500/50 shadow-[0_0_20px_rgba(16,185,129,0.3)]' : 'bg-red-950/90 border-red-500/50 shadow-[0_0_20px_rgba(239,68,68,0.3)]'}`}>
+             <div className="flex justify-between items-center mb-2">
+               <span className={`text-[10px] font-black uppercase tracking-widest px-2 py-0.5 rounded ${isBuy ? 'bg-emerald-500/20 text-emerald-400' : 'bg-red-500/20 text-red-400'}`}>TÍN HIỆU MỚI</span>
+               <span className="text-[10px] text-slate-300 font-bold tracking-wider">{sig.symbol || sig.ticker}</span>
+             </div>
+             <div className="flex justify-between items-baseline mt-1">
+               <span className={`text-2xl font-black uppercase tracking-tighter ${isBuy ? 'text-emerald-400' : 'text-red-400'}`}>{isBuy ? 'BUY' : 'SELL'}</span>
+               <span className="text-white font-sans font-black text-xl tracking-tighter">{sig.entry?.toFixed(2)}</span>
+             </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 // Small isolated component: only THIS re-renders on each price tick (not the whole chart)
 function SignalStatusBadge({ signal }) {
   const livePrice = useTradeStore(s => s.livePrice);
@@ -980,9 +1007,10 @@ export function TradingChart({ mobileTab }) {
     socket.on('signal_update', (updatedSignal) => {
       setSignals(prev => {
         const oldSignal = prev[updatedSignal.ticker]?.[updatedSignal.interval];
-        // If it's a completely new signal, play sound
+        // If it's a completely new signal, play sound and show toast
         if (updatedSignal.action !== 'stale' && (!oldSignal || oldSignal.timestamp !== updatedSignal.timestamp)) {
           playNotificationSound();
+          useTradeStore.getState().addToast(updatedSignal);
         }
         return {
           ...prev,
@@ -997,6 +1025,7 @@ export function TradingChart({ mobileTab }) {
     // Tsunami socket events
     socket.on('tsunami_new_signal', (signal) => {
       playNotificationSound();
+      useTradeStore.getState().addToast(signal);
       const state = useTradeStore.getState();
       useTradeStore.setState(prev => ({
         tsunamiSignals: [signal, ...prev.tsunamiSignals].slice(0, 100)
@@ -1996,6 +2025,7 @@ export function TradingChart({ mobileTab }) {
 
   return (
     <>
+      <ToastContainer />
       {/* ── Keyboard Shortcut Toast Hint ── */}
       {keyHint && (
         <div className="fixed top-20 left-1/2 -translate-x-1/2 z-[100] px-4 py-2 rounded-xl bg-black/80 border border-amber-500/30 text-amber-400 text-xs font-black shadow-[0_0_20px_rgba(234,179,8,0.15)] backdrop-blur-xl pointer-events-none animate-fadeIn">
