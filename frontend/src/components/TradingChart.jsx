@@ -133,27 +133,6 @@ const playNotificationSound = () => {
 
 function ToastContainer() {
   const toasts = useTradeStore(s => s.toasts);
-
-  useEffect(() => {
-    // Expose demo function for testing
-    window.demoSignal = () => {
-      const mockSignal = {
-        ticker: 'XAUUSD',
-        system: 'UT BOT',
-        interval: 'M15',
-        action: 'buy',
-        entry: 2045.50
-      };
-      playNotificationSound();
-      useTradeStore.getState().addToast(mockSignal);
-    };
-
-    // Auto-trigger once for demo purposes
-    const timer = setTimeout(() => {
-      window.demoSignal();
-    }, 2000);
-    return () => clearTimeout(timer);
-  }, []);
   
   if (!toasts || toasts.length === 0) return null;
   
