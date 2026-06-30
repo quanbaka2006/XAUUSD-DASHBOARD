@@ -449,7 +449,7 @@ export function TradingChart({ mobileTab }) {
 
           // Initialize background signals
           const state = useTradeStore.getState();
-          const systems = ['zen', 'utbot', 'chandelier', 'trendline'];
+          const systems = ['utbot', 'chandelier', 'trendline'];
           systems.forEach(sys => {
             const sig = getCurrentSignal({
               history,
@@ -1119,7 +1119,7 @@ export function TradingChart({ mobileTab }) {
 
             // Run calculations for all indicators
             const state = useTradeStore.getState();
-            const systems = ['zen', 'utbot', 'chandelier', 'trendline'];
+            const systems = ['utbot', 'chandelier', 'trendline'];
             systems.forEach(sys => {
               const sig = getCurrentSignal({
                 history,
