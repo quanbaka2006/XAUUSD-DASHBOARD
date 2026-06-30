@@ -133,6 +133,27 @@ const playNotificationSound = () => {
 
 function ToastContainer() {
   const toasts = useTradeStore(s => s.toasts);
+
+  useEffect(() => {
+    // Expose demo function for testing
+    window.demoSignal = () => {
+      const mockSignal = {
+        ticker: 'XAUUSD',
+        system: 'TSUNAMI VIP',
+        interval: 'M15',
+        action: 'buy',
+        entry: 2045.50
+      };
+      playNotificationSound();
+      useTradeStore.getState().addToast(mockSignal);
+    };
+
+    // Auto-trigger once for demo purposes
+    const timer = setTimeout(() => {
+      window.demoSignal();
+    }, 2000);
+    return () => clearTimeout(timer);
+  }, []);
   
   if (!toasts || toasts.length === 0) return null;
   
@@ -141,15 +162,20 @@ function ToastContainer() {
       {toasts.map(toast => {
         const sig = toast.signal;
         const isBuy = sig.action === 'buy';
+        const systemName = (sig.system || 'TSUNAMI').toUpperCase();
+        const tf = sig.interval || 'M5';
+        
         return (
           <div key={toast.id} className={`pointer-events-auto p-4 w-72 rounded-xl backdrop-blur-xl border shadow-2xl transition-all duration-500 animate-in fade-in slide-in-from-right-8 ${isBuy ? 'bg-emerald-950/90 border-emerald-500/50 shadow-[0_0_20px_rgba(16,185,129,0.3)]' : 'bg-red-950/90 border-red-500/50 shadow-[0_0_20px_rgba(239,68,68,0.3)]'}`}>
              <div className="flex justify-between items-center mb-2">
-               <span className={`text-[10px] font-black uppercase tracking-widest px-2 py-0.5 rounded ${isBuy ? 'bg-emerald-500/20 text-emerald-400' : 'bg-red-500/20 text-red-400'}`}>TÍN HIỆU MỚI</span>
-               <span className="text-[10px] text-slate-300 font-bold tracking-wider">{sig.symbol || sig.ticker}</span>
+               <span className={`text-[10px] font-black uppercase tracking-widest px-2 py-0.5 rounded ${isBuy ? 'bg-emerald-500/20 text-emerald-400' : 'bg-red-500/20 text-red-400'}`}>TÍN HIỆU {sig.ticker || sig.symbol || 'XAUUSD'}</span>
+               <span className="text-[10px] text-slate-300 font-bold tracking-wider">{tf}</span>
+             </div>
+             <div className="mb-2">
+               <span className="text-sm font-black text-white/90 tracking-wider">{systemName}</span>
              </div>
              <div className="flex justify-between items-baseline mt-1">
                <span className={`text-2xl font-black uppercase tracking-tighter ${isBuy ? 'text-emerald-400' : 'text-red-400'}`}>{isBuy ? 'BUY' : 'SELL'}</span>
-               <span className="text-white font-sans font-black text-xl tracking-tighter">{sig.entry?.toFixed(2)}</span>
              </div>
           </div>
         );
@@ -1009,8 +1035,11 @@ export function TradingChart({ mobileTab }) {
         const oldSignal = prev[updatedSignal.ticker]?.[updatedSignal.interval];
         // If it's a completely new signal, play sound and show toast
         if (updatedSignal.action !== 'stale' && (!oldSignal || oldSignal.timestamp !== updatedSignal.timestamp)) {
-          playNotificationSound();
-          useTradeStore.getState().addToast(updatedSignal);
+          const sym = updatedSignal.ticker || updatedSignal.symbol;
+          if (sym === 'XAUUSD') {
+            playNotificationSound();
+            useTradeStore.getState().addToast(updatedSignal);
+          }
         }
         return {
           ...prev,
@@ -1024,8 +1053,11 @@ export function TradingChart({ mobileTab }) {
 
     // Tsunami socket events
     socket.on('tsunami_new_signal', (signal) => {
-      playNotificationSound();
-      useTradeStore.getState().addToast(signal);
+      const sym = signal.ticker || signal.symbol;
+      if (sym === 'XAUUSD') {
+        playNotificationSound();
+        useTradeStore.getState().addToast(signal);
+      }
       const state = useTradeStore.getState();
       useTradeStore.setState(prev => ({
         tsunamiSignals: [signal, ...prev.tsunamiSignals].slice(0, 100)
