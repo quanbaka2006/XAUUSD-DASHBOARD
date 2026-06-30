@@ -162,7 +162,7 @@ function ToastContainer() {
       {toasts.map(toast => {
         const sig = toast.signal;
         const isBuy = sig.action === 'buy';
-        const systemName = (sig.system || 'TSUNAMI').toUpperCase();
+        const systemName = (sig.system || 'SYSTEM').toUpperCase();
         const tf = sig.interval || 'M5';
         
         return (
@@ -989,9 +989,7 @@ export function TradingChart({ mobileTab }) {
   useEffect(() => {
     if (!isLoggedIn) return;
 
-    // Fetch tsunami signals, events and user settings
-    useTradeStore.getState().fetchTsunamiSignals();
-    useTradeStore.getState().fetchTsunamiEvents();
+    // Fetch user settings
     useTradeStore.getState().fetchUserSettings();
 
     const token = localStorage.getItem('auth_token');
@@ -1869,16 +1867,9 @@ export function TradingChart({ mobileTab }) {
   // NOTE: livePrice intentionally excluded from deps — signal should only update
   // when a new candle CLOSES (historyCount changes), not on every live tick.
   const currentSignal = useTradeStore(state => state.currentSignal) || { action: 'stale', entry: 0, sl: 0, tp: 0, confidence: 0 };
-  const tsunamiSignals = useTradeStore(state => state.tsunamiSignals);
   const historyCount = useTradeStore(state => state.historyCount);
 
   useEffect(() => {
-    if (selectedIndicatorSystem === 'tsunami') {
-      const sig = tsunamiSignals[0] || { action: 'stale', entry: 0, sl: 0, tps: [], confidence: 100 };
-      useTradeStore.setState({ currentSignal: sig });
-      return;
-    }
-
     const history = candlesHistoryRef.current || [];
     const sig = getCurrentSignal({
       history,
@@ -1907,7 +1898,6 @@ export function TradingChart({ mobileTab }) {
     chandelierAtrMultiplier,
     trendlineLength,
     trendlineSlopeMult,
-    tsunamiSignals,
     historyCount
   ]);
 

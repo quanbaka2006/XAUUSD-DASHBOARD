@@ -86,7 +86,7 @@ export function CoreController() {
               <option value="utbot" className="bg-[#050507] text-white">UT Bot</option>
               <option value="chandelier" className="bg-[#050507] text-white">Chandelier</option>
               <option value="trendline" className="bg-[#050507] text-white">Trendlines</option>
-              <option value="tsunami" className="bg-[#050507] text-white">TSUNAMI (Telegram)</option>
+
             </select>
             <div className="absolute right-3.5 top-1/2 -translate-y-1/2 pointer-events-none text-amber-500/80 text-[10px]">▼</div>
           </div>

@@ -274,8 +274,7 @@ export const useTradeStore = create((set, get) => ({
   candleColorTheme: 'premium',
   riskCalculator: { accountBalance: 10000, riskPercentage: 1 },
   currentSignal: null,
-  tsunamiSignals: [],
-  tsunamiEvents: [],
+
   userBotSettings: {},
 
   // Virtual Account Simulation States
@@ -332,7 +331,7 @@ export const useTradeStore = create((set, get) => ({
     
     // Automatically close client-side indicators signals if live price hits SL/TP
     const signal = get().currentSignal;
-    if (signal && signal.action !== 'stale' && signal.entry && get().selectedIndicatorSystem !== 'tsunami') {
+    if (signal && signal.action !== 'stale' && signal.entry) {
       const tpValue = signal.tp || 0;
       let hit = false;
       if (signal.action === 'buy') {
@@ -367,38 +366,6 @@ export const useTradeStore = create((set, get) => ({
   },
   setConnectionStatus: (val) => set({ connectionStatus: val }),
 
-  fetchTsunamiSignals: async () => {
-    try {
-      const token = localStorage.getItem('auth_token');
-      const response = await fetch(`${SOCKET_URL}/api/tsunami/signals`, {
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
-      if (response.ok) {
-        const data = await response.json();
-        set({ tsunamiSignals: data });
-        if (get().selectedIndicatorSystem === 'tsunami' && data.length > 0) {
-          set({ currentSignal: data[0] });
-        }
-      }
-    } catch (e) {
-      console.error('Error fetching tsunami signals:', e);
-    }
-  },
-
-  fetchTsunamiEvents: async () => {
-    try {
-      const token = localStorage.getItem('auth_token');
-      const response = await fetch(`${SOCKET_URL}/api/tsunami/events`, {
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
-      if (response.ok) {
-        const data = await response.json();
-        set({ tsunamiEvents: data });
-      }
-    } catch (e) {
-      console.error('Error fetching tsunami events:', e);
-    }
-  },
 
   fetchUserSettings: async () => {
     try {
