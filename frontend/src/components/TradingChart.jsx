@@ -2081,11 +2081,12 @@ export function TradingChart({ mobileTab }) {
                 if (!tpVal) return null;
                 const status = computeSignalStatus(currentSignal, useTradeStore.getState().livePrice);
                 let isHit = false;
-                if (currentSignal.hitTps) {
+                if (idx === 0 && (status === 'tp1' || status === 'tp')) isHit = true;
+                if (idx === 1 && status === 'tp') isHit = true;
+                
+                // Backup: if live price hasn't triggered it but the backend confirmed it was hit
+                if (!isHit && currentSignal.hitTps) {
                   isHit = currentSignal.hitTps[idx];
-                } else {
-                  if (idx === 0 && (status === 'tp1' || status === 'tp')) isHit = true;
-                  if (idx === 1 && status === 'tp') isHit = true;
                 }
                 const label = arr.length > 1 ? `${t('takeProfit')} ${idx + 1}` : t('takeProfit');
                 const hitText = idx === 0 && arr.length > 1 ? 'TP1' : idx === 1 ? 'TP2' : 'HIT';
