@@ -131,6 +131,20 @@ const playNotificationSound = () => {
   }
 };
 
+// Guard: returns true if there is an active signal that has NOT yet finished (not hit SL or full TP).
+// While locked, new popup notifications are suppressed to avoid overwriting an active trade.
+function isSignalLocked() {
+  const state = useTradeStore.getState();
+  const sig = state.currentSignal;
+  const livePrice = state.livePrice;
+  if (!sig || sig.action === 'stale') return false;
+  if (sig.status === 'closed') return false;
+  const status = computeSignalStatus(sig, livePrice);
+  // 'running' = price has not yet reached SL, TP1, or TP2
+  // 'tp1'     = TP1 touched but TP2 (full finish) not yet reached — still locked
+  return status === 'running' || status === 'tp1';
+}
+
 function ToastContainer() {
   const toasts = useTradeStore(s => s.toasts);
   
@@ -1072,7 +1086,7 @@ export function TradingChart({ mobileTab }) {
         // If it's a completely new signal, play sound and show toast
         if (!isInitialLoad && updatedSignal.action !== 'stale' && (!oldSignal || oldSignal.timestamp !== updatedSignal.timestamp)) {
           const sym = updatedSignal.ticker || updatedSignal.symbol;
-          if (sym === 'XAUUSD') {
+          if (sym === 'XAUUSD' && !isSignalLocked()) {
             playNotificationSound();
             useTradeStore.getState().addToast(updatedSignal);
           }
@@ -1139,7 +1153,7 @@ export function TradingChart({ mobileTab }) {
               const lastSig = lastSignalsRef.current[key];
               const isInitialLoad = (Date.now() - pageLoadTimeRef.current) < 5000;
 
-              if (!isInitialLoad && lastSig && sig && sig.action !== 'stale' && (lastSig.action !== sig.action || lastSig.timestamp !== sig.timestamp)) {
+              if (!isInitialLoad && lastSig && sig && sig.action !== 'stale' && (lastSig.action !== sig.action || lastSig.timestamp !== sig.timestamp) && !isSignalLocked()) {
                 playNotificationSound();
                 useTradeStore.getState().addToast({
                   ticker: 'XAUUSD',
