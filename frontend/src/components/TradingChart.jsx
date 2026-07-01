@@ -1994,8 +1994,31 @@ export function TradingChart({ mobileTab }) {
       trendlineLength,
       trendlineSlopeMult,
     });
+    // ── Signal Lock Guard ──────────────────────────────────────────────────
+    // If a signal is currently RUNNING (not yet hit SL or full TP2), do NOT
+    // overwrite it with a new signal. This prevents the signal panel from
+    // jumping to a different signal when the user switches indicators or
+    // timeframes, or when a new candle closes with a different signal.
+    const existing = useTradeStore.getState().currentSignal;
+    const isExistingActive = existing
+      && existing.action !== 'stale'
+      && existing.status !== 'closed'
+      && existing.status !== 'finished'
+      && existing.status !== 'sl';
 
-    useTradeStore.setState({ currentSignal: sig });
+    if (isExistingActive) {
+      // Same signal (same entry + timestamp) — update hitTps & status only
+      // so the progress bar still reflects TP1 hits in real-time
+      if (sig && sig.entry === existing.entry && sig.timestamp === existing.timestamp) {
+        useTradeStore.setState({
+          currentSignal: { ...existing, hitTps: sig.hitTps, status: sig.status }
+        });
+      }
+      // Different signal entirely — ignore it, keep the running signal
+    } else {
+      // No active signal or signal is finished — allow normal overwrite
+      useTradeStore.setState({ currentSignal: sig });
+    }
   }, [
     selectedSymbol,
     selectedTimeframe,
