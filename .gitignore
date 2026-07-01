@@ -1,11 +1,30 @@
 node_modules/
+
+# ── Secrets & Environment Variables ──────────────────────────
 .env
 .env.local
-*.log
-.DS_Store
-test_sync.txt
+.env.*.local
 
-# Local user store — must NOT be committed (contains account data / password hashes)
+# ── Logs ─────────────────────────────────────────────────────
+*.log
+logs/
+npm-debug.log*
+
+# ── OS Files ─────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+
+# ── Local User Store (chứa tài khoản và password hashes) ────
 backend/users.json
 users.json
 backend/audit_logs.json
+
+# ── MongoDB Local Backups (chứa dữ liệu người dùng thật) ────
+backups/
+
+# ── Binaries (ngrok, exe...) ─────────────────────────────────
+backend/ngrok.exe
+*.exe
+
+# ── Misc ─────────────────────────────────────────────────────
+test_sync.txt

@@ -1,0 +1,62 @@
+name: Auto Version Tag
+
+# Tự động tạo git tag (v1.0.x) mỗi khi push lên branch main.
+# Format: v<major>.<minor>.<patch> — patch tự tăng theo số lần chạy.
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: write  # Cần quyền ghi để tạo tags
+
+jobs:
+  tag:
+    name: Create Version Tag
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Cần fetch full history để đọc tags cũ
+
+      - name: Get latest tag and bump patch version
+        id: version
+        run: |
+          # Lấy tag cao nhất hiện có theo dạng v*.*.*
+          LATEST=$(git tag --list "v*.*.*" --sort=-version:refname | head -n1)
+
+          if [ -z "$LATEST" ]; then
+            # Chưa có tag nào → bắt đầu từ v1.0.0
+            NEW_TAG="v1.0.0"
+          else
+            echo "Latest tag: $LATEST"
+            # Tách major.minor.patch
+            MAJOR=$(echo $LATEST | cut -d. -f1 | tr -d 'v')
+            MINOR=$(echo $LATEST | cut -d. -f2)
+            PATCH=$(echo $LATEST | cut -d. -f3)
+            # Tăng patch lên 1
+            NEW_PATCH=$((PATCH + 1))
+            NEW_TAG="v${MAJOR}.${MINOR}.${NEW_PATCH}"
+          fi
+
+          echo "New tag: $NEW_TAG"
+          echo "new_tag=$NEW_TAG" >> $GITHUB_OUTPUT
+
+      - name: Create and push tag
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag ${{ steps.version.outputs.new_tag }} -m "Auto release ${{ steps.version.outputs.new_tag }}"
+          git push origin ${{ steps.version.outputs.new_tag }}
+          echo "✅ Tagged: ${{ steps.version.outputs.new_tag }}"
+
+      - name: Print summary
+        run: |
+          echo "### 🏷️ Auto Tag Created" >> $GITHUB_STEP_SUMMARY
+          echo "**Tag:** \`${{ steps.version.outputs.new_tag }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "**Commit:** \`${{ github.sha }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "**Branch:** \`${{ github.ref_name }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "**Triggered by:** ${{ github.actor }}" >> $GITHUB_STEP_SUMMARY
