@@ -329,27 +329,44 @@ export const useTradeStore = create((set, get) => ({
     set({ livePrice: val });
     get().updateVirtualTick(val);
     
-    // Automatically close client-side indicators signals if live price hits SL/TP
+    // Automatically check client-side indicators signals for SL/TP1/TP2 hits
     const signal = get().currentSignal;
     if (signal && signal.action !== 'stale' && signal.entry) {
-      const tpValue = signal.tp || 0;
-      let hit = false;
+      const tp1 = (signal.tps && signal.tps[0]) || 0;
+      const tp2 = (signal.tps && signal.tps[1]) || tp1;
+      const sl = signal.sl || 0;
+      
+      let updatedStatus = null;
+      let updatedHitTps = signal.hitTps ? [...signal.hitTps] : [false, false];
+
       if (signal.action === 'buy') {
-        if ((tpValue && val >= tpValue) || (signal.sl && val <= signal.sl)) {
-          hit = true;
+        if (sl && val <= sl) {
+          updatedStatus = 'sl';
+        } else if (tp2 && val >= tp2) {
+          updatedStatus = 'finished';
+          updatedHitTps = [true, true];
+        } else if (tp1 && val >= tp1 && !updatedHitTps[0]) {
+          updatedStatus = 'tp1';
+          updatedHitTps = [true, false];
         }
       } else if (signal.action === 'sell') {
-        if ((tpValue && val <= tpValue) || (signal.sl && val >= signal.sl)) {
-          hit = true;
+        if (sl && val >= sl) {
+          updatedStatus = 'sl';
+        } else if (tp2 && val <= tp2) {
+          updatedStatus = 'finished';
+          updatedHitTps = [true, true];
+        } else if (tp1 && val <= tp1 && !updatedHitTps[0]) {
+          updatedStatus = 'tp1';
+          updatedHitTps = [true, false];
         }
       }
-      if (hit) {
+
+      if (updatedStatus) {
         set({
           currentSignal: {
             ...signal,
-            action: 'stale',
-            status: 'closed',
-            expiredReason: 'hit_sl_tp'
+            status: updatedStatus,
+            hitTps: updatedHitTps
           }
         });
       }
