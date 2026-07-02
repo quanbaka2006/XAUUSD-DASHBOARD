@@ -2000,7 +2000,12 @@ export function TradingChart({ mobileTab }) {
     // jumping to a different signal when the user switches indicators or
     // timeframes, or when a new candle closes with a different signal.
     const existing = useTradeStore.getState().currentSignal;
-    const isExistingActive = existing
+    const isSameSystem = existing
+      && existing.symbol === selectedSymbol
+      && existing.timeframe === selectedTimeframe
+      && existing.indicatorSystem === selectedIndicatorSystem;
+
+    const isExistingActive = isSameSystem
       && existing.action !== 'stale'
       && existing.status !== 'closed'
       && existing.status !== 'finished'
@@ -2016,8 +2021,15 @@ export function TradingChart({ mobileTab }) {
       }
       // Different signal entirely — ignore it, keep the running signal
     } else {
-      // No active signal or signal is finished — allow normal overwrite
-      useTradeStore.setState({ currentSignal: sig });
+      // No active signal or signal is finished or user changed indicator/timeframe/symbol — allow normal overwrite
+      useTradeStore.setState({
+        currentSignal: sig ? {
+          ...sig,
+          symbol: selectedSymbol,
+          timeframe: selectedTimeframe,
+          indicatorSystem: selectedIndicatorSystem
+        } : null
+      });
     }
   }, [
     selectedSymbol,
