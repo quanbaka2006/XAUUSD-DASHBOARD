@@ -452,22 +452,46 @@ export function EconomicCalendar() {
                               
                               <div className="text-center">
                                 <span className="text-xs font-black text-slate-500 uppercase tracking-wider block mb-0.5">{t('previousValue')}</span>
-                                <span className="text-slate-400 block">{ev.previous || '---'}</span>
+                                <span className={ev.previous && ev.previous !== '---' ? "text-slate-300 block" : "text-slate-600 block font-normal"}>
+                                  {ev.previous && ev.previous !== '---' ? ev.previous : 'N/A'}
+                                </span>
                               </div>
 
                               <div className="text-center">
                                 <span className="text-xs font-black text-slate-500 uppercase tracking-wider block mb-0.5">{t('forecastValue')}</span>
-                                <span className="text-slate-400 block">{ev.consensus || '---'}</span>
+                                <span className={ev.consensus && ev.consensus !== '---' ? "text-slate-300 block" : "text-slate-600 block font-normal"}>
+                                  {ev.consensus && ev.consensus !== '---' ? ev.consensus : 'N/A'}
+                                </span>
                               </div>
 
                               <div className="text-center bg-white/[0.04] px-3 py-1.5 rounded-lg border border-white/[0.08] min-w-[70px]">
                                 <span className="text-xs font-black text-slate-500 uppercase tracking-wider block mb-0.5">{t('actualValue')}</span>
-                                <span className={`block font-black ${
-                                  ev.actual 
-                                    ? (ev.actual.includes('-') ? 'text-red-400' : 'text-emerald-400') 
-                                    : 'text-slate-300'
-                                }`}>
-                                  {ev.actual || '---'}
+                                <span className={`block font-black ${(() => {
+                                  if (!ev.actual || ev.actual === '---') return 'text-slate-600 font-normal';
+                                  
+                                  // Parse numbers for comparison
+                                  const getNumeric = (val) => {
+                                    if (!val || val === '---') return null;
+                                    const num = parseFloat(val.replace(/[^0-9.-]/g, ''));
+                                    return isNaN(num) ? null : num;
+                                  };
+                                  
+                                  const actNum = getNumeric(ev.actual);
+                                  const conNum = getNumeric(ev.consensus);
+                                  
+                                  if (actNum !== null && conNum !== null) {
+                                    const isNegativeIndicator = (title) => {
+                                      const t = title.toLowerCase();
+                                      return t.includes('unemployment') || t.includes('claim') || t.includes('layoff') || t.includes('thất nghiệp') || t.includes('trợ cấp');
+                                    };
+                                    const isNeg = isNegativeIndicator(ev.events_translate || ev.events);
+                                    const isBetter = isNeg ? actNum < conNum : actNum > conNum;
+                                    return isBetter ? 'text-emerald-400' : 'text-red-400';
+                                  }
+                                  
+                                  return ev.actual.includes('-') ? 'text-red-400' : 'text-emerald-400';
+                                })()}`}>
+                                  {ev.actual && ev.actual !== '---' ? ev.actual : 'N/A'}
                                 </span>
                               </div>
 

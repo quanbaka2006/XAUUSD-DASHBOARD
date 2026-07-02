@@ -2656,6 +2656,32 @@ app.get('/api/external/calendar', requireAuth, async (req, res) => {
   }
 });
 
+app.get('/api/external/finnhub-calendar', requireAuth, async (req, res) => {
+  const { from, to } = req.query; // YYYY-MM-DD
+  if (!from || !to) {
+    return res.status(400).json({ error: 'Missing from/to parameters' });
+  }
+  if (!FINNHUB_TOKEN) {
+    return res.status(500).json({ error: 'Finnhub token is not configured on server' });
+  }
+  try {
+    const url = `https://finnhub.io/api/v1/calendar/economic?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}&token=${encodeURIComponent(FINNHUB_TOKEN)}`;
+    const response = await fetchJson(url, {
+      headers: {
+        'Accept': 'application/json'
+      }
+    });
+    if (!response.ok) {
+      return res.status(response.status).json({ error: `Finnhub returned status ${response.status}` });
+    }
+    const data = await response.json();
+    res.json(data);
+  } catch (err) {
+    console.error('[Proxy Finnhub Calendar] Error:', err.message);
+    res.status(500).json({ error: 'Failed to fetch calendar from Finnhub' });
+  }
+});
+
 app.get('/api/external/news', requireAuth, async (req, res) => {
   const { limit = 20, start = 0, important } = req.query;
   try {

@@ -1111,7 +1111,8 @@ export const useTradeStore = create((set, get) => ({
     }
     
     try {
-      const promises = dateStrings.map(async (dStr) => {
+      // Fetch VnWallStreet calendar day-by-day as before
+      const vnPromises = dateStrings.map(async (dStr) => {
         try {
           const res = await fetch(`${SOCKET_URL}/api/external/calendar?date=${encodeURIComponent(dStr)}`, {
             headers: { 'Authorization': `Bearer ${token}` }
@@ -1126,10 +1127,29 @@ export const useTradeStore = create((set, get) => ({
         return [];
       });
       
-      const results = await Promise.all(promises);
+      // Fetch Finnhub calendar for the entire range in parallel
+      const fetchFinnhub = async () => {
+        try {
+          const res = await fetch(`${SOCKET_URL}/api/external/finnhub-calendar?from=${startDateStr}&to=${endDateStr}`, {
+            headers: { 'Authorization': `Bearer ${token}` }
+          });
+          if (res.ok) {
+            const result = await res.json();
+            return result.economicCalendar || [];
+          }
+        } catch (e) {
+          console.error('Error fetching Finnhub calendar:', e.message);
+        }
+        return [];
+      };
+
+      const [vnResults, finnhubEvents] = await Promise.all([
+        Promise.all(vnPromises),
+        fetchFinnhub()
+      ]);
       
       let mergedEvents = [];
-      results.forEach((dayEvents) => {
+      vnResults.forEach((dayEvents) => {
         mergedEvents = mergedEvents.concat(dayEvents);
       });
       
@@ -1145,6 +1165,110 @@ export const useTradeStore = create((set, get) => ({
           uniqueEvents.push(ev);
         }
       }
+
+      // Map Finnhub events to make lookup easy.
+      // Match by country, simplified event name, and date (same day in UTC or local).
+      const normalizeStr = (s) => (s || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+      const getFormattedDate = (dStr) => {
+        if (!dStr) return '';
+        try {
+          const d = new Date(dStr);
+          return d.toISOString().slice(0, 10); // YYYY-MM-DD
+        } catch (_) {
+          return '';
+        }
+      };
+
+      // Group Finnhub events by country for faster lookup
+      const fhMap = {};
+      finnhubEvents.forEach(fh => {
+        const cCode = (fh.country || '').toUpperCase();
+        if (!fhMap[cCode]) fhMap[cCode] = [];
+        fhMap[cCode].push({
+          ...fh,
+          normEvent: normalizeStr(fh.event),
+          date: getFormattedDate(fh.time)
+        });
+      });
+
+      // Merge Finnhub data into vnwallstreet events if data is missing
+      uniqueEvents.forEach(ev => {
+        // Only merge if we actually need data (one of consensus, actual, previous is missing or is '---')
+        const needsData = !ev.consensus || ev.consensus === '---' || 
+                          !ev.actual || ev.actual === '---' || 
+                          !ev.previous || ev.previous === '---';
+        if (!needsData) return;
+
+        const evCountry = (ev.country || '').toUpperCase();
+        const candidates = fhMap[evCountry] || [];
+        if (candidates.length === 0) return;
+
+        const evNorm = normalizeStr(ev.events);
+        const evDate = getFormattedDate(ev.pub_time_tz || ev.tz);
+
+        // Find the best match
+        let bestMatch = null;
+        let bestScore = 0;
+
+        for (const fh of candidates) {
+          // Date check: must be same day or ±1 day due to timezone shifts
+          if (evDate && fh.date) {
+            const d1 = new Date(evDate).getTime();
+            const d2 = new Date(fh.date).getTime();
+            const diffDays = Math.abs(d1 - d2) / (1000 * 60 * 60 * 24);
+            if (diffDays > 1.2) continue; // Skip if date is too far
+          }
+
+          // Exact or substring match of event name
+          let score = 0;
+          if (fh.normEvent === evNorm) {
+            score = 10;
+          } else if (evNorm.includes(fh.normEvent) || fh.normEvent.includes(evNorm)) {
+            score = 5;
+          } else {
+            // Check common keywords match
+            const fhWords = fh.normEvent.split(' ');
+            const evWords = evNorm.split(' ');
+            const common = fhWords.filter(w => w.length > 2 && evWords.includes(w));
+            if (common.length >= 2) {
+              score = common.length;
+            }
+          }
+
+          if (score > bestScore) {
+            bestScore = score;
+            bestMatch = fh;
+          }
+        }
+
+        if (bestMatch && bestScore >= 2) {
+          // Helper to append unit if present
+          const formatValueWithUnit = (val, unit) => {
+            if (val === undefined || val === null || val === '') return '';
+            const valStr = String(val);
+            if (!unit || valStr.includes(unit) || valStr.includes('%')) return valStr;
+            return `${valStr}${unit}`;
+          };
+
+          // Merge consensus (forecast)
+          if ((!ev.consensus || ev.consensus === '---') && bestMatch.estimate !== undefined && bestMatch.estimate !== null) {
+            ev.consensus = formatValueWithUnit(bestMatch.estimate, bestMatch.unit);
+            ev.isConsensusFromFinnhub = true;
+          }
+
+          // Merge actual
+          if ((!ev.actual || ev.actual === '---') && bestMatch.actual !== undefined && bestMatch.actual !== null) {
+            ev.actual = formatValueWithUnit(bestMatch.actual, bestMatch.unit);
+            ev.isActualFromFinnhub = true;
+          }
+
+          // Merge previous
+          if ((!ev.previous || ev.previous === '---') && bestMatch.prev !== undefined && bestMatch.prev !== null) {
+            ev.previous = formatValueWithUnit(bestMatch.prev, bestMatch.unit);
+            ev.isPreviousFromFinnhub = true;
+          }
+        }
+      });
       
       uniqueEvents.sort((a, b) => {
         const timeA = new Date(a.pub_time_tz || a.tz || 0).getTime();
