@@ -383,8 +383,9 @@ const xauActiveBucketEligible = { M1: false, M5: false, M15: false, H1: false };
 const currentPrices = { ...defaultPrices };
 const priceMetadata = {};
 const oandaXauConfig = oandaXau.getConfig();
+const xauCandleStorePath = process.env.XAU_CANDLE_STORE_PATH || path.join(__dirname, 'data', 'xauusd-m1.json');
 const xauCandleStore = createCandleStore({
-  filePath: process.env.XAU_CANDLE_STORE_PATH || path.join(__dirname, 'data', 'xauusd-m1.json'),
+  filePath: xauCandleStorePath,
   limit: oandaXau.HISTORY_COUNT
 });
 const XAU_MINIMUM_M1_HISTORY = 500;
@@ -2139,7 +2140,8 @@ app.get('/api/health', (req, res) => {
       marketClosed: marketData.marketClosed,
       historyReady: marketData.historyReady,
       historyCandles: marketData.historyCandles,
-      minimumHistoryCandles: marketData.minimumHistoryCandles
+      minimumHistoryCandles: marketData.minimumHistoryCandles,
+      persistentStoreConfigured: Boolean(process.env.XAU_CANDLE_STORE_PATH)
     }
   });
 });
