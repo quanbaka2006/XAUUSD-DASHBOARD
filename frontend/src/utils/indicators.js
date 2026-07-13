@@ -1,35 +1,31 @@
 // Math Helpers for Indicators
 
+export const SIGNAL_ALGORITHM_VERSION = '2.0.0';
+
 export function calculateEMA(data, period) {
+  if (!Number.isInteger(period) || period <= 0 || data.length < period) return [];
   const emaData = [];
-  if (data.length === 0) return emaData;
-  
   const k = 2 / (period + 1);
-  let emaVal = data[0].close;
-  
-  emaData.push({ time: data[0].time, value: emaVal });
-  
-  for (let i = 1; i < data.length; i++) {
+  let emaVal = 0;
+  for (let i = 0; i < period; i++) emaVal += data[i].close;
+  emaVal /= period;
+  emaData.push({ time: data[period - 1].time, value: emaVal });
+
+  for (let i = period; i < data.length; i++) {
     emaVal = data[i].close * k + emaVal * (1 - k);
-    emaData.push({ time: data[i].time, value: parseFloat(emaVal.toFixed(2)) });
+    emaData.push({ time: data[i].time, value: emaVal });
   }
   return emaData;
 }
 
 export function calculateSMA(data, period) {
+  if (!Number.isInteger(period) || period <= 0 || data.length < period) return [];
   const smaData = [];
-  if (data.length < period) return smaData;
-  
+  let sum = 0;
   for (let i = 0; i < data.length; i++) {
-    if (i < period - 1) continue;
-    let sum = 0;
-    for (let j = 0; j < period; j++) {
-      sum += data[i - j].close;
-    }
-    smaData.push({
-      time: data[i].time,
-      value: parseFloat((sum / period).toFixed(2))
-    });
+    sum += data[i].close;
+    if (i >= period) sum -= data[i - period].close;
+    if (i >= period - 1) smaData.push({ time: data[i].time, value: sum / period });
   }
   return smaData;
 }
@@ -49,19 +45,19 @@ export function calculateRSI(data, period = 14) {
   
   let avgGain = gains / period;
   let avgLoss = losses / period;
-  let rs = avgLoss === 0 ? 100 : avgGain / avgLoss;
-  let rsi = 100 - (100 / (1 + rs));
-  
-  rsiData.push({ time: data[period].time, value: parseFloat(rsi.toFixed(2)) });
+  const toRsi = () => {
+    if (avgLoss === 0) return avgGain === 0 ? 50 : 100;
+    if (avgGain === 0) return 0;
+    return 100 - (100 / (1 + avgGain / avgLoss));
+  };
+  rsiData.push({ time: data[period].time, value: toRsi() });
   
   for (let i = period + 1; i < data.length; i++) {
     const diff = data[i].close - data[i - 1].close;
     avgGain = (avgGain * (period - 1) + (diff > 0 ? diff : 0)) / period;
     avgLoss = (avgLoss * (period - 1) + (diff < 0 ? -diff : 0)) / period;
     
-    rs = avgLoss === 0 ? 100 : avgGain / avgLoss;
-    rsi = 100 - (100 / (1 + rs));
-    rsiData.push({ time: data[i].time, value: parseFloat(rsi.toFixed(2)) });
+    rsiData.push({ time: data[i].time, value: toRsi() });
   }
   return rsiData;
 }
@@ -73,30 +69,19 @@ export function calculateMACD(data, fastPeriod = 12, slowPeriod = 26, signalPeri
   const fastEma = calculateEMA(data, fastPeriod);
   const slowEma = calculateEMA(data, slowPeriod);
   
-  const macdLines = [];
-  for (let i = 0; i < slowEma.length; i++) {
-    const time = slowEma[i].time;
-    const fastVal = fastEma.find(e => e.time === time)?.value || slowEma[i].value;
-    const macdValue = parseFloat((fastVal - slowEma[i].value).toFixed(2));
-    macdLines.push({ time, close: macdValue });
-  }
-  
+  const fastByTime = new Map(fastEma.map((item) => [item.time, item.value]));
+  const macdLines = slowEma.map((slow) => ({
+    time: slow.time,
+    close: fastByTime.get(slow.time) - slow.value
+  }));
   const signalLines = calculateEMA(macdLines, signalPeriod);
-  
-  const result = [];
-  for (let i = 0; i < signalLines.length; i++) {
-    const time = signalLines[i].time;
-    const macdVal = macdLines.find(m => m.time === time)?.close || 0;
-    const sigVal = signalLines[i].value;
-    const histogram = parseFloat((macdVal - sigVal).toFixed(2));
-    result.push({
-      time,
-      macd: macdVal,
-      signal: sigVal,
-      histogram
-    });
-  }
-  return result;
+  const macdByTime = new Map(macdLines.map((item) => [item.time, item.close]));
+  return signalLines.map((signal) => ({
+    time: signal.time,
+    macd: macdByTime.get(signal.time),
+    signal: signal.value,
+    histogram: macdByTime.get(signal.time) - signal.value
+  }));
 }
 
 export function calculateSMC(history) {
@@ -117,11 +102,28 @@ export function calculateSMC(history) {
     }
   }
   
-  if (swingHighs.length > 0) {
-    result.bos = swingHighs[swingHighs.length - 1].price;
-  }
-  if (swingLows.length > 0) {
-    result.choch = swingLows[swingLows.length - 1].price;
+  let trend = null;
+  let highIdx = 0;
+  let lowIdx = 0;
+  let activeHigh = null;
+  let activeLow = null;
+  const brokenHighs = new Set();
+  const brokenLows = new Set();
+  for (let i = 0; i < history.length; i++) {
+    while (highIdx < swingHighs.length && swingHighs[highIdx].index + 2 <= i) activeHigh = swingHighs[highIdx++];
+    while (lowIdx < swingLows.length && swingLows[lowIdx].index + 2 <= i) activeLow = swingLows[lowIdx++];
+    if (activeHigh && !brokenHighs.has(activeHigh.index) && history[i].close > activeHigh.price) {
+      if (trend === 'bearish') result.choch = activeHigh.price;
+      else result.bos = activeHigh.price;
+      trend = 'bullish';
+      brokenHighs.add(activeHigh.index);
+    }
+    if (activeLow && !brokenLows.has(activeLow.index) && history[i].close < activeLow.price) {
+      if (trend === 'bullish') result.choch = activeLow.price;
+      else result.bos = activeLow.price;
+      trend = 'bearish';
+      brokenLows.add(activeLow.index);
+    }
   }
   return result;
 }
@@ -136,6 +138,7 @@ export function calculateIndicatorData(data, type, period) {
 }
 
 export function calculateATR(data, period) {
+  if (!Number.isInteger(period) || period <= 0 || data.length < period) return [];
   const tr = [];
   for (let i = 0; i < data.length; i++) {
     if (i === 0) {
@@ -148,7 +151,6 @@ export function calculateATR(data, period) {
     }
   }
   const atr = [];
-  if (data.length < period) return atr;
   let currentAtr = 0;
   let sum = 0;
   for (let i = 0; i < period; i++) {
@@ -204,14 +206,12 @@ export function calculateUTBotSignals(data, keyValue = 2, atrPeriod = 10) {
     let nextPosition = position;
     if (xLoss !== null) {
       const prevLoss = xLoss;
-      if (src > prevLoss && data[i - 1].close < prevLoss) {
+      const prevClose = data[i - 1].close;
+      if (prevClose <= prevLoss && src > prevLoss) {
         nextPosition = 1;
-      } else if (src < prevLoss && data[i - 1].close > prevLoss) {
-        nextPosition = -1;
-      }
-      if (nextPosition === 1 && position === -1) {
         buy = true;
-      } else if (nextPosition === -1 && position === 1) {
+      } else if (prevClose >= prevLoss && src < prevLoss) {
+        nextPosition = -1;
         sell = true;
       }
     }
@@ -230,19 +230,15 @@ export function calculateUTBotSignals(data, keyValue = 2, atrPeriod = 10) {
 export function calculateZenTrendLines(data, fastPeriod = 20, slowPeriod = 50) {
   const fastEma = calculateEMA(data, fastPeriod);
   const slowEma = calculateEMA(data, slowPeriod);
-  const result = [];
-  fastEma.forEach(f => {
-    const s = slowEma.find(item => item.time === f.time);
-    if (s) {
-      result.push({
-        time: f.time,
-        fast: f.value,
-        slow: s.value,
-        trend: f.value >= s.value ? 'bullish' : 'bearish'
-      });
-    }
-  });
-  return result;
+  const slowByTime = new Map(slowEma.map((item) => [item.time, item.value]));
+  return fastEma
+    .filter((fast) => slowByTime.has(fast.time))
+    .map((fast) => ({
+      time: fast.time,
+      fast: fast.value,
+      slow: slowByTime.get(fast.time),
+      trend: fast.value >= slowByTime.get(fast.time) ? 'bullish' : 'bearish'
+    }));
 }
 
 export function calculateChandelierExit(data, length = 22, mult = 3.0, useClose = true) {
@@ -378,7 +374,7 @@ export function calculateTrendlinesWithBreaks(data, length = 14, k = 1.0) {
     let sell = false;
     
     if (i >= 2 * length) {
-      const srcVal = data[i - length].close;
+      const srcVal = data[i].close;
       const prevSingleUpper = singleUpper;
       const prevSingleLower = singleLower;
 
@@ -408,7 +404,7 @@ export function calculateTrendlinesWithBreaks(data, length = 14, k = 1.0) {
       lower,
       buy,
       sell,
-      breakoutTime: i >= length ? data[i - length].time : null,
+      breakoutTime: buy || sell ? time : null,
       buyAtBreakout: buy,
       sellAtBreakout: sell
     });
@@ -427,6 +423,7 @@ const STATIC_SIGNAL_SETTINGS = {
 export function getCurrentSignal({
   history,
   selectedSymbol,
+  selectedTimeframe,
   selectedIndicatorSystem,
   zenFastPeriod,
   zenSlowPeriod,
@@ -436,41 +433,60 @@ export function getCurrentSignal({
   chandelierAtrMultiplier,
   trendlineLength,
   trendlineSlopeMult,
-  livePrice
+  livePrice,
+  dataReady = true
 }) {
-  if (!history || history.length < 21) {
-    return {
-      action: 'stale',
-      entry: 0,
-      sl: 0,
-      tp: 0,
-      confidence: 0,
-      timestamp: Date.now()
-    };
-  }
+  const parameters = selectedIndicatorSystem === 'zen'
+    ? { fastPeriod: zenFastPeriod, slowPeriod: zenSlowPeriod }
+    : selectedIndicatorSystem === 'utbot'
+      ? { keyValue: utBotKeyValue, atrPeriod: utBotAtrPeriod }
+      : selectedIndicatorSystem === 'chandelier'
+        ? { atrPeriod: chandelierAtrPeriod, atrMultiplier: chandelierAtrMultiplier }
+        : selectedIndicatorSystem === 'trendline'
+          ? { length: trendlineLength, slopeMultiplier: trendlineSlopeMult }
+          : {};
+  const signalIdentity = {
+    symbol: selectedSymbol || null,
+    timeframe: selectedTimeframe || null,
+    indicator: selectedIndicatorSystem || null,
+    parameters,
+    algorithmVersion: SIGNAL_ALGORITHM_VERSION,
+    riskModel: 'static-distance-v1'
+  };
+  const staleSignal = () => ({
+    ...signalIdentity,
+    action: 'stale',
+    entry: 0,
+    sl: 0,
+    tp: 0,
+    tps: [],
+    signalStrength: 0,
+    sourceCandleTime: null,
+    timestamp: Date.now()
+  });
+  if (!dataReady || !history || history.length < 2) return staleSignal();
 
   // Use only closed candles (excluding the last one which is active and fluctuating with livePrice)
   const closedHistory = history.slice(0, -1);
-  if (closedHistory.length < 20) {
-    return {
-      action: 'stale',
-      entry: 0,
-      sl: 0,
-      tp: 0,
-      confidence: 0,
-      timestamp: Date.now()
-    };
-  }
+  const minimumHistory = {
+    zen: Math.max(zenFastPeriod || 20, zenSlowPeriod || 50) + 1,
+    utbot: (utBotAtrPeriod || 10) + 2,
+    chandelier: (chandelierAtrPeriod || 22) + 2,
+    trendline: 2 * (trendlineLength || 14) + 2
+  }[selectedIndicatorSystem] || Infinity;
+  if (closedHistory.length < minimumHistory) return staleSignal();
 
   let rawSignal = null;
+  const decimalPlaces = (selectedSymbol === 'XAGUSD') ? 4 : 2;
+  const candleByTime = new Map(closedHistory.map((candle) => [candle.time, candle]));
 
   if (selectedIndicatorSystem === 'zen') {
     const zenData = calculateZenTrendLines(closedHistory, zenFastPeriod, zenSlowPeriod);
-    if (zenData.length === 0) return { action: 'stale', entry: 0, sl: 0, tp: 0, confidence: 0, timestamp: Date.now() };
+    if (zenData.length === 0) return staleSignal();
     const last = zenData[zenData.length - 1];
     const action = last.trend === 'bullish' ? 'buy' : 'sell';
 
-    let crossoverIdx = zenData.length - 1;
+    let crossoverIdx = -1;
     const currentTrend = last.trend;
     for (let i = zenData.length - 2; i >= 0; i--) {
       if (zenData[i].trend !== currentTrend) {
@@ -478,23 +494,25 @@ export function getCurrentSignal({
         break;
       }
     }
-    crossoverIdx = Math.min(crossoverIdx, closedHistory.length - 1);
-    const entry = closedHistory[crossoverIdx].close;
+    if (crossoverIdx === -1) return staleSignal();
+    const entryCandle = candleByTime.get(zenData[crossoverIdx].time);
+    if (!entryCandle) return staleSignal();
+    const entry = Number(entryCandle.close.toFixed(decimalPlaces));
 
     const diffPercent = Math.abs(last.fast - last.slow) / last.slow * 100;
-    const confidence = Math.min(95, Math.max(65, Math.round(65 + diffPercent * 50)));
+    const signalStrength = Math.min(95, Math.max(65, Math.round(65 + diffPercent * 50)));
 
     rawSignal = {
       action,
       entry,
-      confidence,
+      signalStrength,
       timestamp: zenData[crossoverIdx].time * 1000
     };
   }
 
   if (selectedIndicatorSystem === 'utbot') {
     const utData = calculateUTBotSignals(closedHistory, utBotKeyValue, utBotAtrPeriod);
-    if (utData.length === 0) return { action: 'stale', entry: 0, sl: 0, tp: 0, confidence: 0, timestamp: Date.now() };
+    if (utData.length === 0) return staleSignal();
     
     let triggerIdx = -1;
     for (let i = utData.length - 1; i >= 0; i--) {
@@ -504,28 +522,18 @@ export function getCurrentSignal({
       }
     }
 
-    if (triggerIdx === -1) {
-      const last = utData[utData.length - 1];
-      const entryCandle = closedHistory.length >= 2 ? closedHistory[closedHistory.length - 2] : closedHistory[closedHistory.length - 1];
-      const action = entryCandle.close >= (last.trailingStop || entryCandle.close) ? 'buy' : 'sell';
-      const entry = parseFloat(entryCandle.close.toFixed(2));
-      rawSignal = {
-        action,
-        entry,
-        confidence: 70,
-        timestamp: last.time * 1000
-      };
-    } else {
+    if (triggerIdx === -1) return staleSignal();
+    {
       const trigger = utData[triggerIdx];
       const action = trigger.buy ? 'buy' : 'sell';
-      const entry = parseFloat(closedHistory[triggerIdx].close.toFixed(2));
+      const entry = Number(closedHistory[triggerIdx].close.toFixed(decimalPlaces));
       const age = utData.length - 1 - triggerIdx;
-      const confidence = Math.max(60, Math.min(94, 90 - age));
+      const signalStrength = Math.max(60, Math.min(94, 90 - age));
 
       rawSignal = {
         action,
         entry,
-        confidence,
+        signalStrength,
         timestamp: trigger.time * 1000
       };
     }
@@ -533,7 +541,7 @@ export function getCurrentSignal({
 
   if (selectedIndicatorSystem === 'chandelier') {
     const chData = calculateChandelierExit(closedHistory, chandelierAtrPeriod, chandelierAtrMultiplier);
-    if (chData.length === 0) return { action: 'stale', entry: 0, sl: 0, tp: 0, confidence: 0, timestamp: Date.now() };
+    if (chData.length === 0) return staleSignal();
 
     let triggerIdx = -1;
     for (let i = chData.length - 1; i >= 0; i--) {
@@ -543,28 +551,18 @@ export function getCurrentSignal({
       }
     }
 
-    if (triggerIdx === -1) {
-      const last = chData[chData.length - 1];
-      const entryCandle = closedHistory.length >= 2 ? closedHistory[closedHistory.length - 2] : closedHistory[closedHistory.length - 1];
-      const action = last.dir === 1 ? 'buy' : 'sell';
-      const entry = parseFloat(entryCandle.close.toFixed(2));
-      rawSignal = {
-        action,
-        entry,
-        confidence: 72,
-        timestamp: last.time * 1000
-      };
-    } else {
+    if (triggerIdx === -1) return staleSignal();
+    {
       const trigger = chData[triggerIdx];
       const action = trigger.buy ? 'buy' : 'sell';
-      const entry = parseFloat(closedHistory[triggerIdx].close.toFixed(2));
+      const entry = Number(closedHistory[triggerIdx].close.toFixed(decimalPlaces));
       const age = chData.length - 1 - triggerIdx;
-      const confidence = Math.max(60, Math.min(94, 90 - age));
+      const signalStrength = Math.max(60, Math.min(94, 90 - age));
 
       rawSignal = {
         action,
         entry,
-        confidence,
+        signalStrength,
         timestamp: trigger.time * 1000
       };
     }
@@ -572,7 +570,7 @@ export function getCurrentSignal({
 
   if (selectedIndicatorSystem === 'trendline') {
     const tlData = calculateTrendlinesWithBreaks(closedHistory, trendlineLength, trendlineSlopeMult);
-    if (tlData.length === 0) return { action: 'stale', entry: 0, sl: 0, tp: 0, confidence: 0, timestamp: Date.now() };
+    if (tlData.length === 0) return staleSignal();
 
     let triggerIdx = -1;
     for (let i = tlData.length - 1; i >= 0; i--) {
@@ -582,47 +580,29 @@ export function getCurrentSignal({
       }
     }
 
-    if (triggerIdx === -1) {
-      const last = tlData[tlData.length - 1];
-      const entryCandle = closedHistory.length >= 2 ? closedHistory[closedHistory.length - 2] : closedHistory[closedHistory.length - 1];
-      const action = last.upper && entryCandle.close > last.upper ? 'buy' : 'sell';
-      const entry = parseFloat(entryCandle.close.toFixed(2));
-      rawSignal = {
-        action,
-        entry,
-        confidence: 67,
-        timestamp: last.time * 1000
-      };
-    } else {
+    if (triggerIdx === -1) return staleSignal();
+    {
       const trigger = tlData[triggerIdx];
       const action = trigger.buy ? 'buy' : 'sell';
-      const entry = parseFloat(closedHistory[triggerIdx].close.toFixed(2));
+      const entry = Number(closedHistory[triggerIdx].close.toFixed(decimalPlaces));
       const age = tlData.length - 1 - triggerIdx;
-      const confidence = Math.max(60, Math.min(94, 85 - age));
+      const signalStrength = Math.max(60, Math.min(94, 85 - age));
 
       rawSignal = {
         action,
         entry,
-        confidence,
+        signalStrength,
         timestamp: trigger.time * 1000
       };
     }
   }
 
   if (!rawSignal || rawSignal.action === 'stale') {
-    return {
-      action: 'stale',
-      entry: 0,
-      sl: 0,
-      tp: 0,
-      confidence: 0,
-      timestamp: Date.now()
-    };
+    return staleSignal();
   }
 
   // Calculate static TP / SL
   const settings = STATIC_SIGNAL_SETTINGS[selectedSymbol] || { sl: 10.0, tp1: 5.0, tp2: 7.5 };
-  const decimalPlaces = (selectedSymbol === 'XAGUSD') ? 4 : 2;
   
   let sl = 0;
   let tp1 = 0;
@@ -635,15 +615,6 @@ export function getCurrentSignal({
     sl = parseFloat((rawSignal.entry + settings.sl).toFixed(decimalPlaces));
     tp1 = parseFloat((rawSignal.entry - settings.tp1).toFixed(decimalPlaces));
     tp2 = parseFloat((rawSignal.entry - settings.tp2).toFixed(decimalPlaces));
-  }
-
-  // Override confidence to a random 93-97% based on entry price and timestamp
-  // This guarantees that the "random" number is stable for the same signal, 
-  // but varies between different signals (93, 94, 95, 96, 97)
-  let finalConfidence = 0;
-  if (rawSignal.entry > 0) {
-    const seed = Math.floor((rawSignal.entry * 100) + (rawSignal.timestamp / 100000)) % 5;
-    finalConfidence = 93 + Math.abs(seed);
   }
 
   // --- Calculate hitTps by scanning from signal timestamp to present ---
@@ -700,9 +671,11 @@ export function getCurrentSignal({
   // --- end hitTps logic ---
 
   return {
+    ...signalIdentity,
     ...rawSignal,
-    confidence: finalConfidence || rawSignal.confidence,
+    sourceCandleTime: rawSignal.timestamp / 1000,
     sl,
+    tp: tp1,
     tps: [tp1, tp2],
     hitTps,
     status: finalStatus

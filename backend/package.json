@@ -5,7 +5,10 @@
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "dev": "nodemon --ignore vps_slots/ server.js"
+    "dev": "nodemon --ignore vps_slots/ server.js",
+    "test": "node --test test/*.test.js",
+    "probe:xauusd:finnhub": "node scripts/probe-xauusd-oanda.js --provider=finnhub --count=500",
+    "probe:xauusd:oanda": "node scripts/probe-xauusd-oanda.js --provider=oanda --count=500"
   },
   "dependencies": {
     "cors": "^2.8.5",

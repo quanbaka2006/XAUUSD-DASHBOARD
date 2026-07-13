@@ -18,6 +18,7 @@ Thumbs.db
 backend/users.json
 users.json
 backend/audit_logs.json
+backend/data/
 
 # ── MongoDB Local Backups (chứa dữ liệu người dùng thật) ────
 backups/

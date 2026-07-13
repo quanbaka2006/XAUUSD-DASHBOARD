@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useMemo, useState } from 'react';
+import { useShallow } from 'zustand/react/shallow';
 import { io } from 'socket.io-client';
 import { createChart, ColorType, LineStyle } from 'lightweight-charts';
 import {
@@ -397,6 +398,7 @@ export function TradingChart({ mobileTab }) {
     showSmc,
     setSignals,
     setHistoryCount,
+    marketDataStatus,
     logout,
     setLoginError,
     candleColorTheme,
@@ -404,7 +406,7 @@ export function TradingChart({ mobileTab }) {
     riskCalculator,
     updateRiskCalculator,
     showConfigPanel
-  } = useTradeStore();
+  } = useTradeStore(useShallow(({ livePrice, utcTime, ...state }) => state));
 
   // DOM refs for live price and clock — bypass React re-render completely
   const livePriceDomRef = React.useRef(null);
@@ -468,6 +470,7 @@ export function TradingChart({ mobileTab }) {
             const sig = getCurrentSignal({
               history,
               selectedSymbol: 'XAUUSD',
+              selectedTimeframe: tf,
               selectedIndicatorSystem: sys,
               zenFastPeriod: state.zenFastPeriod,
               zenSlowPeriod: state.zenSlowPeriod,
@@ -477,6 +480,7 @@ export function TradingChart({ mobileTab }) {
               chandelierAtrMultiplier: state.chandelierAtrMultiplier,
               trendlineLength: state.trendlineLength,
               trendlineSlopeMult: state.trendlineSlopeMult,
+              dataReady: data.marketData?.historyReady !== false,
             });
             lastSignalsRef.current[`${tf}:${sys}`] = sig;
           });
@@ -1106,6 +1110,15 @@ export function TradingChart({ mobileTab }) {
       const state = useTradeStore.getState();
       const currentSelectedSymbol = state.selectedSymbol;
       if (data.ticker === currentSelectedSymbol) {
+        if (data.marketData) {
+          const previous = state.marketDataStatus;
+          const changed = !previous ||
+            previous.source !== data.marketData.source ||
+            previous.stale !== data.marketData.stale ||
+            previous.historyReady !== data.marketData.historyReady ||
+            previous.historyCandles !== data.marketData.historyCandles;
+          if (changed) useTradeStore.setState({ marketDataStatus: data.marketData });
+        }
         // Write to store for any other consumers (e.g. signal calc)
         useTradeStore.setState({ livePrice: data.currentPrice });
         // Update price DOM directly — NO React re-render
@@ -1138,6 +1151,7 @@ export function TradingChart({ mobileTab }) {
               const sig = getCurrentSignal({
                 history,
                 selectedSymbol: 'XAUUSD',
+                selectedTimeframe: tf,
                 selectedIndicatorSystem: sys,
                 zenFastPeriod: state.zenFastPeriod,
                 zenSlowPeriod: state.zenSlowPeriod,
@@ -1147,6 +1161,7 @@ export function TradingChart({ mobileTab }) {
                 chandelierAtrMultiplier: state.chandelierAtrMultiplier,
                 trendlineLength: state.trendlineLength,
                 trendlineSlopeMult: state.trendlineSlopeMult,
+                dataReady: state.marketDataStatus?.historyReady === true,
               });
 
               const key = `${tf}:${sys}`;
@@ -1163,7 +1178,7 @@ export function TradingChart({ mobileTab }) {
                   entry: sig.entry,
                   sl: sig.sl,
                   tp: sig.tp,
-                  confidence: sig.confidence || 100,
+                  signalStrength: sig.signalStrength || 0,
                   timestamp: sig.timestamp || Date.now()
                 });
               }
@@ -1789,6 +1804,7 @@ export function TradingChart({ mobileTab }) {
         return res.json();
       })
       .then(data => {
+        useTradeStore.setState({ marketDataStatus: data.marketData || null });
         const rawHistory = data.history || [];
         if (data.active) rawHistory.push(data.active);
 
@@ -1976,7 +1992,7 @@ export function TradingChart({ mobileTab }) {
   // Sync latest signal with Zustand store so that App.jsx can read it
   // NOTE: livePrice intentionally excluded from deps — signal should only update
   // when a new candle CLOSES (historyCount changes), not on every live tick.
-  const currentSignal = useTradeStore(state => state.currentSignal) || { action: 'stale', entry: 0, sl: 0, tp: 0, confidence: 0 };
+  const currentSignal = useTradeStore(state => state.currentSignal) || { action: 'stale', entry: 0, sl: 0, tp: 0, signalStrength: 0 };
   const historyCount = useTradeStore(state => state.historyCount);
 
   useEffect(() => {
@@ -1984,6 +2000,7 @@ export function TradingChart({ mobileTab }) {
     const sig = getCurrentSignal({
       history,
       selectedSymbol,
+      selectedTimeframe,
       selectedIndicatorSystem,
       zenFastPeriod,
       zenSlowPeriod,
@@ -1993,6 +2010,7 @@ export function TradingChart({ mobileTab }) {
       chandelierAtrMultiplier,
       trendlineLength,
       trendlineSlopeMult,
+      dataReady: selectedSymbol !== 'XAUUSD' || marketDataStatus?.historyReady === true,
     });
     // ── Signal Lock Guard ──────────────────────────────────────────────────
     // If a signal is currently RUNNING (not yet hit SL or full TP2), do NOT
@@ -2043,6 +2061,7 @@ export function TradingChart({ mobileTab }) {
     chandelierAtrMultiplier,
     trendlineLength,
     trendlineSlopeMult,
+    marketDataStatus?.historyReady,
     historyCount
   ]);
 
@@ -2060,8 +2079,8 @@ export function TradingChart({ mobileTab }) {
       };
     }
 
-    // 1. Kỷ luật (Discipline): based on signal confidence
-    const discipline = currentSignal.confidence || 75;
+    // 1. Discipline: based on deterministic technical signal strength.
+    const discipline = currentSignal.signalStrength || 75;
 
     // 2. Kiên nhẫn (Patience): based on how long since the signal was generated (age).
     const ageMs = Date.now() - (currentSignal.timestamp || Date.now());
@@ -2188,6 +2207,24 @@ export function TradingChart({ mobileTab }) {
             <div className="flex items-center gap-2">
               <span className="text-xs font-black text-white tracking-widest font-mono">{selectedSymbol}</span>
               <span className="px-2 py-0.5 bg-amber-500/10 border border-amber-500/20 text-amber-500 rounded text-[11px] font-mono font-black tracking-widest">{selectedTimeframe}</span>
+              {selectedSymbol === 'XAUUSD' && (
+                <span
+                  title={marketDataStatus?.source || 'Waiting for market data'}
+                  className={`px-2 py-0.5 rounded border text-[9px] font-mono font-black tracking-wider ${
+                    marketDataStatus?.stale
+                      ? 'border-red-500/30 bg-red-500/10 text-red-400'
+                      : marketDataStatus?.historyReady
+                        ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-400'
+                        : 'border-sky-500/30 bg-sky-500/10 text-sky-400'
+                  }`}
+                >
+                  {marketDataStatus?.stale
+                    ? 'FEED STALE'
+                    : marketDataStatus?.historyReady
+                      ? 'FINNHUB OANDA'
+                      : `WARMUP ${marketDataStatus?.historyCandles || 0}/500`}
+                </span>
+              )}
             </div>
 
             <SignalStatusBadge signal={currentSignal} />
@@ -2290,10 +2327,10 @@ export function TradingChart({ mobileTab }) {
             {/* ── CONFIDENCE PROGRESS METER (Glow Led Indicator) ── */}
             <div className="space-y-2 text-left panel-surface p-3 rounded-2xl">
               <div className="flex justify-between items-center text-[11px] font-black text-slate-400 uppercase tracking-wider">
-                <span>{t('confidence')}</span>
+                <span>{t('signalStrength')}</span>
                 <span className={`font-mono font-black ${
                   currentSignal.action === 'sell' ? 'text-red-400' : 'text-amber-400'
-                }`}>{currentSignal.confidence}%</span>
+                }`}>{currentSignal.signalStrength}%</span>
               </div>
               <div className="w-full bg-slate-900/50 h-1.5 rounded-full relative overflow-visible">
                 <div
@@ -2302,15 +2339,15 @@ export function TradingChart({ mobileTab }) {
                       ? 'bg-gradient-to-r from-red-600 to-red-400'
                       : 'bg-gradient-to-r from-amber-500 to-amber-300'
                   }`}
-                  style={{ width: `${currentSignal.confidence}%` }}
+                  style={{ width: `${currentSignal.signalStrength}%` }}
                 >
                   {/* Glow pulsing light at the edge of the bar */}
-                  {currentSignal.confidence > 0 && (
+                  {currentSignal.signalStrength > 0 && (
                     <span className={`absolute right-0 top-1/2 -translate-y-1/2 w-2.5 h-2.5 rounded-full filter blur-[1px] animate-ping ${
                       currentSignal.action === 'sell' ? 'bg-red-400' : 'bg-amber-400'
                     }`} />
                   )}
-                  {currentSignal.confidence > 0 && (
+                  {currentSignal.signalStrength > 0 && (
                     <span className={`absolute right-0 top-1/2 -translate-y-1/2 w-1.5 h-1.5 rounded-full ${
                       currentSignal.action === 'sell' ? 'bg-red-400 shadow-[0_0_8px_#ef4444]' : 'bg-amber-400 shadow-[0_0_8px_#ea580c]'
                     }`} />
@@ -2326,7 +2363,7 @@ export function TradingChart({ mobileTab }) {
                 <span className="text-xs text-slate-500 font-extrabold uppercase tracking-widest">STRENGTH INDEX</span>
                 <div className="flex items-center gap-0.5">
                   {Array.from({ length: 5 }).map((_, idx) => {
-                    const active = currentSignal.confidence >= (idx + 1) * 20;
+                    const active = currentSignal.signalStrength >= (idx + 1) * 20;
                     return (
                       <Star
                         key={idx}

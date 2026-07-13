@@ -12,38 +12,25 @@ export const SOCKET_URL = window.location.hostname === 'localhost'
   ? 'http://localhost:5000' 
   : 'https://xauusd-dashboard-izrr.onrender.com';
 
-const initialSignals = {
-  'XAUUSD': {
-    'M1': { action: 'buy', entry: 4329.80, sl: 4324.00, tp: 4340.00, confidence: 84, timestamp: Date.now() },
-    'M5': { action: 'buy', entry: 4326.50, sl: 4318.00, tp: 4342.00, confidence: 76, timestamp: Date.now() },
-    'M15': { action: 'sell', entry: 4333.40, sl: 4340.00, tp: 4316.00, confidence: 89, timestamp: Date.now() },
-    'H1': { action: 'stale', entry: 4312.00, sl: 4295.00, tp: 4345.00, confidence: 65, timestamp: Date.now() }
-  },
-  'WTIUSD': {
-    'M1': { action: 'buy', entry: 90.45, sl: 90.00, tp: 91.20, confidence: 82, timestamp: Date.now() },
-    'M5': { action: 'sell', entry: 90.20, sl: 90.60, tp: 89.50, confidence: 70, timestamp: Date.now() },
-    'M15': { action: 'buy', entry: 90.10, sl: 89.60, tp: 91.00, confidence: 64, timestamp: Date.now() },
-    'H1': { action: 'stale', entry: 89.50, sl: 88.80, tp: 91.00, confidence: 55, timestamp: Date.now() }
-  },
-  'XAGUSD': {
-    'M1': { action: 'buy', entry: 31.55, sl: 31.30, tp: 32.00, confidence: 79, timestamp: Date.now() },
-    'M5': { action: 'buy', entry: 31.40, sl: 31.10, tp: 31.90, confidence: 85, timestamp: Date.now() },
-    'M15': { action: 'sell', entry: 31.65, sl: 31.95, tp: 31.10, confidence: 73, timestamp: Date.now() },
-    'H1': { action: 'stale', entry: 30.90, sl: 30.50, tp: 31.80, confidence: 60, timestamp: Date.now() }
-  },
-  'BTCUSD': {
-    'M1': { action: 'sell', entry: 60900.40, sl: 60906.40, tp: 60898.40, confidence: 84, timestamp: Date.now() },
-    'M5': { action: 'buy', entry: 60850.00, sl: 60600.00, tp: 61300.00, confidence: 80, timestamp: Date.now() },
-    'M15': { action: 'sell', entry: 61100.00, sl: 61400.00, tp: 60500.00, confidence: 72, timestamp: Date.now() },
-    'H1': { action: 'buy', entry: 60100.00, sl: 59500.00, tp: 61500.00, confidence: 88, timestamp: Date.now() }
-  },
-  'ETHUSD': {
-    'M1': { action: 'buy', entry: 1587.50, sl: 1575.00, tp: 1610.00, confidence: 78, timestamp: Date.now() },
-    'M5': { action: 'sell', entry: 1583.10, sl: 1595.00, tp: 1560.00, confidence: 81, timestamp: Date.now() },
-    'M15': { action: 'buy', entry: 1581.00, sl: 1560.00, tp: 1620.00, confidence: 86, timestamp: Date.now() },
-    'H1': { action: 'stale', entry: 1550.00, sl: 1510.00, tp: 1630.00, confidence: 62, timestamp: Date.now() }
-  }
-};
+const initialSignals = Object.fromEntries(
+  ['XAUUSD', 'WTIUSD', 'XAGUSD', 'BTCUSD', 'ETHUSD'].map((symbol) => [
+    symbol,
+    Object.fromEntries(['M1', 'M5', 'M15', 'H1'].map((timeframe) => [
+      timeframe,
+      {
+        symbol,
+        timeframe,
+        action: 'stale',
+        entry: 0,
+        sl: 0,
+        tp: 0,
+        tps: [],
+        signalStrength: 0,
+        timestamp: Date.now()
+      }
+    ]))
+  ])
+);
 
 const getSavedToken = () => localStorage.getItem('auth_token') || '';
 const getSavedUser = () => {
@@ -125,6 +112,7 @@ const getLatestSignalForSystem = (system, candles, state) => {
   const params = {
     history: candles,
     selectedSymbol: state.selectedSymbol,
+    selectedTimeframe: state.selectedTimeframe,
     selectedIndicatorSystem: system,
     zenFastPeriod: state.zenFastPeriod,
     zenSlowPeriod: state.zenSlowPeriod,
@@ -229,8 +217,6 @@ export const useTradeStore = create((set, get) => ({
   // Realtime Feeds & connection details
   livePrice: null,
   connectionStatus: false,
-  marketSpread: 0.18,
-  marketVolume: 1245682,
   utcTime: '',
 
   // Main Indicators Parameters
@@ -268,6 +254,7 @@ export const useTradeStore = create((set, get) => ({
   isSidebarHovered: false,
   isMobileMenuOpen: false,
   historyCount: 0,
+  marketDataStatus: null,
   signals: initialSignals,
 
   showConfigPanel: false,
@@ -372,8 +359,6 @@ export const useTradeStore = create((set, get) => ({
       }
     }
   },
-  setMarketSpread: (val) => set({ marketSpread: val }),
-  setMarketVolume: (val) => set({ marketVolume: val }),
   setUtcTime: (val) => set({ utcTime: val }),
   setLanguage: (val) => {
     if (typeof window !== 'undefined') {

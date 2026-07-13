@@ -13,6 +13,9 @@ const { rateLimit } = require('express-rate-limit');
 const slowDown = require('express-slow-down');
 const vpsManager = require('./vpsManager');
 const net = require('net');
+const oandaXau = require('./marketData/oandaXau');
+const { aggregateCandles, buildTimeframes } = require('./marketData/candleAggregation');
+const { createCandleStore } = require('./marketData/candleStore');
 
 
 // Load .env file for local development
@@ -114,17 +117,23 @@ function hashPassword(password) {
 }
 
 function verifyPassword(password, storedHash) {
+  if (typeof password !== 'string' || typeof storedHash !== 'string') return false;
   if (!storedHash.startsWith('pbkdf2$')) {
-    return password === storedHash; // legacy plain-text fallback
+    const supplied = Buffer.from(password);
+    const legacy = Buffer.from(storedHash);
+    return supplied.length === legacy.length && crypto.timingSafeEqual(supplied, legacy);
   }
   const parts = storedHash.split('$');
+  if (parts.length !== 4) return false;
   const iterations = parseInt(parts[1], 10);
   const salt = parts[2];
   const originalHash = parts[3];
+  if (!Number.isInteger(iterations) || iterations < 10000 || !/^[a-f0-9]+$/i.test(originalHash)) return false;
   const keylen = 64;
   const digest = 'sha512';
-  const hash = crypto.pbkdf2Sync(password, salt, iterations, keylen, digest).toString('hex');
-  return hash === originalHash;
+  const hash = crypto.pbkdf2Sync(password, salt, iterations, keylen, digest);
+  const original = Buffer.from(originalHash, 'hex');
+  return hash.length === original.length && crypto.timingSafeEqual(hash, original);
 }
 
 function generateToken(payload) {
@@ -148,12 +157,20 @@ function verifyToken(token) {
   if (parts.length !== 3) return null;
   
   const [header, body, signature] = parts;
+  try {
+    const parsedHeader = JSON.parse(Buffer.from(header, 'base64url').toString('utf8'));
+    if (parsedHeader.alg !== 'HS256' || parsedHeader.typ !== 'JWT') return null;
+  } catch (_) {
+    return null;
+  }
   const expectedSignature = crypto
     .createHmac('sha256', JWT_SECRET)
     .update(`${header}.${body}`)
     .digest('base64url');
     
-  if (signature !== expectedSignature) return null;
+  const suppliedSignature = Buffer.from(signature);
+  const expected = Buffer.from(expectedSignature);
+  if (suppliedSignature.length !== expected.length || !crypto.timingSafeEqual(suppliedSignature, expected)) return null;
   
   try {
     const payload = JSON.parse(Buffer.from(body, 'base64url').toString('utf8'));
@@ -167,6 +184,12 @@ function verifyToken(token) {
 }
 
 const app = express();
+
+app.use((req, res, next) => {
+  req.requestId = req.headers['x-request-id'] || crypto.randomUUID();
+  res.setHeader('X-Request-Id', req.requestId);
+  next();
+});
 
 // Secure app with Helmet (CSP configured for Google Fonts and Socket.IO connection)
 app.use(helmet({
@@ -254,7 +277,7 @@ function generateRefCode() {
   const chars = 'abcdefghijklmnopqrstuvwxyz0123456789';
   let code = '';
   for (let i = 0; i < 6; i++) {
-    code += chars.charAt(Math.floor(Math.random() * chars.length));
+    code += chars.charAt(crypto.randomInt(chars.length));
   }
   return code;
 }
@@ -356,7 +379,25 @@ function isMarketClosed() {
 const signals = {};
 const candleHistory = {};
 const activeCandles = {};
+const xauActiveBucketEligible = { M1: false, M5: false, M15: false, H1: false };
 const currentPrices = { ...defaultPrices };
+const priceMetadata = {};
+const oandaXauConfig = oandaXau.getConfig();
+const xauCandleStore = createCandleStore({
+  filePath: process.env.XAU_CANDLE_STORE_PATH || path.join(__dirname, 'data', 'xauusd-m1.json'),
+  limit: oandaXau.HISTORY_COUNT
+});
+const XAU_MINIMUM_M1_HISTORY = 500;
+const XAU_STALE_AFTER_MS = 15000;
+const xauMarketDataStatus = {
+  instrument: oandaXau.INSTRUMENT,
+  source: oandaXauConfig.enabled ? `oanda-v20-${oandaXauConfig.environment}` : 'unavailable',
+  historyReady: false,
+  historyCandles: 0,
+  streamConnected: false,
+  lastHeartbeat: null,
+  lastError: oandaXauConfig.enabled ? null : 'OANDA credentials are not configured'
+};
 // Last confirmed real price from external source (anchor)
 let lastRealPrices = {};
 
@@ -443,6 +484,25 @@ SYMBOLS.forEach((sym) => {
   activeCandles[sym] = { 'M1': null, 'M5': null, 'M15': null, 'H1': null };
 });
 
+const restoredXauM1 = xauCandleStore.load();
+if (restoredXauM1.length > 0) {
+  const restored = buildTimeframes(restoredXauM1, oandaXau.HISTORY_COUNT);
+  candleHistory.XAUUSD = restored;
+  const latest = restored.M1[restored.M1.length - 1];
+  currentPrices.XAUUSD = latest.close;
+  lastRealPrices.XAUUSD = latest.close;
+  hasAlignedHistory.XAUUSD = true;
+  priceMetadata.XAUUSD = {
+    source: 'finnhub-oanda-spot-persisted',
+    sourceTime: latest.time,
+    receivedAt: 0
+  };
+  xauMarketDataStatus.source = 'finnhub-oanda-spot-persisted';
+  xauMarketDataStatus.historyCandles = restored.M1.length;
+  xauMarketDataStatus.historyReady = restored.M1.length >= XAU_MINIMUM_M1_HISTORY;
+  console.log(`[CandleStore] Restored ${restored.M1.length} completed XAUUSD M1 candles.`);
+}
+
 // ==========================================
 // Historical Candle Generator
 // ==========================================
@@ -452,6 +512,8 @@ function generateHistory() {
   const now = Math.floor(Date.now() / 1000);
 
   SYMBOLS.forEach((sym) => {
+    // XAUUSD is fail-closed: never fabricate candles for the canonical OANDA instrument.
+    if (sym === 'XAUUSD') return;
     Object.keys(INTERVAL_SECONDS).forEach((tf) => {
       const seconds = INTERVAL_SECONDS[tf];
       let price = currentPrices[sym];
@@ -498,13 +560,18 @@ function initializeCandles() {
 // Price Update Dispatcher
 // Called whenever a new real price arrives from any source
 // ==========================================
-function applyRealPrice(sym, newPrice) {
+function applyRealPrice(sym, newPrice, metadata = {}) {
   if (!newPrice || typeof newPrice !== 'number' || isNaN(newPrice)) return;
   lastTickTimestamp[sym] = Date.now();
   const price = parseFloat(newPrice.toFixed(sym.includes('BTC') ? 2 : 4));
+  const firstLiveTickAfterRestore = sym === 'XAUUSD' &&
+    priceMetadata.XAUUSD?.source === 'finnhub-oanda-spot-persisted' &&
+    priceMetadata.XAUUSD?.receivedAt === 0;
 
-  // Align synthetic history to the first live price from external stream (e.g. websocket)
-  if (historyInitialized && !hasAlignedHistory[sym]) {
+  // Align legacy synthetic history to the first live price. XAUUSD has no synthetic history.
+  const hasHistoryToAlign = candleHistory[sym] &&
+    Object.values(candleHistory[sym]).some((items) => Array.isArray(items) && items.length > 0);
+  if (historyInitialized && !hasAlignedHistory[sym] && hasHistoryToAlign) {
     const oldPrice = currentPrices[sym];
     const offset = price - oldPrice;
     
@@ -536,10 +603,34 @@ function applyRealPrice(sym, newPrice) {
       }
     }
     hasAlignedHistory[sym] = true;
+  } else if (historyInitialized && !hasAlignedHistory[sym]) {
+    hasAlignedHistory[sym] = true;
   }
 
   currentPrices[sym] = price;
   lastRealPrices[sym] = price;
+  if (firstLiveTickAfterRestore && activeCandles.XAUUSD) {
+    const now = Math.floor(Date.now() / 1000);
+    for (const [tf, seconds] of Object.entries(INTERVAL_SECONDS)) {
+      if (!activeCandles.XAUUSD[tf]) continue;
+      activeCandles.XAUUSD[tf] = {
+        time: Math.floor(now / seconds) * seconds,
+        open: price,
+        high: price,
+        low: price,
+        close: price
+      };
+      xauActiveBucketEligible[tf] = false;
+    }
+  }
+  priceMetadata[sym] = {
+    source: metadata.source || priceMetadata[sym]?.source || 'legacy',
+    sourceTime: metadata.sourceTime || null,
+    receivedAt: Date.now(),
+    ...(Number.isFinite(metadata.bid) ? { bid: metadata.bid } : {}),
+    ...(Number.isFinite(metadata.ask) ? { ask: metadata.ask } : {}),
+    ...(Number.isFinite(metadata.spread) ? { spread: metadata.spread } : {})
+  };
 }
 
 // ==========================================
@@ -558,7 +649,7 @@ function connectBinance() {
   binanceWs.on('open', () => {
     binanceConnected = true;
     binanceRetryDelay = 5000;
-    console.log('[Binance WS] Connected — streaming BTC/ETH/XAUUSD real-time');
+    console.log('[Binance WS] Connected — streaming BTC/ETH real-time');
   });
 
   binanceWs.on('message', (raw) => {
@@ -617,7 +708,7 @@ function connectKraken() {
   krakenWs.on('open', () => {
     krakenConnected = true;
     krakenRetryDelay = 5000;
-    console.log('[Kraken WS] Connected — streaming XAUUSD/BTCUSD/ETHUSD real-time');
+    console.log('[Kraken WS] Connected — streaming BTCUSD/ETHUSD real-time');
     const subscribeMsg = {
       event: 'subscribe',
       pair: ['XBT/USD', 'ETH/USD'],
@@ -822,6 +913,11 @@ function fetchBinanceSeed(sym, callback) {
 // Yahoo Finance — used ONLY as fallback seed
 // ==========================================
 function fetchYahooSeed(sym, callback, apply = true) {
+  if (sym === 'XAUUSD') {
+    console.warn('[Yahoo seed] Refusing non-spot fallback for XAUUSD; canonical instrument is OANDA XAU_USD.');
+    if (callback) callback(null);
+    return;
+  }
   const ticker = YAHOO_TICKERS[sym];
   const options = {
     hostname: 'query2.finance.yahoo.com',
@@ -858,55 +954,9 @@ function fetchYahooSeed(sym, callback, apply = true) {
   req.end();
 }
 
-let lastPaxgPrice = null;
 function fallbackToPaxgIfNeeded(sym, callback) {
-  if (sym !== 'XAUUSD') {
-    if (callback) callback(null);
-    return;
-  }
-  const options = {
-    hostname: 'api.binance.com',
-    path: '/api/v3/ticker/price?symbol=PAXGUSDT',
-    method: 'GET'
-  };
-  const req = https.request(options, (res) => {
-    let data = '';
-    res.on('data', c => data += c);
-    res.on('end', () => {
-      try {
-        const paxgPrice = parseFloat(JSON.parse(data).price);
-        if (paxgPrice && !isNaN(paxgPrice)) {
-          if (lastPaxgPrice && currentPrices['XAUUSD']) {
-            const delta = paxgPrice - lastPaxgPrice;
-            if (delta !== 0) {
-              const newPrice = currentPrices['XAUUSD'] + delta;
-              applyRealPrice('XAUUSD', newPrice);
-              console.log(`[PAXG Fallback] XAUUSD updated via PAXG delta: $${newPrice.toFixed(2)}`);
-              if (callback) callback(newPrice);
-            } else {
-               lastTickTimestamp['XAUUSD'] = Date.now();
-               if (callback) callback(currentPrices['XAUUSD']);
-            }
-          } else {
-            if (!currentPrices['XAUUSD']) {
-               applyRealPrice('XAUUSD', paxgPrice);
-               if (callback) callback(paxgPrice);
-            } else {
-               if (callback) callback(currentPrices['XAUUSD']);
-            }
-          }
-          lastPaxgPrice = paxgPrice;
-        } else {
-          if (callback) callback(null);
-        }
-      } catch(e) {
-        if (callback) callback(null);
-      }
-    });
-  });
-  req.on('error', () => { if (callback) callback(null); });
-  req.setTimeout(5000, () => req.destroy());
-  req.end();
+  // PAXG is a different instrument and must never be substituted for OANDA XAU_USD.
+  if (callback) callback(null);
 }
 
 const KRAKEN_REST_MAP = {
@@ -1020,8 +1070,71 @@ function onSeedReceived(sym) {
   }
 }
 
+async function initializeOandaXauHistory() {
+  if (!oandaXauConfig.enabled) return restoredXauM1.length > 0;
+  try {
+    const result = await oandaXau.fetchHistory(oandaXauConfig);
+    const m1 = result.timeframes.M1;
+    if (m1.length < 500) {
+      throw new Error(`Insufficient completed M1 history (${m1.length}/500 minimum)`);
+    }
+
+    for (const tf of Object.keys(INTERVAL_SECONDS)) {
+      candleHistory.XAUUSD[tf] = result.timeframes[tf];
+    }
+    const latest = m1[m1.length - 1];
+    currentPrices.XAUUSD = latest.close;
+    lastRealPrices.XAUUSD = latest.close;
+    lastTickTimestamp.XAUUSD = Date.now();
+    hasAlignedHistory.XAUUSD = true;
+    priceMetadata.XAUUSD = {
+      source: result.source,
+      sourceTime: latest.time,
+      receivedAt: Date.now()
+    };
+    xauMarketDataStatus.historyReady = true;
+    xauMarketDataStatus.historyCandles = m1.length;
+    xauMarketDataStatus.lastError = null;
+    xauCandleStore.scheduleSave(m1);
+    console.log(`[OANDA history] Loaded ${m1.length} completed XAU_USD M1 candles.`);
+    return true;
+  } catch (error) {
+    xauMarketDataStatus.historyReady = false;
+    xauMarketDataStatus.lastError = error.message;
+    console.error('[OANDA history] XAU_USD unavailable:', error.message);
+    return false;
+  }
+}
+
+function getXauMarketDataStatus() {
+  const receivedAt = priceMetadata.XAUUSD?.receivedAt || 0;
+  const priceAgeMs = receivedAt > 0 ? Math.max(0, Date.now() - receivedAt) : null;
+  const historyCandles = candleHistory.XAUUSD?.M1?.length || 0;
+  return {
+    ...xauMarketDataStatus,
+    historyCandles,
+    historyReady: historyCandles >= XAU_MINIMUM_M1_HISTORY,
+    minimumHistoryCandles: XAU_MINIMUM_M1_HISTORY,
+    lastPriceAt: receivedAt || null,
+    priceAgeMs,
+    stale: !isMarketClosed() && (priceAgeMs === null || priceAgeMs > XAU_STALE_AFTER_MS),
+    marketClosed: isMarketClosed()
+  };
+}
+
 // Seed ALL symbols on startup with proper sources to avoid price jump
 SYMBOLS.forEach(sym => {
+  if (sym === 'XAUUSD') {
+    initializeOandaXauHistory().then((loaded) => {
+      if (loaded) {
+        onSeedReceived(sym);
+        return;
+      }
+      // Finnhub's OANDA stream may still provide spot ticks, but not canonical history.
+      fetchFinnhubSeed(sym, (price) => { if (price) onSeedReceived(sym); });
+    });
+    return;
+  }
   const isBinance = BINANCE_STREAMS[sym] !== undefined;
   if (isBinance) {
     // 1. Try Binance first
@@ -1029,7 +1142,7 @@ SYMBOLS.forEach(sym => {
       if (price) {
         onSeedReceived(sym);
       } else {
-        // 2. Try Kraken (spot/PAXG) second
+        // 2. Try Kraken spot second
         fetchKrakenSeed(sym, (krakenPrice) => {
           if (krakenPrice) {
             onSeedReceived(sym);
@@ -1095,16 +1208,13 @@ function startYahooFallback() {
     const now = Date.now();
     // Fallback if no ticks received in the last 15 seconds (catches invalid Finnhub token or dropped WS)
     if (!FINNHUB_TOKEN) {
-      if (now - (lastTickTimestamp['XAUUSD'] || 0) > 15000) setTimeout(() => fetchYahooSeed('XAUUSD'), 1500);
       if (now - (lastTickTimestamp['XAGUSD'] || 0) > 15000) setTimeout(() => fetchYahooSeed('XAGUSD'), 3000);
     } else {
       // Multi-layer fallback
       if (now - (lastTickTimestamp['XAUUSD'] || 0) > 30000) {
         // Tầng 3: Finnhub chết hoàn toàn > 30s -> Dùng Yahoo + Spread Bù Trừ
-        setTimeout(() => fetchYahooSeed('XAUUSD'), 1500);
       } else if (now - (lastTickTimestamp['XAUUSD'] || 0) > 15000) {
         // Tầng 2: Mất tín hiệu 15s -> Gọi Finnhub REST (để giữ nguyên giá OANDA)
-        setTimeout(() => fetchFinnhubSeed('XAUUSD'), 1500);
       }
       
       if (now - (lastTickTimestamp['XAGUSD'] || 0) > 30000) {
@@ -1143,7 +1253,7 @@ function startSpreadTracker() {
   console.log('[Spread Tracker] Activated — monitoring Finnhub vs Yahoo offsets...');
   spreadTrackerInterval = setInterval(() => {
     if (!FINNHUB_TOKEN || !finnhubConnected) return; // Only track spread when Finnhub is healthy
-    const syms = ['XAUUSD', 'XAGUSD'];
+    const syms = ['XAGUSD'];
     syms.forEach(sym => {
       const finnhubPrice = currentPrices[sym];
       if (finnhubPrice) {
@@ -1173,10 +1283,13 @@ function connectFinnhub() {
     console.log('[Finnhub WS] Connected — streaming XAUUSD/XAGUSD real-time');
     finnhubConnected = true;
     finnhubRetryDelay = 5000;
+    if (!oandaXauConfig.enabled) xauMarketDataStatus.streamConnected = true;
 
-    FINNHUB_SUBSCRIBE.forEach(sym => {
+    FINNHUB_SUBSCRIBE
+      .filter((sym) => !(oandaXauConfig.enabled && sym === 'OANDA:XAU_USD'))
+      .forEach(sym => {
       finnhubWs.send(JSON.stringify({'type': 'subscribe', 'symbol': sym}));
-    });
+      });
     
     // Also start Yahoo fallback for WTIUSD only (since Finnhub WS doesn't have free WTIUSD)
     startYahooFallback();
@@ -1193,9 +1306,17 @@ function connectFinnhub() {
           if (FINNHUB_SYMBOL_MAP[symbol]) {
             symbol = FINNHUB_SYMBOL_MAP[symbol];
           }
+          if (symbol === 'XAUUSD' && oandaXauConfig.enabled) return;
           const price = parseFloat(trade.p);
           if (price) {
-            applyRealPrice(symbol, price);
+            applyRealPrice(symbol, price, {
+              source: symbol === 'XAUUSD' ? 'finnhub-oanda-spot' : 'finnhub',
+              sourceTime: Number.isFinite(trade.t) ? trade.t : null
+            });
+            if (symbol === 'XAUUSD') {
+              xauMarketDataStatus.source = 'finnhub-oanda-spot';
+              xauMarketDataStatus.lastError = null;
+            }
             lastTickTimestamp[symbol] = Date.now();
             
             // If this is the first real tick, initialize the seed
@@ -1210,6 +1331,7 @@ function connectFinnhub() {
 
   finnhubWs.on('close', (code) => {
     finnhubConnected = false;
+    if (!oandaXauConfig.enabled) xauMarketDataStatus.streamConnected = false;
     console.warn(`[Finnhub WS] Disconnected (${code}) — reconnecting in ${finnhubRetryDelay/1000}s...`);
     setTimeout(connectFinnhub, finnhubRetryDelay);
     finnhubRetryDelay = Math.min(finnhubRetryDelay * 1.5, 60000);
@@ -1221,6 +1343,28 @@ function connectFinnhub() {
 }
 
 connectFinnhub();
+
+oandaXau.connectPricing({
+  config: oandaXauConfig,
+  onPrice: (tick) => {
+    xauMarketDataStatus.source = `oanda-v20-${oandaXauConfig.environment}`;
+    applyRealPrice('XAUUSD', tick.price, {
+      source: `oanda-v20-${oandaXauConfig.environment}`,
+      sourceTime: tick.sourceTime,
+      bid: tick.bid,
+      ask: tick.ask,
+      spread: tick.spread
+    });
+    if (!historyInitialized) onSeedReceived('XAUUSD');
+  },
+  onHeartbeat: (time) => {
+    xauMarketDataStatus.lastHeartbeat = time;
+  },
+  onStatus: ({ connected, error }) => {
+    xauMarketDataStatus.streamConnected = connected;
+    if (error) xauMarketDataStatus.lastError = error;
+  }
+});
 
 // ==========================================
 // 1-Second Candle Tick Loop
@@ -1258,6 +1402,12 @@ setInterval(() => {
       return;
     }
 
+    // Do not manufacture flat XAUUSD candles while the upstream spot feed is stale.
+    if (sym === 'XAUUSD') {
+      const receivedAt = priceMetadata.XAUUSD?.receivedAt || 0;
+      if (!receivedAt || Date.now() - receivedAt > XAU_STALE_AFTER_MS) return;
+    }
+
     const price = currentPrices[sym];
 
     Object.keys(INTERVAL_SECONDS).forEach((tf) => {
@@ -1280,9 +1430,28 @@ setInterval(() => {
       const isNewCandle = expectedTime > active.time;
 
       if (isNewCandle) {
-        // New candle: archive old one
-        candleHistory[sym][tf].push({ ...active });
-        if (candleHistory[sym][tf].length > CHART_HISTORY_LIMIT) candleHistory[sym][tf].shift();
+        let archivedCompletedCandle = false;
+        if (sym === 'XAUUSD' && tf !== 'M1') {
+          // Higher XAUUSD timeframes are accepted only from full contiguous M1 buckets.
+          const aggregated = aggregateCandles(candleHistory.XAUUSD.M1, seconds);
+          const completed = aggregated[aggregated.length - 1];
+          const previous = candleHistory.XAUUSD[tf][candleHistory.XAUUSD[tf].length - 1];
+          if (completed && (!previous || completed.time > previous.time)) {
+            candleHistory.XAUUSD[tf].push(completed);
+            archivedCompletedCandle = true;
+          }
+        } else if (sym !== 'XAUUSD' || xauActiveBucketEligible[tf]) {
+          // M1 XAUUSD and legacy symbols archive the completed active candle.
+          candleHistory[sym][tf].push({ ...active });
+          archivedCompletedCandle = true;
+        }
+        const historyLimit = sym === 'XAUUSD' ? oandaXau.HISTORY_COUNT : CHART_HISTORY_LIMIT;
+        if (candleHistory[sym][tf].length > historyLimit) candleHistory[sym][tf].shift();
+        if (sym === 'XAUUSD' && tf === 'M1' && archivedCompletedCandle) {
+          xauCandleStore.scheduleSave(candleHistory.XAUUSD.M1);
+          xauMarketDataStatus.historyCandles = candleHistory.XAUUSD.M1.length;
+          xauMarketDataStatus.historyReady = candleHistory.XAUUSD.M1.length >= XAU_MINIMUM_M1_HISTORY;
+        }
 
         activeCandles[sym][tf] = {
           time:  expectedTime,
@@ -1291,6 +1460,7 @@ setInterval(() => {
           low:   price,
           close: price
         };
+        if (sym === 'XAUUSD') xauActiveBucketEligible[tf] = true;
       } else {
         active.close = price;
         active.high  = Math.max(active.high, price);
@@ -1319,7 +1489,9 @@ setInterval(() => {
       lastEmittedPrice[sym] = price;
       io.emit('price_update', {
         ticker:       sym,
-        currentPrice: price
+        currentPrice: price,
+        metadata: priceMetadata[sym] || null,
+        marketData: sym === 'XAUUSD' ? getXauMarketDataStatus() : null
       });
     }
   });
@@ -1339,10 +1511,21 @@ let useMongoDB = false;
 function loadUsersFromFile() {
   try {
     if (!fs.existsSync(usersFilePath)) {
-      const defaultAdminPassword = hashPassword('gold123');
-      const defaultUsers = [{ username: 'admin', password: defaultAdminPassword, name: 'Admin Account', role: 'Administrator' }];
-      fs.writeFileSync(usersFilePath, JSON.stringify(defaultUsers, null, 2), 'utf8');
-      return defaultUsers;
+      const initialPassword = process.env.INITIAL_ADMIN_PASSWORD || '';
+      if (initialPassword.length < 12) {
+        console.warn('[Security] No local users file and INITIAL_ADMIN_PASSWORD is not configured (minimum 12 characters).');
+        return [];
+      }
+      const initialUsername = process.env.INITIAL_ADMIN_USERNAME || 'admin';
+      const initialUsers = [{
+        username: initialUsername,
+        password: hashPassword(initialPassword),
+        name: 'Admin Account',
+        role: 'Administrator'
+      }];
+      fs.writeFileSync(usersFilePath, JSON.stringify(initialUsers, null, 2), 'utf8');
+      console.log(`[Security] Created initial local administrator: ${initialUsername}`);
+      return initialUsers;
     }
     return JSON.parse(fs.readFileSync(usersFilePath, 'utf8'));
   } catch (e) { return []; }
@@ -1935,10 +2118,33 @@ app.get('/api/history/:symbol/:interval', requireAuth, (req, res) => {
   const tf  = req.params.interval;
   if (!candleHistory[sym] || !candleHistory[sym][tf])
     return res.status(400).json({ error: 'Invalid symbol or interval' });
-  res.json({ history: candleHistory[sym][tf], active: activeCandles[sym][tf] });
+  res.json({
+    history: candleHistory[sym][tf],
+    active: activeCandles[sym][tf],
+    marketData: sym === 'XAUUSD' ? getXauMarketDataStatus() : null
+  });
 });
 
-app.get('/api/debug-ws', (req, res) => {
+app.get('/api/health', (req, res) => {
+  const marketData = getXauMarketDataStatus();
+  res.json({
+    status: marketData.stale ? 'degraded' : 'ok',
+    uptimeSeconds: Math.floor(process.uptime()),
+    requestId: req.requestId,
+    marketData: {
+      instrument: marketData.instrument,
+      source: marketData.source,
+      streamConnected: marketData.streamConnected,
+      stale: marketData.stale,
+      marketClosed: marketData.marketClosed,
+      historyReady: marketData.historyReady,
+      historyCandles: marketData.historyCandles,
+      minimumHistoryCandles: marketData.minimumHistoryCandles
+    }
+  });
+});
+
+app.get('/api/debug-ws', requireAdmin, (req, res) => {
   const wsState = binanceWs ? binanceWs.readyState : 'NOT_INITIALIZED';
   const krakenWsState = krakenWs ? krakenWs.readyState : 'NOT_INITIALIZED';
   const wsStates = { 0: 'CONNECTING', 1: 'OPEN', 2: 'CLOSING', 3: 'CLOSED' };
