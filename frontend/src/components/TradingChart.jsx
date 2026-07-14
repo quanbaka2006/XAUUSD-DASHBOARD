@@ -45,6 +45,7 @@ import {
   mapLedgerSignalForDisplay,
   selectDisplayedSignal
 } from '../utils/signalLifecycle';
+import { buildDisplayCandles, updateDisplayCandle } from '../utils/displayCandles';
 
 const SYMBOLS = ['XAUUSD', 'WTIUSD', 'XAGUSD', 'BTCUSD', 'ETHUSD'];
 const SYMBOLS_DISPLAY = {
@@ -986,6 +987,7 @@ export function TradingChart({ mobileTab }) {
   const trendlineLowerSeriesRef = useRef(null);
 
   const candlesHistoryRef = useRef([]);
+  const displayCandlesRef = useRef([]);
   const socketRef = useRef(null);
   // Throttle indicator recalculation — max once per 500ms regardless of tick rate
   const lastIndicatorUpdateRef = useRef(0);
@@ -1300,7 +1302,32 @@ export function TradingChart({ mobileTab }) {
               // Only bump historyCount on actual new candle (triggers signal recalc)
               setHistoryCount(prev => prev + 1);
             }
-            candlestickSeriesRef.current.update(data.candle);
+
+            // Render a continuity-only copy. Indicators, signals and persistence continue
+            // to consume `history`, which contains provider candles exclusively.
+            if (isNewCandle) {
+              const displayTail = buildDisplayCandles(history.slice(-52), {
+                symbol: currentSelectedSymbol,
+                timeframe: currentSelectedTimeframe
+              });
+              const lastDisplayTime = displayCandlesRef.current.at(-1)?.time ?? -Infinity;
+              const displayUpdates = displayTail.filter((item) => item.time > lastDisplayTime);
+              for (const displayCandle of displayUpdates) {
+                candlestickSeriesRef.current.update(displayCandle);
+              }
+              displayCandlesRef.current.push(...displayUpdates);
+              if (displayCandlesRef.current.length > 5000) {
+                displayCandlesRef.current = displayCandlesRef.current.slice(-5000);
+              }
+            } else {
+              const displayIndex = displayCandlesRef.current.length - 1;
+              const existingDisplay = displayCandlesRef.current[displayIndex];
+              const displayCandle = updateDisplayCandle(existingDisplay, data.candle);
+              if (displayCandle) {
+                displayCandlesRef.current[displayIndex] = displayCandle;
+                candlestickSeriesRef.current.update(displayCandle);
+              }
+            }
             if (!isHoveringRef.current) {
               showLatestCandleHUD();
             }
@@ -1436,6 +1463,7 @@ export function TradingChart({ mobileTab }) {
     if (!isLoggedIn || !chartContainerRef.current) return;
 
     candlesHistoryRef.current = [];
+    displayCandlesRef.current = [];
     useTradeStore.getState().setCandlesHistory([]);
 
     const chartTopColor = selectedIndicatorSystem === 'zen'
@@ -1842,7 +1870,12 @@ export function TradingChart({ mobileTab }) {
           }
         }
 
-        candlestickSeries.setData(history);
+        const displayHistory = buildDisplayCandles(history, {
+          symbol: selectedSymbol,
+          timeframe: selectedTimeframe
+        });
+        candlestickSeries.setData(displayHistory);
+        displayCandlesRef.current = displayHistory;
         candlesHistoryRef.current = history;
         useTradeStore.getState().setCandlesHistory(history);
         setHistoryCount(prev => prev + 1);
