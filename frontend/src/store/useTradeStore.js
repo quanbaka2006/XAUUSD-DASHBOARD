@@ -47,10 +47,12 @@ const getSavedUser = () => {
   }
 };
 
-const TRACKED_SIGNALS_STORAGE_KEY = 'tracked_signals_v5';
+const TRACKED_SIGNALS_STORAGE_KEY = 'tracked_signals_v6';
+const OBSOLETE_TRACKED_SIGNALS_STORAGE_KEYS = ['tracked_signals_v5'];
 
 const getSavedTrackedSignals = () => {
   try {
+    OBSOLETE_TRACKED_SIGNALS_STORAGE_KEYS.forEach((key) => localStorage.removeItem(key));
     const parsed = JSON.parse(localStorage.getItem(TRACKED_SIGNALS_STORAGE_KEY) || '{}');
     const signals = parsed && typeof parsed === 'object' ? parsed : {};
     const sanitized = removeTrackedSignalsForIndicator(signals, 'zen');

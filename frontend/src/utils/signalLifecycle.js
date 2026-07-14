@@ -58,7 +58,7 @@ function getCandidateAvailableAt(signal) {
   return sourceTime + closeDelay;
 }
 
-export function mapLedgerSignalForDisplay(signal) {
+export function mapLedgerSignalForDisplay(signal, { restoredFromHistory = false } = {}) {
   if (!signal) return null;
   const terminalStatuses = new Set([
     'TP2_HIT', 'SL_HIT', 'EXPIRED', 'INVALIDATED', 'CLOSED_BY_REVERSAL', 'AMBIGUOUS'
@@ -71,6 +71,8 @@ export function mapLedgerSignalForDisplay(signal) {
     tp: signal.tp1,
     tps: [signal.tp1, signal.tp2],
     timestamp: Number(signal.sourceCandleTime) * 1000,
+    sourceEventId: signal.sourceEventId || signal.signalId,
+    restoredFromHistory,
     status: terminal ? 'finished' : signal.status === 'TP1_HIT' ? 'tp1' : 'running',
     result: terminal ? signal.status : null,
     finishedAt,

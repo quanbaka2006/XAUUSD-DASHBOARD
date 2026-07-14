@@ -11,6 +11,7 @@ import {
   TIMEFRAME_RISK_REWARD,
   findConfirmedSwing,
   getSignalAnalysisHistory,
+  getIndicatorSignalEvents,
   buildConfluenceDecision,
   getStableDisplayStrength,
   getCurrentSignal
@@ -89,6 +90,19 @@ test('each enabled indicator accepts only its fresh event on the latest closed c
     assert.equal(signal.action, 'buy', selectedIndicatorSystem);
     assert.equal(signal.triggerType, 'fresh-indicator-event', selectedIndicatorSystem);
     assert.equal(signal.timestamp, closed.at(-1).time * 1000, selectedIndicatorSystem);
+    const markerEvents = getIndicatorSignalEvents({
+      history,
+      selectedIndicatorSystem,
+      utBotKeyValue: 2,
+      utBotAtrPeriod: 10,
+      chandelierAtrPeriod: 10,
+      chandelierAtrMultiplier: 2,
+      trendlineLength: 5,
+      trendlineSlopeMult: 1
+    });
+    assert.equal(markerEvents.events.at(-1).time, signal.sourceCandleTime, selectedIndicatorSystem);
+    assert.equal(markerEvents.events.at(-1).action, signal.action, selectedIndicatorSystem);
+    assert.equal(markerEvents.events.at(-1).eventId, signal.sourceEventId, selectedIndicatorSystem);
   }
 });
 
@@ -131,7 +145,7 @@ test('signal display strength stays stable between 90 and 98 for the same signal
   assert.equal(signal.signalStrength, getStableDisplayStrength({
     symbol: 'XAUUSD', timeframe: 'M1', indicator: 'utbot', timestamp: signal.timestamp
   }));
-  assert.equal(signal.algorithmVersion, '3.5.0');
+  assert.equal(signal.algorithmVersion, '3.6.0');
   assert.equal(signal.indicator, 'utbot');
   assert.equal(signal.timeframe, 'M1');
   assert.equal(signal.sourceCandleTime, signal.timestamp / 1000);
@@ -152,7 +166,7 @@ test('XAUUSD signal generation fails closed while market data is warming up', ()
   });
   assert.equal(signal.action, 'stale');
   assert.equal(signal.signalStrength, 0);
-  assert.equal(signal.algorithmVersion, '3.5.0');
+  assert.equal(signal.algorithmVersion, '3.6.0');
 });
 
 test('recent gap-fill is reported as data quality and no longer blocks a real trigger', () => {

@@ -1,6 +1,6 @@
 // Math Helpers for Indicators
 
-export const SIGNAL_ALGORITHM_VERSION = '3.5.0';
+export const SIGNAL_ALGORITHM_VERSION = '3.6.0';
 
 export function getStableDisplayStrength({ symbol, timeframe, indicator, timestamp }) {
   const input = `${symbol || ''}:${timeframe || ''}:${indicator || ''}:${timestamp || 0}`;
@@ -473,6 +473,54 @@ export function getSignalAnalysisHistory(history) {
   return history.slice(0, -1).filter((candle) => !isGapFillCandle(candle));
 }
 
+// This is the canonical event stream used by both the chart markers and the
+// signal lifecycle. Only real, closed candles may produce a visible signal.
+export function getIndicatorSignalEvents({
+  history,
+  selectedIndicatorSystem,
+  utBotKeyValue,
+  utBotAtrPeriod,
+  chandelierAtrPeriod,
+  chandelierAtrMultiplier,
+  trendlineLength,
+  trendlineSlopeMult
+}) {
+  const analysisHistory = getSignalAnalysisHistory(history);
+  const realCandleTimes = new Set(
+    analysisHistory.filter((candle) => !isSyntheticCandle(candle)).map((candle) => candle.time)
+  );
+
+  let indicatorData = [];
+  if (selectedIndicatorSystem === 'utbot') {
+    indicatorData = calculateUTBotSignals(analysisHistory, utBotKeyValue, utBotAtrPeriod);
+  } else if (selectedIndicatorSystem === 'chandelier') {
+    indicatorData = calculateChandelierExit(
+      analysisHistory,
+      chandelierAtrPeriod,
+      chandelierAtrMultiplier
+    );
+  } else if (selectedIndicatorSystem === 'trendline') {
+    indicatorData = calculateTrendlinesWithBreaks(
+      analysisHistory,
+      trendlineLength,
+      trendlineSlopeMult
+    );
+  }
+
+  const events = indicatorData.flatMap((item) => {
+    if (!realCandleTimes.has(item.time)) return [];
+    const action = item.buy ? 'buy' : item.sell ? 'sell' : null;
+    if (!action) return [];
+    return [{
+      time: item.time,
+      action,
+      eventId: `${selectedIndicatorSystem}:${item.time}:${action}`
+    }];
+  });
+
+  return { analysisHistory, indicatorData, events };
+}
+
 function inferIntervalSeconds(history) {
   const frequencies = new Map();
   for (let index = 1; index < (history || []).length; index += 1) {
@@ -644,44 +692,27 @@ export function getCurrentSignal({
     };
   };
 
-  if (selectedIndicatorSystem === 'utbot') {
-    const utData = calculateUTBotSignals(closedHistory, utBotKeyValue, utBotAtrPeriod);
-    if (utData.length === 0) return staleSignal();
-    const event = [...utData].reverse().find((item) =>
-      realCandleByTime.has(item.time) && (item.buy || item.sell)
-    );
-    if (event) {
-      const action = event.buy ? 'buy' : 'sell';
-      rawSignal = createEventSignal(
-        event, action, `Price crossed ${action === 'buy' ? 'above' : 'below'} UT trailing stop`
-      );
-    }
-  }
-
-  if (selectedIndicatorSystem === 'chandelier') {
-    const chData = calculateChandelierExit(closedHistory, chandelierAtrPeriod, chandelierAtrMultiplier);
-    if (chData.length === 0) return staleSignal();
-    const event = [...chData].reverse().find((item) =>
-      realCandleByTime.has(item.time) && (item.buy || item.sell)
-    );
-    if (event) {
-      const action = event.buy ? 'buy' : 'sell';
-      rawSignal = createEventSignal(
-        event, action, `Chandelier direction changed to ${action === 'buy' ? '+1' : '-1'}`
-      );
-    }
-  }
-
-  if (selectedIndicatorSystem === 'trendline') {
-    const tlData = calculateTrendlinesWithBreaks(closedHistory, trendlineLength, trendlineSlopeMult);
-    if (tlData.length === 0) return staleSignal();
-    const event = [...tlData].reverse().find((item) =>
-      realCandleByTime.has(item.time) && (item.buy || item.sell)
-    );
-    if (event) {
-      const action = event.buy ? 'buy' : 'sell';
-      rawSignal = createEventSignal(event, action, `Fresh trendline break ${action}`);
-    }
+  const { events } = getIndicatorSignalEvents({
+    history,
+    selectedIndicatorSystem,
+    utBotKeyValue,
+    utBotAtrPeriod,
+    chandelierAtrPeriod,
+    chandelierAtrMultiplier,
+    trendlineLength,
+    trendlineSlopeMult
+  });
+  const event = events.at(-1);
+  if (event) {
+    const evidence = selectedIndicatorSystem === 'utbot'
+      ? `Price crossed ${event.action === 'buy' ? 'above' : 'below'} UT trailing stop`
+      : selectedIndicatorSystem === 'chandelier'
+        ? `Chandelier direction changed to ${event.action === 'buy' ? '+1' : '-1'}`
+        : `Fresh trendline break ${event.action}`;
+    rawSignal = {
+      ...createEventSignal(event, event.action, evidence),
+      sourceEventId: event.eventId
+    };
   }
 
   if (!rawSignal || rawSignal.action === 'stale') {

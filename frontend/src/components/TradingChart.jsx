@@ -37,6 +37,7 @@ import {
   calculateChandelierExit,
   calculateTrendlinesWithBreaks,
   getCurrentSignal,
+  getIndicatorSignalEvents,
   getMultiTimeframeConfluence
 } from '../utils/indicators';
 import {
@@ -53,6 +54,22 @@ const SYMBOLS_DISPLAY = {
   'BTCUSD': 'Bitcoin (BTCUSD)',
   'ETHUSD': 'Ethereum (ETHUSD)'
 };
+
+function buildConfirmedSignalMarkers(history, selectedIndicatorSystem, settings) {
+  const { events } = getIndicatorSignalEvents({
+    history,
+    selectedIndicatorSystem,
+    ...settings
+  });
+  return events.map((event) => ({
+    time: event.time,
+    position: event.action === 'buy' ? 'belowBar' : 'aboveBar',
+    color: event.action === 'buy' ? '#10b981' : '#ef4444',
+    shape: event.action === 'buy' ? 'arrowUp' : 'arrowDown',
+    text: event.action.toUpperCase(),
+    size: 1
+  }));
+}
 
 // ── Live signal status: compares the latest live price against SL/TP ──
 function computeSignalStatus(signal, livePrice) {
@@ -354,9 +371,17 @@ function ConfluencePanel({ confluence }) {
 
 function HeroActionDisplay({ currentSignal }) {
   const livePrice = useTradeStore(s => s.livePrice);
-  const { t } = useTranslation();
+  const { t, language } = useTranslation();
   const status = computeSignalStatus(currentSignal, livePrice);
   const isFinished = status === 'tp' || status === 'sl' || currentSignal.status === 'finished' || currentSignal.status === 'closed';
+  const direction = currentSignal.action === 'buy' ? 'BUY' : currentSignal.action === 'sell' ? 'SELL' : null;
+  const actionText = isFinished
+    ? 'FINISHED'
+    : direction && currentSignal.restoredFromHistory
+      ? language === 'en' ? `TRACKING ${direction}` : `THEO DÕI ${direction}`
+      : direction
+        ? `${direction} NOW`
+        : t('waiting');
 
   return (
     <div className={`relative h-14 rounded-xl flex items-center justify-center overflow-hidden transition-all duration-500 ${
@@ -397,14 +422,14 @@ function HeroActionDisplay({ currentSignal }) {
           ? 'text-red-300 glow-neon-sell'
           : 'text-slate-300'
       }`}
-      data-text={isFinished ? 'FINISHED' : currentSignal.action === 'buy' ? 'BUY NOW' : currentSignal.action === 'sell' ? 'SELL NOW' : 'WAITING'}
+      data-text={actionText}
       >
-        {isFinished ? 'FINISHED' : currentSignal.action === 'buy' ? 'BUY NOW' : currentSignal.action === 'sell' ? 'SELL NOW' : t('waiting')}
+        {actionText}
       </h2>
     </div>
   );
 }
-function TimeAgoDisplay({ timestamp }) {
+function TimeAgoDisplay({ timestamp, restoredFromHistory = false }) {
   const [mins, setMins] = useState(0);
   const { language } = useTranslation();
 
@@ -418,7 +443,9 @@ function TimeAgoDisplay({ timestamp }) {
 
   if (!timestamp) return null;
   
-  const label = language === 'en' ? 'REPORTED:' : 'ĐÃ BÁO:';
+  const label = restoredFromHistory
+    ? language === 'en' ? 'RESTORED:' : 'KHÔI PHỤC:'
+    : language === 'en' ? 'REPORTED:' : 'ĐÃ BÁO:';
   const justNow = language === 'en' ? 'JUST NOW' : 'VỪA XONG';
   const minsAgo = language === 'en' ? `${mins} MINS AGO` : `${mins} PHÚT TRƯỚC`;
 
@@ -432,7 +459,7 @@ function TimeAgoDisplay({ timestamp }) {
 }
 
 export function TradingChart({ mobileTab }) {
-  const { t } = useTranslation();
+  const { t, language } = useTranslation();
   const {
     isLoggedIn,
     selectedSymbol,
@@ -1142,7 +1169,7 @@ export function TradingChart({ mobileTab }) {
     socket.on('scalping_signals_snapshot', (payload) => {
       Object.entries(payload?.timeframes || {}).forEach(([timeframe, snapshot]) => {
         const ledgerSignal = snapshot?.activeSignal || snapshot?.history?.[0];
-        const displaySignal = mapLedgerSignalForDisplay(ledgerSignal);
+        const displaySignal = mapLedgerSignalForDisplay(ledgerSignal, { restoredFromHistory: true });
         if (displaySignal) {
           const indicator = displaySignal.indicator || displaySignal.indicatorSystem || 'core';
           useTradeStore.getState().setTrackedSignal('XAUUSD', timeframe, indicator, displaySignal);
@@ -1335,28 +1362,9 @@ export function TradingChart({ mobileTab }) {
                     utBotTrailingStopSeriesRef.current.update({ time: last.time, value: last.trailingStop });
                   }
 
-                  // Re-apply markers
-                  const markers = [];
-                  utBotData.forEach(d => {
-                    if (d.buy) {
-                      markers.push({
-                        time: d.time,
-                        position: 'belowBar',
-                        color: '#10b981',
-                        shape: 'arrowUp',
-                        text: 'BUY',
-                        size: 1
-                      });
-                    } else if (d.sell) {
-                      markers.push({
-                        time: d.time,
-                        position: 'aboveBar',
-                        color: '#ef4444',
-                        shape: 'arrowDown',
-                        text: 'SELL',
-                        size: 1
-                      });
-                    }
+                  const markers = buildConfirmedSignalMarkers(history, 'utbot', {
+                    utBotKeyValue,
+                    utBotAtrPeriod
                   });
                   candlestickSeriesRef.current.setMarkers(markers);
                 }
@@ -1373,28 +1381,9 @@ export function TradingChart({ mobileTab }) {
                     chandelierShortStopSeriesRef.current.update({ time: last.time, value: last.shortStop });
                   }
 
-                  // Re-apply markers
-                  const markers = [];
-                  chandelierData.forEach(d => {
-                    if (d.buy) {
-                      markers.push({
-                        time: d.time,
-                        position: 'belowBar',
-                        color: '#10b981',
-                        shape: 'arrowUp',
-                        text: 'BUY',
-                        size: 1
-                      });
-                    } else if (d.sell) {
-                      markers.push({
-                        time: d.time,
-                        position: 'aboveBar',
-                        color: '#ef4444',
-                        shape: 'arrowDown',
-                        text: 'SELL',
-                        size: 1
-                      });
-                    }
+                  const markers = buildConfirmedSignalMarkers(history, 'chandelier', {
+                    chandelierAtrPeriod,
+                    chandelierAtrMultiplier
                   });
                   candlestickSeriesRef.current.setMarkers(markers);
                 }
@@ -1407,28 +1396,9 @@ export function TradingChart({ mobileTab }) {
                   trendlineUpperSeriesRef.current.update({ time: last.time, value: last.upper });
                   trendlineLowerSeriesRef.current.update({ time: last.time, value: last.lower });
 
-                  // Re-apply markers
-                  const markers = [];
-                  trendlineData.forEach(d => {
-                    if (d.buyAtBreakout && d.breakoutTime) {
-                      markers.push({
-                        time: d.breakoutTime,
-                        position: 'belowBar',
-                        color: '#26a69a',
-                        shape: 'labelUp',
-                        text: 'B',
-                        size: 1
-                      });
-                    } else if (d.sellAtBreakout && d.breakoutTime) {
-                      markers.push({
-                        time: d.breakoutTime,
-                        position: 'aboveBar',
-                        color: '#ef5350',
-                        shape: 'labelDown',
-                        text: 'B',
-                        size: 1
-                      });
-                    }
+                  const markers = buildConfirmedSignalMarkers(history, 'trendline', {
+                    trendlineLength,
+                    trendlineSlopeMult
                   });
                   candlestickSeriesRef.current.setMarkers(markers);
                 }
@@ -1880,27 +1850,9 @@ export function TradingChart({ mobileTab }) {
           const utBotData = calculateUTBotSignals(history, utBotKeyValue, utBotAtrPeriod);
           utBotTrailingStopSeries.setData(utBotData.filter(d => d.trailingStop !== null).map(d => ({ time: d.time, value: d.trailingStop })));
 
-          const markers = [];
-          utBotData.forEach(d => {
-            if (d.buy) {
-              markers.push({
-                time: d.time,
-                position: 'belowBar',
-                color: '#10b981',
-                shape: 'arrowUp',
-                text: 'BUY',
-                size: 1
-              });
-            } else if (d.sell) {
-              markers.push({
-                time: d.time,
-                position: 'aboveBar',
-                color: '#ef4444',
-                shape: 'arrowDown',
-                text: 'SELL',
-                size: 1
-              });
-            }
+          const markers = buildConfirmedSignalMarkers(history, 'utbot', {
+            utBotKeyValue,
+            utBotAtrPeriod
           });
           candlestickSeries.setMarkers(markers);
         } else if (selectedIndicatorSystem === 'chandelier') {
@@ -1908,27 +1860,9 @@ export function TradingChart({ mobileTab }) {
           chandelierLongStopSeries.setData(chandelierData.filter(d => d.longStop !== null).map(d => ({ time: d.time, value: d.longStop })));
           chandelierShortStopSeries.setData(chandelierData.filter(d => d.shortStop !== null).map(d => ({ time: d.time, value: d.shortStop })));
 
-          const markers = [];
-          chandelierData.forEach(d => {
-            if (d.buy) {
-              markers.push({
-                time: d.time,
-                position: 'belowBar',
-                color: '#10b981',
-                shape: 'arrowUp',
-                text: 'BUY',
-                size: 1
-              });
-            } else if (d.sell) {
-              markers.push({
-                time: d.time,
-                position: 'aboveBar',
-                color: '#ef4444',
-                shape: 'arrowDown',
-                text: 'SELL',
-                size: 1
-              });
-            }
+          const markers = buildConfirmedSignalMarkers(history, 'chandelier', {
+            chandelierAtrPeriod,
+            chandelierAtrMultiplier
           });
           candlestickSeries.setMarkers(markers);
         } else if (selectedIndicatorSystem === 'trendline') {
@@ -1936,27 +1870,9 @@ export function TradingChart({ mobileTab }) {
           trendlineUpperSeries.setData(trendlineData.filter(d => d.upper !== null).map(d => ({ time: d.time, value: d.upper })));
           trendlineLowerSeries.setData(trendlineData.filter(d => d.lower !== null).map(d => ({ time: d.time, value: d.lower })));
 
-          const markers = [];
-          trendlineData.forEach(d => {
-            if (d.buyAtBreakout && d.breakoutTime) {
-              markers.push({
-                time: d.breakoutTime,
-                position: 'belowBar',
-                color: '#26a69a',
-                shape: 'labelUp',
-                text: 'B',
-                size: 1
-              });
-            } else if (d.sellAtBreakout && d.breakoutTime) {
-              markers.push({
-                time: d.breakoutTime,
-                position: 'aboveBar',
-                color: '#ef5350',
-                shape: 'labelDown',
-                text: 'B',
-                size: 1
-              });
-            }
+          const markers = buildConfirmedSignalMarkers(history, 'trendline', {
+            trendlineLength,
+            trendlineSlopeMult
           });
           candlestickSeries.setMarkers(markers);
         }
@@ -2304,7 +2220,11 @@ export function TradingChart({ mobileTab }) {
               )}
             </div>
             <div className="text-center flex-1 flex flex-col justify-end">
-              <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest block mb-1.5">{t('latestDetails')}</span>
+              <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest block mb-1.5">
+                {currentSignal.restoredFromHistory
+                  ? language === 'en' ? 'SIGNAL BEING TRACKED' : 'TÍN HIỆU ĐANG THEO DÕI'
+                  : t('latestDetails')}
+              </span>
               
               <HeroActionDisplay currentSignal={currentSignal} />
             </div>
@@ -2313,7 +2233,10 @@ export function TradingChart({ mobileTab }) {
           {/* ── PARAMETERS & METRIC AREA ── */}
           <div className="px-3 lg:px-5 pb-4 lg:pb-5 flex flex-col gap-4 lg:gap-5">
             {currentSignal && currentSignal.action !== 'stale' && (
-              <TimeAgoDisplay timestamp={currentSignal.timestamp} />
+              <TimeAgoDisplay
+                timestamp={currentSignal.timestamp}
+                restoredFromHistory={currentSignal.restoredFromHistory}
+              />
             )}
             <div className="divide-y divide-white/[0.05] panel-surface rounded-2xl overflow-hidden">
               {/* Entry Price */}

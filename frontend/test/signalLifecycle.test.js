@@ -69,11 +69,13 @@ test('maps backend terminal status to a persistent FINISHED display signal', () 
     signalId: 'SIG-1', symbol: 'XAUUSD', timeframe: 'M15', action: 'buy',
     sourceCandleTime: 100, entry: 10, originalSl: 0, tp1: 20, tp2: 25,
     status: 'TP2_HIT', closedAt: '2026-07-14T01:00:00.000Z'
-  });
+  }, { restoredFromHistory: true });
   assert.equal(mapped.status, 'finished');
   assert.equal(mapped.result, 'TP2_HIT');
   assert.deepEqual(mapped.tps, [20, 25]);
   assert.deepEqual(mapped.hitTps, [true, true]);
+  assert.equal(mapped.restoredFromHistory, true);
+  assert.equal(mapped.sourceEventId, 'SIG-1');
 });
 
 test('tracks each indicator independently on the same symbol and timeframe', () => {
