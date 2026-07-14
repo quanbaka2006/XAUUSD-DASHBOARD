@@ -17,6 +17,26 @@ export function getSignalIdentity(signal) {
   ].join(':');
 }
 
+export function getTrackedSignalForIndicator(trackedSignals, symbol, timeframe, indicator) {
+  const timeframeSignals = trackedSignals?.[symbol]?.[timeframe];
+  if (!timeframeSignals || isDisplayableSignal(timeframeSignals)) return null;
+  return timeframeSignals[indicator] || null;
+}
+
+export function putTrackedSignalForIndicator(trackedSignals, symbol, timeframe, indicator, signal) {
+  const existingTimeframeSignals = trackedSignals?.[symbol]?.[timeframe];
+  return {
+    ...(trackedSignals || {}),
+    [symbol]: {
+      ...(trackedSignals?.[symbol] || {}),
+      [timeframe]: {
+        ...(!isDisplayableSignal(existingTimeframeSignals) ? existingTimeframeSignals : {}),
+        [indicator]: signal
+      }
+    }
+  };
+}
+
 const TIMEFRAME_SECONDS = Object.freeze({ M1: 60, M5: 300, M15: 900, H1: 3600 });
 
 function getCandidateAvailableAt(signal) {

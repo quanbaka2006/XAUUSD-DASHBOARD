@@ -2,7 +2,9 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   advanceSignalWithPrice,
+  getTrackedSignalForIndicator,
   mapLedgerSignalForDisplay,
+  putTrackedSignalForIndicator,
   selectDisplayedSignal
 } from '../src/utils/signalLifecycle.js';
 
@@ -71,4 +73,28 @@ test('maps backend terminal status to a persistent FINISHED display signal', () 
   assert.equal(mapped.result, 'TP2_HIT');
   assert.deepEqual(mapped.tps, [20, 25]);
   assert.deepEqual(mapped.hitTps, [true, true]);
+});
+
+test('tracks each indicator independently on the same symbol and timeframe', () => {
+  const zen = buy({ signalId: 'ZEN-BUY', indicator: 'zen' });
+  const utBot = buy({
+    signalId: 'UTBOT-SELL', indicator: 'utbot', action: 'sell',
+    entry: 20, sl: 25, tps: [15, 12.5]
+  });
+  let tracked = putTrackedSignalForIndicator({}, 'XAUUSD', 'M1', 'zen', zen);
+  tracked = putTrackedSignalForIndicator(tracked, 'XAUUSD', 'M1', 'utbot', utBot);
+
+  assert.equal(getTrackedSignalForIndicator(tracked, 'XAUUSD', 'M1', 'zen').signalId, 'ZEN-BUY');
+  assert.equal(getTrackedSignalForIndicator(tracked, 'XAUUSD', 'M1', 'utbot').signalId, 'UTBOT-SELL');
+  assert.equal(getTrackedSignalForIndicator(tracked, 'XAUUSD', 'M1', 'chandelier'), null);
+
+  const finishedZen = advanceSignalWithPrice(
+    getTrackedSignalForIndicator(tracked, 'XAUUSD', 'M1', 'zen'),
+    17.5,
+    3000
+  );
+  tracked = putTrackedSignalForIndicator(tracked, 'XAUUSD', 'M1', 'zen', finishedZen);
+
+  assert.equal(getTrackedSignalForIndicator(tracked, 'XAUUSD', 'M1', 'zen').status, 'finished');
+  assert.equal(getTrackedSignalForIndicator(tracked, 'XAUUSD', 'M1', 'utbot').status, 'running');
 });

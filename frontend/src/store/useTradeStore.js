@@ -7,7 +7,11 @@ import {
   calculateATR,
   getCurrentSignal
 } from '../utils/indicators';
-import { advanceSignalWithPrice } from '../utils/signalLifecycle';
+import {
+  advanceSignalWithPrice,
+  getTrackedSignalForIndicator,
+  putTrackedSignalForIndicator
+} from '../utils/signalLifecycle';
 
 export const SOCKET_URL = window.location.hostname === 'localhost' 
   ? 'http://localhost:5000' 
@@ -43,7 +47,7 @@ const getSavedUser = () => {
   }
 };
 
-const TRACKED_SIGNALS_STORAGE_KEY = 'tracked_signals_v2';
+const TRACKED_SIGNALS_STORAGE_KEY = 'tracked_signals_v3';
 
 const getSavedTrackedSignals = () => {
   try {
@@ -57,6 +61,8 @@ const getSavedTrackedSignals = () => {
 const persistTrackedSignals = (signals) => {
   try { localStorage.setItem(TRACKED_SIGNALS_STORAGE_KEY, JSON.stringify(signals)); } catch (_) {}
 };
+
+const initialTrackedSignals = getSavedTrackedSignals();
 
 const getSavedVirtualAccount = () => {
   const account = localStorage.getItem('virtual_account');
@@ -272,12 +278,12 @@ export const useTradeStore = create((set, get) => ({
   historyCount: 0,
   marketDataStatus: null,
   signals: initialSignals,
-  trackedSignals: getSavedTrackedSignals(),
+  trackedSignals: initialTrackedSignals,
 
   showConfigPanel: false,
   candleColorTheme: 'premium',
   riskCalculator: { accountBalance: 10000, riskPercentage: 1 },
-  currentSignal: getSavedTrackedSignals()?.XAUUSD?.M1 || null,
+  currentSignal: getTrackedSignalForIndicator(initialTrackedSignals, 'XAUUSD', 'M1', 'zen'),
 
   userBotSettings: {},
 
@@ -318,15 +324,24 @@ export const useTradeStore = create((set, get) => ({
   setSelectedSymbol: (val) => {
     set((state) => ({
       selectedSymbol: val,
-      currentSignal: state.trackedSignals?.[val]?.[state.selectedTimeframe] || null
+      currentSignal: getTrackedSignalForIndicator(
+        state.trackedSignals, val, state.selectedTimeframe, state.selectedIndicatorSystem
+      )
     }));
     set({ simulatedSpread: getDefaultSpread(val) });
   },
   setSelectedTimeframe: (val) => set((state) => ({
     selectedTimeframe: val,
-    currentSignal: state.trackedSignals?.[state.selectedSymbol]?.[val] || null
+    currentSignal: getTrackedSignalForIndicator(
+      state.trackedSignals, state.selectedSymbol, val, state.selectedIndicatorSystem
+    )
   })),
-  setSelectedIndicatorSystem: (val) => set({ selectedIndicatorSystem: val }),
+  setSelectedIndicatorSystem: (val) => set((state) => ({
+    selectedIndicatorSystem: val,
+    currentSignal: getTrackedSignalForIndicator(
+      state.trackedSignals, state.selectedSymbol, state.selectedTimeframe, val
+    )
+  })),
   setZenFastPeriod: (val) => set({ zenFastPeriod: val }),
   setZenSlowPeriod: (val) => set({ zenSlowPeriod: val }),
   setUtBotKeyValue: (val) => set({ utBotKeyValue: val }),
@@ -339,10 +354,15 @@ export const useTradeStore = create((set, get) => ({
     set((state) => {
       const symbolSignals = state.trackedSignals?.[state.selectedSymbol] || {};
       let lifecycleChanged = false;
-      const updatedSymbolSignals = Object.fromEntries(Object.entries(symbolSignals).map(([timeframe, signal]) => {
-        const advanced = advanceSignalWithPrice(signal, val);
-        if (advanced !== signal) lifecycleChanged = true;
-        return [timeframe, advanced];
+      const updatedSymbolSignals = Object.fromEntries(Object.entries(symbolSignals).map(([timeframe, indicatorSignals]) => {
+        const updatedIndicatorSignals = Object.fromEntries(
+          Object.entries(indicatorSignals || {}).map(([indicator, signal]) => {
+            const advanced = advanceSignalWithPrice(signal, val);
+            if (advanced !== signal) lifecycleChanged = true;
+            return [indicator, advanced];
+          })
+        );
+        return [timeframe, updatedIndicatorSignals];
       }));
       if (!lifecycleChanged) return { livePrice: val };
       const trackedSignals = {
@@ -353,7 +373,7 @@ export const useTradeStore = create((set, get) => ({
       return {
         livePrice: val,
         trackedSignals,
-        currentSignal: updatedSymbolSignals[state.selectedTimeframe] || state.currentSignal
+        currentSignal: updatedSymbolSignals[state.selectedTimeframe]?.[state.selectedIndicatorSystem] || state.currentSignal
       };
     });
     get().updateVirtualTick(val);
@@ -444,18 +464,15 @@ export const useTradeStore = create((set, get) => ({
   setSignals: (val) => set((state) => ({
     signals: typeof val === 'function' ? val(state.signals) : val
   })),
-  setTrackedSignal: (symbol, timeframe, signal) => set((state) => {
-    const trackedSignals = {
-      ...state.trackedSignals,
-      [symbol]: {
-        ...(state.trackedSignals?.[symbol] || {}),
-        [timeframe]: signal
-      }
-    };
+  setTrackedSignal: (symbol, timeframe, indicator, signal) => set((state) => {
+    const trackedSignals = putTrackedSignalForIndicator(
+      state.trackedSignals, symbol, timeframe, indicator, signal
+    );
     persistTrackedSignals(trackedSignals);
     return {
       trackedSignals,
-      currentSignal: state.selectedSymbol === symbol && state.selectedTimeframe === timeframe
+      currentSignal: state.selectedSymbol === symbol && state.selectedTimeframe === timeframe &&
+          state.selectedIndicatorSystem === indicator
         ? signal
         : state.currentSignal
     };

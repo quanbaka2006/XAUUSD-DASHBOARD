@@ -1144,7 +1144,8 @@ export function TradingChart({ mobileTab }) {
         const ledgerSignal = snapshot?.activeSignal || snapshot?.history?.[0];
         const displaySignal = mapLedgerSignalForDisplay(ledgerSignal);
         if (displaySignal) {
-          useTradeStore.getState().setTrackedSignal('XAUUSD', timeframe, displaySignal);
+          const indicator = displaySignal.indicator || displaySignal.indicatorSystem || 'core';
+          useTradeStore.getState().setTrackedSignal('XAUUSD', timeframe, indicator, displaySignal);
         }
       });
     });
@@ -1152,7 +1153,10 @@ export function TradingChart({ mobileTab }) {
     socket.on('scalping_signal_update', (payload) => {
       const displaySignal = mapLedgerSignalForDisplay(payload?.signal);
       if (displaySignal) {
-        useTradeStore.getState().setTrackedSignal(displaySignal.symbol, displaySignal.timeframe, displaySignal);
+        const indicator = displaySignal.indicator || displaySignal.indicatorSystem || 'core';
+        useTradeStore.getState().setTrackedSignal(
+          displaySignal.symbol, displaySignal.timeframe, indicator, displaySignal
+        );
       }
     });
 
@@ -2080,7 +2084,7 @@ export function TradingChart({ mobileTab }) {
       dataReady: true,
     });
     const state = useTradeStore.getState();
-    const existing = state.trackedSignals?.[selectedSymbol]?.[selectedTimeframe] || null;
+    const existing = state.trackedSignals?.[selectedSymbol]?.[selectedTimeframe]?.[selectedIndicatorSystem] || null;
     const candidate = sig && sig.action !== 'stale' ? {
       ...sig,
       symbol: selectedSymbol,
@@ -2097,7 +2101,7 @@ export function TradingChart({ mobileTab }) {
     } : sig;
     const next = selectDisplayedSignal(existing, candidate);
     if (next && next !== existing) {
-      setTrackedSignal(selectedSymbol, selectedTimeframe, next);
+      setTrackedSignal(selectedSymbol, selectedTimeframe, selectedIndicatorSystem, next);
       const isNewIdentity = getSignalIdentity(next) !== getSignalIdentity(existing);
       const isInitialLoad = (Date.now() - pageLoadTimeRef.current) < 5000;
       if (isNewIdentity && !isInitialLoad && next.action !== 'stale') {
