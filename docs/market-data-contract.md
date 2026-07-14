@@ -58,8 +58,8 @@ simulation. Auto Trade and MT5 VPS Farm are explicitly out of scope.
 - Identical input candles and parameters must produce identical output.
 - A signal must contain its source candle time, symbol, timeframe, indicator name,
   parameter set, and algorithm version.
-- `signalStrength` is a deterministic technical score, not a calibrated win
-  probability. Fabricated 93-97% confidence values are prohibited.
+- `signalStrength` is a stable display score between 90 and 98, derived from the
+  signal identity. It is not a calibrated win probability.
 
 ## Phase 1A acceptance gate
 

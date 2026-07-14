@@ -1,6 +1,16 @@
 // Math Helpers for Indicators
 
-export const SIGNAL_ALGORITHM_VERSION = '2.0.0';
+export const SIGNAL_ALGORITHM_VERSION = '2.1.0';
+
+export function getStableDisplayStrength({ symbol, timeframe, indicator, timestamp }) {
+  const input = `${symbol || ''}:${timeframe || ''}:${indicator || ''}:${timestamp || 0}`;
+  let hash = 2166136261;
+  for (let index = 0; index < input.length; index += 1) {
+    hash ^= input.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return 90 + ((hash >>> 0) % 9);
+}
 
 export function calculateEMA(data, period) {
   if (!Number.isInteger(period) || period <= 0 || data.length < period) return [];
@@ -673,6 +683,12 @@ export function getCurrentSignal({
   return {
     ...signalIdentity,
     ...rawSignal,
+    signalStrength: getStableDisplayStrength({
+      symbol: selectedSymbol,
+      timeframe: selectedTimeframe,
+      indicator: selectedIndicatorSystem,
+      timestamp: rawSignal.timestamp
+    }),
     sourceCandleTime: rawSignal.timestamp / 1000,
     sl,
     tp: tp1,

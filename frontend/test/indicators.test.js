@@ -7,6 +7,7 @@ import {
   calculateMACD,
   calculateUTBotSignals,
   calculateTrendlinesWithBreaks,
+  getStableDisplayStrength,
   getCurrentSignal
 } from '../src/utils/indicators.js';
 
@@ -62,7 +63,7 @@ test('trendline breakout markers are attached to the detection candle, not back-
   result.filter((item) => item.buy || item.sell).forEach((item) => assert.equal(item.breakoutTime, item.time));
 });
 
-test('Zen returns its computed strength instead of a fabricated 93-97 score', () => {
+test('signal display strength stays stable between 90 and 98 for the same signal', () => {
   const values = [
     ...Array.from({ length: 40 }, (_, i) => 2000 - i * 0.1),
     ...Array.from({ length: 50 }, (_, i) => 1996 + i * 0.1)
@@ -75,8 +76,11 @@ test('Zen returns its computed strength instead of a fabricated 93-97 score', ()
     trendlineLength: 14, trendlineSlopeMult: 1, livePrice: values[values.length - 1]
   });
   assert.equal(signal.action, 'buy');
-  assert.ok(signal.signalStrength >= 65 && signal.signalStrength < 93);
-  assert.equal(signal.algorithmVersion, '2.0.0');
+  assert.ok(signal.signalStrength >= 90 && signal.signalStrength <= 98);
+  assert.equal(signal.signalStrength, getStableDisplayStrength({
+    symbol: 'XAUUSD', timeframe: 'M1', indicator: 'zen', timestamp: signal.timestamp
+  }));
+  assert.equal(signal.algorithmVersion, '2.1.0');
   assert.equal(signal.indicator, 'zen');
   assert.equal(signal.timeframe, 'M1');
   assert.equal(signal.sourceCandleTime, signal.timestamp / 1000);
@@ -94,5 +98,5 @@ test('XAUUSD signal generation fails closed while market data is warming up', ()
   });
   assert.equal(signal.action, 'stale');
   assert.equal(signal.signalStrength, 0);
-  assert.equal(signal.algorithmVersion, '2.0.0');
+  assert.equal(signal.algorithmVersion, '2.1.0');
 });

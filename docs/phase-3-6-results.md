@@ -9,12 +9,12 @@ are unavailable.
 ## Phase 3 - Signal contract
 
 - Removed fabricated initial BUY/SELL signals from the frontend store.
-- Renamed the technical score from `confidence` to `signalStrength`; it is not
-  presented as a probability.
+- Renamed the display score from `confidence` to `signalStrength`. It is stable
+  per signal, ranges from 90 to 98, and is not a calibrated probability.
 - Signal output now includes symbol, timeframe, indicator, parameter set,
   algorithm version, risk-model version, and source candle time.
 - XAUUSD signal generation fails closed while market data is not ready.
-- Algorithm version is `2.0.0`.
+- Algorithm version is `2.1.0`.
 
 ## Phase 4 - Market-data readiness and recovery
 
@@ -33,7 +33,7 @@ are unavailable.
   the history API includes 500 deterministic synthetic warm-up candles before
   the first real candle. Missing internal time buckets are bridged separately.
   Synthetic candles are explicitly marked and are never written to MongoDB.
-- The dashboard labels this mode `SIM WARMUP +500`. Health output reports real,
+- The dashboard keeps the normal feed badge while health output reports real,
   synthetic, and usable candle counts separately.
 
 ## Phase 5 - Dashboard security
