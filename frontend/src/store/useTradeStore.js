@@ -7,6 +7,7 @@ import {
   calculateATR,
   getCurrentSignal
 } from '../utils/indicators';
+import { advanceSignalWithPrice } from '../utils/signalLifecycle';
 
 export const SOCKET_URL = window.location.hostname === 'localhost' 
   ? 'http://localhost:5000' 
@@ -40,6 +41,21 @@ const getSavedUser = () => {
   } catch {
     return null;
   }
+};
+
+const TRACKED_SIGNALS_STORAGE_KEY = 'tracked_signals_v2';
+
+const getSavedTrackedSignals = () => {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(TRACKED_SIGNALS_STORAGE_KEY) || '{}');
+    return parsed && typeof parsed === 'object' ? parsed : {};
+  } catch {
+    return {};
+  }
+};
+
+const persistTrackedSignals = (signals) => {
+  try { localStorage.setItem(TRACKED_SIGNALS_STORAGE_KEY, JSON.stringify(signals)); } catch (_) {}
 };
 
 const getSavedVirtualAccount = () => {
@@ -256,11 +272,12 @@ export const useTradeStore = create((set, get) => ({
   historyCount: 0,
   marketDataStatus: null,
   signals: initialSignals,
+  trackedSignals: getSavedTrackedSignals(),
 
   showConfigPanel: false,
   candleColorTheme: 'premium',
   riskCalculator: { accountBalance: 10000, riskPercentage: 1 },
-  currentSignal: null,
+  currentSignal: getSavedTrackedSignals()?.XAUUSD?.M1 || null,
 
   userBotSettings: {},
 
@@ -299,10 +316,16 @@ export const useTradeStore = create((set, get) => ({
   setAdminError: (val) => set({ adminError: val }),
   setAdminSuccess: (val) => set({ adminSuccess: val }),
   setSelectedSymbol: (val) => {
-    set({ selectedSymbol: val });
+    set((state) => ({
+      selectedSymbol: val,
+      currentSignal: state.trackedSignals?.[val]?.[state.selectedTimeframe] || null
+    }));
     set({ simulatedSpread: getDefaultSpread(val) });
   },
-  setSelectedTimeframe: (val) => set({ selectedTimeframe: val }),
+  setSelectedTimeframe: (val) => set((state) => ({
+    selectedTimeframe: val,
+    currentSignal: state.trackedSignals?.[state.selectedSymbol]?.[val] || null
+  })),
   setSelectedIndicatorSystem: (val) => set({ selectedIndicatorSystem: val }),
   setZenFastPeriod: (val) => set({ zenFastPeriod: val }),
   setZenSlowPeriod: (val) => set({ zenSlowPeriod: val }),
@@ -313,51 +336,27 @@ export const useTradeStore = create((set, get) => ({
   setTrendlineLength: (val) => set({ trendlineLength: val }),
   setTrendlineSlopeMult: (val) => set({ trendlineSlopeMult: val }),
   setLivePrice: (val) => {
-    set({ livePrice: val });
+    set((state) => {
+      const symbolSignals = state.trackedSignals?.[state.selectedSymbol] || {};
+      let lifecycleChanged = false;
+      const updatedSymbolSignals = Object.fromEntries(Object.entries(symbolSignals).map(([timeframe, signal]) => {
+        const advanced = advanceSignalWithPrice(signal, val);
+        if (advanced !== signal) lifecycleChanged = true;
+        return [timeframe, advanced];
+      }));
+      if (!lifecycleChanged) return { livePrice: val };
+      const trackedSignals = {
+        ...state.trackedSignals,
+        [state.selectedSymbol]: updatedSymbolSignals
+      };
+      persistTrackedSignals(trackedSignals);
+      return {
+        livePrice: val,
+        trackedSignals,
+        currentSignal: updatedSymbolSignals[state.selectedTimeframe] || state.currentSignal
+      };
+    });
     get().updateVirtualTick(val);
-    
-    // Automatically check client-side indicators signals for SL/TP1/TP2 hits
-    const signal = get().currentSignal;
-    if (signal && signal.action !== 'stale' && signal.entry) {
-      const tp1 = (signal.tps && signal.tps[0]) || 0;
-      const tp2 = (signal.tps && signal.tps[1]) || tp1;
-      const sl = signal.sl || 0;
-      
-      let updatedStatus = null;
-      let updatedHitTps = signal.hitTps ? [...signal.hitTps] : [false, false];
-
-      if (signal.action === 'buy') {
-        if (sl && val <= sl) {
-          updatedStatus = 'sl';
-        } else if (tp2 && val >= tp2) {
-          updatedStatus = 'finished';
-          updatedHitTps = [true, true];
-        } else if (tp1 && val >= tp1 && !updatedHitTps[0]) {
-          updatedStatus = 'tp1';
-          updatedHitTps = [true, false];
-        }
-      } else if (signal.action === 'sell') {
-        if (sl && val >= sl) {
-          updatedStatus = 'sl';
-        } else if (tp2 && val <= tp2) {
-          updatedStatus = 'finished';
-          updatedHitTps = [true, true];
-        } else if (tp1 && val <= tp1 && !updatedHitTps[0]) {
-          updatedStatus = 'tp1';
-          updatedHitTps = [true, false];
-        }
-      }
-
-      if (updatedStatus) {
-        set({
-          currentSignal: {
-            ...signal,
-            status: updatedStatus,
-            hitTps: updatedHitTps
-          }
-        });
-      }
-    }
   },
   setUtcTime: (val) => set({ utcTime: val }),
   setLanguage: (val) => {
@@ -445,6 +444,22 @@ export const useTradeStore = create((set, get) => ({
   setSignals: (val) => set((state) => ({
     signals: typeof val === 'function' ? val(state.signals) : val
   })),
+  setTrackedSignal: (symbol, timeframe, signal) => set((state) => {
+    const trackedSignals = {
+      ...state.trackedSignals,
+      [symbol]: {
+        ...(state.trackedSignals?.[symbol] || {}),
+        [timeframe]: signal
+      }
+    };
+    persistTrackedSignals(trackedSignals);
+    return {
+      trackedSignals,
+      currentSignal: state.selectedSymbol === symbol && state.selectedTimeframe === timeframe
+        ? signal
+        : state.currentSignal
+    };
+  }),
 
   toggleConfigPanel: () => set((state) => ({ showConfigPanel: !state.showConfigPanel })),
   setCandleColorTheme: (val) => set({ candleColorTheme: val }),

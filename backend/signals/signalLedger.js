@@ -2,6 +2,7 @@
 
 const defaultStore = require('./mongoSignalStore');
 const {
+  SUPPORTED_TIMEFRAMES,
   createSignalDocument,
   transitionSignal,
   reconfirmSignal
@@ -23,6 +24,10 @@ function createSignalLedger({ db, store = defaultStore, publishEvent = () => {} 
   let knownSignalCount = 0;
   const activeBySymbol = new Map();
 
+  function activeKey(symbol, timeframe) {
+    return `${symbol}:${timeframe}`;
+  }
+
   function assertReady() {
     if (!ready) throw new SignalLedgerError('LEDGER_NOT_READY', 'Scalping Signal Ledger is not ready');
   }
@@ -40,24 +45,25 @@ function createSignalLedger({ db, store = defaultStore, publishEvent = () => {} 
 
   function remember(signal) {
     if (!signal) return;
-    if (signal.isOpen) activeBySymbol.set(signal.symbol, signal);
-    else activeBySymbol.delete(signal.symbol);
+    const key = activeKey(signal.symbol, signal.timeframe);
+    if (signal.isOpen) activeBySymbol.set(key, signal);
+    else activeBySymbol.delete(key);
   }
 
   async function initialize() {
     try {
       await store.ensureIndexes(db);
-      const [active, count] = await Promise.all([
-        store.loadActive(db, 'XAUUSD'),
+      const [activeSignals, count] = await Promise.all([
+        store.loadOpenSignals(db, 'XAUUSD'),
         store.countSignals(db, 'XAUUSD')
       ]);
       activeBySymbol.clear();
-      if (active) remember(active);
+      activeSignals.forEach(remember);
       knownSignalCount = count;
       initializedAt = new Date();
       ready = true;
       lastError = null;
-      return { activeSignal: active, signalCount: count, initializedAt };
+      return { activeSignals, signalCount: count, initializedAt };
     } catch (error) {
       ready = false;
       lastError = error.message;
@@ -65,32 +71,55 @@ function createSignalLedger({ db, store = defaultStore, publishEvent = () => {} 
     }
   }
 
-  async function getActive(symbol = 'XAUUSD') {
+  async function getActive(symbol = 'XAUUSD', timeframe = 'M1') {
     assertReady();
     const normalized = store.normalizeSymbol(symbol);
-    const active = await store.loadActive(db, normalized);
+    const normalizedTimeframe = store.normalizeTimeframe(timeframe);
+    const active = await store.loadActive(db, normalized, normalizedTimeframe);
     if (active) remember(active);
-    else activeBySymbol.delete(normalized);
+    else activeBySymbol.delete(activeKey(normalized, normalizedTimeframe));
     return active;
   }
 
-  async function getHistory(symbol = 'XAUUSD', limit = 20) {
+  async function getHistory(symbol = 'XAUUSD', timeframe = 'M1', limit = 20) {
     assertReady();
-    return store.loadHistory(db, store.normalizeSymbol(symbol), store.normalizeLimit(limit));
+    return store.loadHistory(
+      db,
+      store.normalizeSymbol(symbol),
+      store.normalizeTimeframe(timeframe),
+      store.normalizeLimit(limit)
+    );
   }
 
-  async function snapshot(symbol = 'XAUUSD', limit = 20) {
+  async function snapshot(symbol = 'XAUUSD', timeframe = 'M1', limit = 20) {
     assertReady();
     const normalized = store.normalizeSymbol(symbol);
+    const normalizedTimeframe = store.normalizeTimeframe(timeframe);
     const [activeSignal, history] = await Promise.all([
-      getActive(normalized),
-      getHistory(normalized, limit)
+      getActive(normalized, normalizedTimeframe),
+      getHistory(normalized, normalizedTimeframe, limit)
     ]);
     return {
       ready: true,
       symbol: normalized,
+      timeframe: normalizedTimeframe,
       activeSignal,
       history,
+      generatedAt: new Date()
+    };
+  }
+
+  async function snapshotAll(symbol = 'XAUUSD', limit = 20) {
+    assertReady();
+    const normalized = store.normalizeSymbol(symbol);
+    const entries = await Promise.all(SUPPORTED_TIMEFRAMES.map(async (timeframe) => [
+      timeframe,
+      await snapshot(normalized, timeframe, limit)
+    ]));
+    return {
+      ready: true,
+      symbol: normalized,
+      timeframes: Object.fromEntries(entries),
       generatedAt: new Date()
     };
   }
@@ -101,7 +130,7 @@ function createSignalLedger({ db, store = defaultStore, publishEvent = () => {} 
     const existingIdentity = await store.findById(db, candidate.signalId);
     if (existingIdentity) return { signal: existingIdentity, created: false, idempotent: true };
 
-    const active = await getActive(candidate.symbol);
+    const active = await getActive(candidate.symbol, candidate.timeframe);
     if (active) {
       throw new SignalLedgerError(
         'ACTIVE_SIGNAL_EXISTS',
@@ -120,7 +149,7 @@ function createSignalLedger({ db, store = defaultStore, publishEvent = () => {} 
       if (error?.code === 11000) {
         const duplicateIdentity = await store.findById(db, candidate.signalId);
         if (duplicateIdentity) return { signal: duplicateIdentity, created: false, idempotent: true };
-        const concurrentActive = await store.loadActive(db, candidate.symbol);
+        const concurrentActive = await store.loadActive(db, candidate.symbol, candidate.timeframe);
         if (concurrentActive) remember(concurrentActive);
         throw new SignalLedgerError(
           'ACTIVE_SIGNAL_EXISTS',
@@ -166,15 +195,18 @@ function createSignalLedger({ db, store = defaultStore, publishEvent = () => {} 
   }
 
   function health() {
-    const active = activeBySymbol.get('XAUUSD') || null;
+    const activeSignals = [...activeBySymbol.values()].map((signal) => ({
+      signalId: signal.signalId,
+      timeframe: signal.timeframe,
+      status: signal.status
+    }));
     return {
       ready,
       persistenceBackend: 'mongodb',
       error: lastError,
       initializedAt,
       signalCount: knownSignalCount,
-      activeSignalId: active?.signalId || null,
-      activeStatus: active?.status || null
+      activeSignals
     };
   }
 
@@ -183,6 +215,7 @@ function createSignalLedger({ db, store = defaultStore, publishEvent = () => {} 
     getActive,
     getHistory,
     snapshot,
+    snapshotAll,
     publishSignal,
     transitionSignalById,
     reconfirmSignalById,

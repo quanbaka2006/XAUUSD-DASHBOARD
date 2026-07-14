@@ -1,6 +1,6 @@
 // Math Helpers for Indicators
 
-export const SIGNAL_ALGORITHM_VERSION = '3.0.0';
+export const SIGNAL_ALGORITHM_VERSION = '3.1.0';
 
 export function getStableDisplayStrength({ symbol, timeframe, indicator, timestamp }) {
   const input = `${symbol || ''}:${timeframe || ''}:${indicator || ''}:${timestamp || 0}`;
@@ -431,6 +431,12 @@ const SWING_RISK_SETTINGS = {
 };
 
 const TIMEFRAME_SECONDS = { M1: 60, M5: 300, M15: 900, H1: 3600 };
+export const TIMEFRAME_RISK_REWARD = Object.freeze({
+  M1: Object.freeze({ tp1: 0.5, tp2: 0.75 }),
+  M5: Object.freeze({ tp1: 0.75, tp2: 1.25 }),
+  M15: Object.freeze({ tp1: 1, tp2: 1.5 }),
+  H1: Object.freeze({ tp1: 1.5, tp2: 2 })
+});
 
 const SIGNAL_BLOCK_MESSAGES = {
   'market-data-not-ready': 'Dữ liệu thị trường chưa sẵn sàng',
@@ -497,6 +503,7 @@ export function findConfirmedSwing(history, action, beforeTime = Infinity, stren
 
 export function calculateSwingRisk({ history, action, entry, triggerTime, symbol, timeframe = 'M1' }) {
   const settings = SWING_RISK_SETTINGS[symbol] || { buffer: 0.01, decimals: 2 };
+  const profile = TIMEFRAME_RISK_REWARD[timeframe] || TIMEFRAME_RISK_REWARD.M1;
   const swing = findConfirmedSwing(history, action, triggerTime, 2, 100, TIMEFRAME_SECONDS[timeframe]);
   if (!swing) return null;
   const sl = action === 'buy'
@@ -506,8 +513,8 @@ export function calculateSwingRisk({ history, action, entry, triggerTime, symbol
   if (!Number.isFinite(riskDistance) || riskDistance <= settings.buffer ||
       (action === 'buy' && sl >= entry) || (action === 'sell' && sl <= entry)) return null;
   const direction = action === 'buy' ? 1 : -1;
-  const tp1 = Number((entry + direction * riskDistance).toFixed(settings.decimals));
-  const tp2 = Number((entry + direction * riskDistance * 2).toFixed(settings.decimals));
+  const tp1 = Number((entry + direction * riskDistance * profile.tp1).toFixed(settings.decimals));
+  const tp2 = Number((entry + direction * riskDistance * profile.tp2).toFixed(settings.decimals));
   return {
     sl,
     tp1,
@@ -515,7 +522,7 @@ export function calculateSwingRisk({ history, action, entry, triggerTime, symbol
     swing,
     buffer: settings.buffer,
     riskDistance,
-    riskReward: { tp1: 1, tp2: 2, minimumRequired: 1.5, valid: true }
+    riskReward: { tp1: profile.tp1, tp2: profile.tp2, valid: true }
   };
 }
 
@@ -868,8 +875,8 @@ export function buildConfluenceDecision({ h1Bias, m15Bias, m5Signal, m5AgeCandle
   if (!Number.isFinite(m5AgeCandles) || m5AgeCandles > 2) {
     return { decision: 'wait', reason: 'M5 trigger đã quá 2 nến' };
   }
-  if (!m5Signal.riskReward?.valid || m5Signal.riskReward.tp2 < 1.5) {
-    return { decision: 'wait', reason: 'Risk/Reward dưới 1:1.5' };
+  if (!m5Signal.riskReward?.valid) {
+    return { decision: 'wait', reason: 'Risk/Reward không hợp lệ' };
   }
   return {
     decision: expectedAction,

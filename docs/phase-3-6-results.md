@@ -14,16 +14,16 @@ are unavailable.
 - Signal output now includes symbol, timeframe, indicator, parameter set,
   algorithm version, risk-model version, and source candle time.
 - XAUUSD signal generation fails closed while market data is not ready.
-- Algorithm version is `3.0.0`.
+- Algorithm version is `3.1.0`.
 - Static/ATR-style signal exits were replaced by a confirmed-swing risk model:
   BUY places SL below the latest confirmed real swing low, SELL places SL above
-  the latest confirmed real swing high, and TP1/TP2 are 1R/2R.
+  the latest confirmed real swing high. TP1/TP2 extend by timeframe: M1 uses
+  0.5R/0.75R, M5 uses 0.75R/1.25R, M15 uses 1R/1.5R, and H1 uses 1.5R/2R.
 - Synthetic warm-up candles can initialize indicators but cannot trigger a
   signal, define a swing, or count as a TP/SL hit. Gap-fill candles are excluded;
   a recent gap or a non-contiguous swing window forces `WAIT`.
-- XAUUSD now exposes an H1 bias -> M15 setup -> M5 trigger confluence decision.
-  A BUY/SELL notification is emitted only when those three layers agree and the
-  M5 trigger is no older than two candles.
+- XAUUSD exposes H1 -> M15 -> M5 confluence as supporting context. It does not
+  hard-block a valid signal on the selected timeframe.
 
 ## Phase 4 - Market-data readiness and recovery
 

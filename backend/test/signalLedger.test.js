@@ -27,20 +27,31 @@ function createMemoryStore(initialSignals = []) {
       if (normalized !== 'XAUUSD') throw new Error('unsupported symbol');
       return normalized;
     },
+    normalizeTimeframe(timeframe) {
+      const normalized = String(timeframe || 'M1').toUpperCase();
+      if (!['M1', 'M5', 'M15', 'H1'].includes(normalized)) throw new Error('unsupported timeframe');
+      return normalized;
+    },
     normalizeLimit(limit) {
       return Math.max(1, Math.min(100, Number.parseInt(limit, 10) || 20));
     },
     async ensureIndexes() {},
     async countSignals() { return documents.size; },
     async findById(_db, signalId) { return documents.get(signalId) || null; },
-    async loadActive() { return [...documents.values()].find((signal) => signal.isOpen) || null; },
-    async loadHistory(_db, _symbol, limit) {
+    async loadOpenSignals() { return [...documents.values()].filter((signal) => signal.isOpen); },
+    async loadActive(_db, _symbol, timeframe) {
+      return [...documents.values()].find((signal) => signal.isOpen && signal.timeframe === timeframe) || null;
+    },
+    async loadHistory(_db, _symbol, timeframe, limit) {
       return [...documents.values()]
+        .filter((signal) => signal.timeframe === timeframe)
         .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
         .slice(0, limit);
     },
     async insertSignal(_db, signal) {
-      if (documents.has(signal.signalId) || [...documents.values()].some((item) => item.isOpen)) {
+      if (documents.has(signal.signalId) || [...documents.values()].some((item) =>
+        item.isOpen && item.symbol === signal.symbol && item.timeframe === signal.timeframe
+      )) {
         const error = new Error('duplicate');
         error.code = 11000;
         throw error;
@@ -62,10 +73,10 @@ test('initialization restores the active MongoDB signal and exposes health', asy
   const store = createMemoryStore([restored]);
   const ledger = createSignalLedger({ db: {}, store });
   const initialized = await ledger.initialize();
-  assert.equal(initialized.activeSignal.signalId, restored.signalId);
+  assert.equal(initialized.activeSignals[0].signalId, restored.signalId);
   assert.equal((await ledger.getActive()).signalId, restored.signalId);
   assert.equal(ledger.health().ready, true);
-  assert.equal(ledger.health().activeSignalId, restored.signalId);
+  assert.equal(ledger.health().activeSignals[0].signalId, restored.signalId);
 });
 
 test('publishes one signal, emits an event, and treats the same identity idempotently', async () => {
@@ -90,6 +101,17 @@ test('fails closed when a different signal is published while one remains open',
     ledger.publishSignal(buyInput({ sourceCandleTime: SOURCE_TIME + 60 })),
     { code: 'ACTIVE_SIGNAL_EXISTS' }
   );
+});
+
+test('allows one independent open signal per timeframe', async () => {
+  const ledger = createSignalLedger({ db: {}, store: createMemoryStore() });
+  await ledger.initialize();
+  await ledger.publishSignal(buyInput());
+  const m5 = await ledger.publishSignal(buyInput({ timeframe: 'M5', tp1: 17.5, tp2: 22.5 }));
+  assert.equal(m5.created, true);
+  assert.equal((await ledger.getActive('XAUUSD', 'M1')).timeframe, 'M1');
+  assert.equal((await ledger.getActive('XAUUSD', 'M5')).timeframe, 'M5');
+  assert.equal(ledger.health().activeSignals.length, 2);
 });
 
 test('persists lifecycle transitions then permits a new signal after terminal close', async () => {

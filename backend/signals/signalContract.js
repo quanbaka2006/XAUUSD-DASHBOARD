@@ -2,9 +2,10 @@
 
 const crypto = require('crypto');
 
-const SIGNAL_SCHEMA_VERSION = '1.0.0';
+const SIGNAL_SCHEMA_VERSION = '1.1.0';
 const STRATEGY_ID = 'xauusd-scalp';
-const STRATEGY_VERSION = '1.0.0-contract';
+const STRATEGY_VERSION = '1.1.0-contract';
+const SUPPORTED_TIMEFRAMES = Object.freeze(['M1', 'M5', 'M15', 'H1']);
 
 const SIGNAL_STATUS = Object.freeze({
   PENDING_ENTRY: 'PENDING_ENTRY',
@@ -56,7 +57,12 @@ const ALLOWED_TRANSITIONS = Object.freeze({
   ])
 });
 
-const M1_RISK_REWARD = Object.freeze({ tp1: 0.5, tp2: 0.75 });
+const TIMEFRAME_RISK_REWARD = Object.freeze({
+  M1: Object.freeze({ tp1: 0.5, tp2: 0.75 }),
+  M5: Object.freeze({ tp1: 0.75, tp2: 1.25 }),
+  M15: Object.freeze({ tp1: 1, tp2: 1.5 }),
+  H1: Object.freeze({ tp1: 1.5, tp2: 2 })
+});
 
 class SignalContractError extends Error {
   constructor(code, message) {
@@ -119,12 +125,14 @@ function calculateRiskReward({ action, entry, sl, tp1, tp2 }) {
   };
 }
 
-function assertM1RiskReward(riskReward, tolerance = 0.001) {
-  if (Math.abs(riskReward.tp1 - M1_RISK_REWARD.tp1) > tolerance ||
-      Math.abs(riskReward.tp2 - M1_RISK_REWARD.tp2) > tolerance) {
+function assertTimeframeRiskReward(timeframe, riskReward, tolerance = 0.001) {
+  const profile = TIMEFRAME_RISK_REWARD[timeframe];
+  if (!profile) contractError('UNSUPPORTED_TIMEFRAME', `Unsupported signal timeframe: ${timeframe}`);
+  if (Math.abs(riskReward.tp1 - profile.tp1) > tolerance ||
+      Math.abs(riskReward.tp2 - profile.tp2) > tolerance) {
     contractError(
-      'INVALID_M1_RISK_REWARD',
-      `M1 requires TP1=${M1_RISK_REWARD.tp1}R and TP2=${M1_RISK_REWARD.tp2}R`
+      'INVALID_TIMEFRAME_RISK_REWARD',
+      `${timeframe} requires TP1=${profile.tp1}R and TP2=${profile.tp2}R`
     );
   }
 }
@@ -148,7 +156,9 @@ function createSignalDocument(input, now = new Date()) {
   const timeframe = String(input.timeframe || '').toUpperCase();
   const action = String(input.action || '').toLowerCase();
   if (symbol !== 'XAUUSD') contractError('UNSUPPORTED_SYMBOL', 'Phase 1 Signal Ledger supports XAUUSD only');
-  if (timeframe !== 'M1') contractError('UNSUPPORTED_TIMEFRAME', 'Scalping execution signals must use M1');
+  if (!SUPPORTED_TIMEFRAMES.includes(timeframe)) {
+    contractError('UNSUPPORTED_TIMEFRAME', 'Timeframe must be M1, M5, M15, or H1');
+  }
   if (!['buy', 'sell'].includes(action)) contractError('INVALID_ACTION', 'Action must be buy or sell');
 
   const sourceCandleTime = Number(input.sourceCandleTime);
@@ -161,7 +171,7 @@ function createSignalDocument(input, now = new Date()) {
   const tp1 = positiveNumber(input.tp1, 'tp1');
   const tp2 = positiveNumber(input.tp2, 'tp2');
   const riskReward = calculateRiskReward({ action, entry, sl, tp1, tp2 });
-  assertM1RiskReward(riskReward);
+  assertTimeframeRiskReward(timeframe, riskReward);
 
   const swing = input.swing;
   if (!swing || !['low', 'high'].includes(swing.type) || !Number.isFinite(Number(swing.price)) ||
@@ -350,15 +360,17 @@ module.exports = {
   SIGNAL_SCHEMA_VERSION,
   STRATEGY_ID,
   STRATEGY_VERSION,
+  SUPPORTED_TIMEFRAMES,
   SIGNAL_STATUS,
   OPEN_STATUSES,
   TERMINAL_STATUSES,
   ALLOWED_TRANSITIONS,
-  M1_RISK_REWARD,
+  TIMEFRAME_RISK_REWARD,
   SignalContractError,
   isOpenStatus,
   isTerminalStatus,
   calculateRiskReward,
+  assertTimeframeRiskReward,
   buildSignalId,
   createSignalDocument,
   assertStatusTransition,

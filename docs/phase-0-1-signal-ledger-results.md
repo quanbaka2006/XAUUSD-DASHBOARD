@@ -7,10 +7,12 @@ Scope excludes Auto Trade, MT5 execution, Telegram execution, and VPS Farm.
 ## Phase 0 - Frozen contract
 
 - Added the authoritative `scalping-signal-contract.md`.
-- Frozen the pipeline as H1 bias -> M15 setup -> M5 confirmation -> M1 entry.
-- Frozen M1 targets at TP1 0.5R and TP2 0.75R with a 50/50 reference allocation.
+- Simplified the decision model so higher-timeframe context remains visible but
+  does not block a valid selected-timeframe trigger.
+- Added independent M1/M5/M15/H1 lifecycles and progressively longer reward
+  profiles, from 0.5R/0.75R on M1 to 1.5R/2R on H1.
 - Defined open, terminal, reversal, expiry, invalidation, and ambiguous states.
-- Defined monotonic state transitions and the one-open-XAUUSD rule.
+- Defined monotonic state transitions and one open XAUUSD signal per timeframe.
 - Defined deterministic signal identity, data-quality rules, and collision policy.
 - Converted the contract examples into executable unit tests.
 
@@ -18,7 +20,8 @@ Scope excludes Auto Trade, MT5 execution, Telegram execution, and VPS Farm.
 
 - Added the `scalping_signals` MongoDB collection.
 - Added a unique `signalId` index.
-- Added a partial unique index that permits at most one open signal per symbol.
+- Added a partial unique index that permits at most one open signal per
+  symbol/timeframe pair and migrates away from the earlier symbol-only index.
 - Added newest-first history indexing and bounded history queries.
 - Added optimistic concurrency through a revision field.
 - Added idempotent publishing: the same signal identity returns the stored record.
@@ -31,15 +34,20 @@ Scope excludes Auto Trade, MT5 execution, Telegram execution, and VPS Farm.
 
 Authenticated endpoints:
 
-- `GET /api/scalping/signals?symbol=XAUUSD&limit=20`
-- `GET /api/scalping/signals/active?symbol=XAUUSD`
-- `GET /api/scalping/signals/history?symbol=XAUUSD&limit=20`
+- `GET /api/scalping/signals?symbol=XAUUSD&timeframe=M1&limit=20`
+- `GET /api/scalping/signals/active?symbol=XAUUSD&timeframe=M1`
+- `GET /api/scalping/signals/history?symbol=XAUUSD&timeframe=M1&limit=20`
 
 Socket.IO events:
 
 - `scalping_signals_snapshot` on connection and after ledger initialization;
 - `scalping_signal_update` after future internal create, transition, or
   reconfirmation calls.
+
+The transitional frontend now retains an ACTIVE, TP1_HIT, or FINISHED signal
+per timeframe. Scanner `WAIT` cannot erase it; a FINISHED card remains until a
+newer trigger arrives and prior state is cached locally until the Phase 2 engine
+becomes the backend authority.
 
 The public `/api/health` payload includes a non-secret `signalLedger` section.
 
@@ -55,6 +63,6 @@ The public `/api/health` payload includes a non-secret `signalLedger` section.
 
 Phase 1 is persistence infrastructure. It does not yet generate a scalping
 signal or replace the current frontend signal card. Phase 2 will move strategy
-generation to the backend and publish contract-valid M1 signals into this
+generation to the backend and publish contract-valid timeframe signals into this
 ledger. This separation avoids implementing lifecycle state in the frontend and
 then rewriting it later.

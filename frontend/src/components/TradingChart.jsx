@@ -39,6 +39,11 @@ import {
   getCurrentSignal,
   getMultiTimeframeConfluence
 } from '../utils/indicators';
+import {
+  getSignalIdentity,
+  mapLedgerSignalForDisplay,
+  selectDisplayedSignal
+} from '../utils/signalLifecycle';
 
 const SYMBOLS = ['XAUUSD', 'WTIUSD', 'XAGUSD', 'BTCUSD', 'ETHUSD'];
 const SYMBOLS_DISPLAY = {
@@ -54,7 +59,11 @@ function computeSignalStatus(signal, livePrice) {
   if (!signal || signal.action === 'stale' || !signal.entry) return 'none';
   
   // If the signal has already been permanently flagged as finished or sl by indicators.js, return it immediately
-  if (signal.status === 'finished') return 'tp';
+  if (signal.status === 'finished') {
+    if (signal.result === 'SL_HIT') return 'sl';
+    if (signal.result === 'TP2_HIT') return 'tp';
+    return 'none';
+  }
   if (signal.status === 'sl') return 'sl';
   if (signal.status === 'closed') return 'none'; // Optional legacy
 
@@ -90,13 +99,13 @@ const STATUS_META = {
     cls: 'text-blue-400 bg-blue-950/45 backdrop-blur-md border-blue-500/30 shadow-[0_0_15px_rgba(59,130,246,0.2),inset_0_1px_1px_rgba(255,255,255,0.05)] font-extrabold tracking-wider', 
   },
   tp: { 
-    vn: 'ĐÃ CHẠM TP2', 
-    en: 'TP2 HIT', 
+    vn: 'FINISHED · TP2',
+    en: 'FINISHED · TP2',
     cls: 'text-amber-400 bg-amber-950/45 backdrop-blur-md border-amber-500/30 shadow-[0_0_15px_rgba(245,158,11,0.2),inset_0_1px_1px_rgba(255,255,255,0.05)] font-extrabold', 
   },
   sl: { 
-    vn: 'ĐÃ CHẠM SL', 
-    en: 'SL HIT', 
+    vn: 'FINISHED · SL',
+    en: 'FINISHED · SL',
     cls: 'text-red-400 bg-red-950/45 backdrop-blur-md border-red-500/30 shadow-[0_0_15px_rgba(239,68,68,0.2),inset_0_1px_1px_rgba(255,255,255,0.05)] font-extrabold', 
   },
   none: { 
@@ -220,7 +229,7 @@ function SignalProgressBar({ signal, symbol }) {
   if (!signal || signal.action === 'stale' || !signal.entry || !signal.sl || !tp2Value) return null;
 
   const status = computeSignalStatus(signal, livePrice);
-  const isFinished = status === 'tp' || status === 'sl';
+  const isFinished = status === 'tp' || status === 'sl' || signal.status === 'finished';
 
   const dec = symbol === 'XAGUSD' ? 4 : 2;
   const lo = Math.min(signal.sl, tp2Value);
@@ -347,7 +356,7 @@ function HeroActionDisplay({ currentSignal }) {
   const livePrice = useTradeStore(s => s.livePrice);
   const { t } = useTranslation();
   const status = computeSignalStatus(currentSignal, livePrice);
-  const isFinished = status === 'tp' || status === 'sl' || currentSignal.status === 'closed';
+  const isFinished = status === 'tp' || status === 'sl' || currentSignal.status === 'finished' || currentSignal.status === 'closed';
 
   return (
     <div className={`relative h-14 rounded-xl flex items-center justify-center overflow-hidden transition-all duration-500 ${
@@ -467,6 +476,7 @@ export function TradingChart({ mobileTab }) {
     smcChochColor,
     showSmc,
     setSignals,
+    setTrackedSignal,
     setHistoryCount,
     marketDataStatus,
     logout,
@@ -508,7 +518,6 @@ export function TradingChart({ mobileTab }) {
     'M15': [],
     'H1': []
   });
-  const lastConfluenceSignalRef = React.useRef(null);
 
   // Pre-fetch every timeframe required by the H1 -> M15 -> M5 decision chain.
   useEffect(() => {
@@ -1130,6 +1139,23 @@ export function TradingChart({ mobileTab }) {
       setSignals(initialSignalsData);
     });
 
+    socket.on('scalping_signals_snapshot', (payload) => {
+      Object.entries(payload?.timeframes || {}).forEach(([timeframe, snapshot]) => {
+        const ledgerSignal = snapshot?.activeSignal || snapshot?.history?.[0];
+        const displaySignal = mapLedgerSignalForDisplay(ledgerSignal);
+        if (displaySignal) {
+          useTradeStore.getState().setTrackedSignal('XAUUSD', timeframe, displaySignal);
+        }
+      });
+    });
+
+    socket.on('scalping_signal_update', (payload) => {
+      const displaySignal = mapLedgerSignalForDisplay(payload?.signal);
+      if (displaySignal) {
+        useTradeStore.getState().setTrackedSignal(displaySignal.symbol, displaySignal.timeframe, displaySignal);
+      }
+    });
+
     socket.on('signal_update', (updatedSignal) => {
       setSignals(prev => {
         const oldSignal = prev[updatedSignal.ticker]?.[updatedSignal.interval];
@@ -1169,8 +1195,8 @@ export function TradingChart({ mobileTab }) {
             previous.historyCandles !== data.marketData.historyCandles;
           if (changed) useTradeStore.setState({ marketDataStatus: data.marketData });
         }
-        // Write to store for any other consumers (e.g. signal calc)
-        useTradeStore.setState({ livePrice: data.currentPrice });
+        // Advance every tracked timeframe lifecycle without re-rendering the chart on ordinary ticks.
+        state.setLivePrice(data.currentPrice);
         // Update price DOM directly — NO React re-render
         if (livePriceDomRef.current) {
           livePriceDomRef.current.textContent = `$${data.currentPrice.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 3 })}`;
@@ -2031,36 +2057,10 @@ export function TradingChart({ mobileTab }) {
     marketDataStatus?.historyReady,
     marketDataStatus?.stale
   ]);
-  const currentSignal = useMemo(() => {
-    if (selectedSymbol !== 'XAUUSD') return storedCurrentSignal;
-    if (confluence.decision === 'buy' || confluence.decision === 'sell') return confluence.signal;
-    return {
-      action: 'stale', entry: 0, sl: 0, tp: 0, tps: [], signalStrength: 0,
-      timeframe: 'MTF', timestamp: Date.now(), blockedReason: confluence.reason
-    };
-  }, [selectedSymbol, storedCurrentSignal, confluence]);
-
-  useEffect(() => {
-    if (selectedSymbol !== 'XAUUSD' || (confluence.decision !== 'buy' && confluence.decision !== 'sell')) return;
-    const signal = confluence.signal;
-    if (!signal) return;
-    const identity = `${signal.action}:${signal.timestamp}:${signal.indicator}`;
-    if (lastConfluenceSignalRef.current === identity) return;
-    lastConfluenceSignalRef.current = identity;
-    if ((Date.now() - pageLoadTimeRef.current) < 5000) return;
-    playNotificationSound();
-    useTradeStore.getState().addToast({
-      ticker: 'XAUUSD',
-      system: 'MTF CONFLUENCE',
-      interval: 'H1→M15→M5',
-      action: signal.action,
-      entry: signal.entry,
-      sl: signal.sl,
-      tp: signal.tp,
-      signalStrength: signal.signalStrength || 0,
-      timestamp: signal.timestamp
-    });
-  }, [selectedSymbol, confluence.decision, confluence.signal]);
+  const currentSignal = storedCurrentSignal || {
+    action: 'stale', entry: 0, sl: 0, tp: 0, tps: [], signalStrength: 0,
+    symbol: selectedSymbol, timeframe: selectedTimeframe, timestamp: Date.now()
+  };
 
   useEffect(() => {
     const history = candlesHistoryRef.current || [];
@@ -2079,60 +2079,41 @@ export function TradingChart({ mobileTab }) {
       trendlineSlopeMult,
       dataReady: true,
     });
-    // ── Signal Lock Guard ──────────────────────────────────────────────────
-    // If a signal is currently RUNNING (not yet hit SL or full TP2), do NOT
-    // overwrite it with a new signal. This prevents the signal panel from
-    // jumping to a different signal when the user switches indicators or
-    // timeframes, or when a new candle closes with a different signal.
-    if (selectedSymbol === 'XAUUSD') {
-      const confluenceSignal = confluence.decision === 'buy' || confluence.decision === 'sell'
-        ? {
-            ...confluence.signal,
-            symbol: 'XAUUSD',
-            timeframe: 'M5',
-            indicatorSystem: selectedIndicatorSystem,
-            confluence: { h1: confluence.h1, m15: confluence.m15, m5: confluence.m5 }
-          }
-        : {
-            action: 'stale', entry: 0, sl: 0, tp: 0, tps: [], signalStrength: 0,
-            symbol: 'XAUUSD', timeframe: 'MTF', indicatorSystem: selectedIndicatorSystem,
-            timestamp: Date.now(), blockedReason: confluence.reason
-          };
-      useTradeStore.setState({ currentSignal: confluenceSignal });
-      return;
-    }
-
-    const existing = useTradeStore.getState().currentSignal;
-    const isSameSystem = existing
-      && existing.symbol === selectedSymbol
-      && existing.timeframe === selectedTimeframe
-      && existing.indicatorSystem === selectedIndicatorSystem;
-
-    const isExistingActive = isSameSystem
-      && existing.action !== 'stale'
-      && existing.status !== 'closed'
-      && existing.status !== 'finished'
-      && existing.status !== 'sl';
-
-    if (isExistingActive) {
-      // Same signal (same entry + timestamp) — update hitTps & status only
-      // so the progress bar still reflects TP1 hits in real-time
-      if (sig && sig.entry === existing.entry && sig.timestamp === existing.timestamp) {
-        useTradeStore.setState({
-          currentSignal: { ...existing, hitTps: sig.hitTps, status: sig.status }
+    const state = useTradeStore.getState();
+    const existing = state.trackedSignals?.[selectedSymbol]?.[selectedTimeframe] || null;
+    const candidate = sig && sig.action !== 'stale' ? {
+      ...sig,
+      symbol: selectedSymbol,
+      timeframe: selectedTimeframe,
+      indicatorSystem: selectedIndicatorSystem,
+      confluence: selectedSymbol === 'XAUUSD'
+        ? { h1: confluence.h1, m15: confluence.m15, m5: confluence.m5 }
+        : null,
+      status: sig.status || 'running',
+      result: sig.status === 'finished' ? 'TP2_HIT' : sig.status === 'sl' ? 'SL_HIT' : sig.result,
+      finishedAt: (sig.status === 'finished' || sig.status === 'sl')
+        ? (sig.finishedAt || Date.now())
+        : sig.finishedAt
+    } : sig;
+    const next = selectDisplayedSignal(existing, candidate);
+    if (next && next !== existing) {
+      setTrackedSignal(selectedSymbol, selectedTimeframe, next);
+      const isNewIdentity = getSignalIdentity(next) !== getSignalIdentity(existing);
+      const isInitialLoad = (Date.now() - pageLoadTimeRef.current) < 5000;
+      if (isNewIdentity && !isInitialLoad && next.action !== 'stale') {
+        playNotificationSound();
+        state.addToast({
+          ticker: selectedSymbol,
+          system: selectedIndicatorSystem.toUpperCase(),
+          interval: selectedTimeframe,
+          action: next.action,
+          entry: next.entry,
+          sl: next.sl,
+          tp: next.tp,
+          signalStrength: next.signalStrength || 0,
+          timestamp: next.timestamp
         });
       }
-      // Different signal entirely — ignore it, keep the running signal
-    } else {
-      // No active signal or signal is finished or user changed indicator/timeframe/symbol — allow normal overwrite
-      useTradeStore.setState({
-        currentSignal: sig ? {
-          ...sig,
-          symbol: selectedSymbol,
-          timeframe: selectedTimeframe,
-          indicatorSystem: selectedIndicatorSystem
-        } : null
-      });
     }
   }, [
     selectedSymbol,
@@ -2148,7 +2129,8 @@ export function TradingChart({ mobileTab }) {
     trendlineSlopeMult,
     marketDataStatus?.historyReady,
     historyCount,
-    confluence
+    confluence,
+    setTrackedSignal
   ]);
 
   const psychologyScore = useMemo(() => {

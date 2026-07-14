@@ -2,7 +2,7 @@
 
 Status: Phase 0 frozen contract
 
-Schema version: `1.0.0`
+Schema version: `1.1.0`
 
 Strategy identity: `xauusd-scalp`
 Date: 2026-07-14
@@ -16,26 +16,36 @@ The canonical market is OANDA spot `XAU_USD`. Signal results are reference
 results against the dashboard feed; a user's broker spread and execution can
 differ.
 
-## Decision chain
+## Decision model
 
-The target strategy pipeline is:
+The strategy intentionally uses few blocking conditions:
 
-1. H1 provides market bias.
-2. M15 provides the setup direction.
-3. M5 confirms the setup.
-4. M1 supplies the real completed trigger candle, entry, and confirmed swing.
+1. The selected timeframe supplies a real completed trigger candle.
+2. Its nearest higher timeframe may provide directional context.
+3. H1/M15/M5 confluence remains visible information and does not block a valid
+   trigger.
 
 Phase 1 implements the persistent ledger and lifecycle contract. Automatic
 generation from this decision chain is Phase 2 work.
 
-## M1 price and risk rules
+## Timeframe price and risk rules
 
-- Signals are `buy` or `sell` on `XAUUSD` / `M1`.
-- Stop loss is derived from a confirmed real M1 swing, not ATR.
+- Signals are `buy` or `sell` on XAUUSD M1, M5, M15, or H1.
+- Each timeframe has an independent lifecycle.
+- Stop loss is derived from a confirmed real swing on the signal timeframe, not
+  ATR.
 - BUY requires `SL < entry < TP1 < TP2` and a swing low.
 - SELL requires `SL > entry > TP1 > TP2` and a swing high.
 - `riskDistance = abs(entry - SL)`.
-- `TP1 = 0.5R`; `TP2 = 0.75R`.
+- Reward targets extend with timeframe:
+
+| Timeframe | TP1 | TP2 |
+|---|---:|---:|
+| M1 | 0.5R | 0.75R |
+| M5 | 0.75R | 1.25R |
+| M15 | 1R | 1.5R |
+| H1 | 1.5R | 2R |
+
 - The reference allocation is 50% at TP1 and 50% at TP2.
 - When TP1 is reached, a later phase may publish `managedSl = entry`; the
   original SL remains immutable for audit.
@@ -50,8 +60,8 @@ Example BUY: entry 10, SL 0, TP1 15, TP2 17.5. The true displayed ratios are
   signal, define a swing, or count as a TP/SL hit.
 - Gap-fill candles are display-only and cannot trigger a signal, define a swing,
   or count as a TP/SL hit.
-- A confirmed swing uses five real, contiguous timeframe candles: two candles on
-  each side of the pivot.
+- A confirmed swing uses five real, contiguous candles on the signal timeframe:
+  two candles on each side of the pivot.
 - A stale feed cannot publish or advance a signal.
 - `signalStrength` remains a stable display integer from 90 to 98 and is not a
   calibrated win probability.
@@ -86,7 +96,8 @@ must never turn `TP1_HIT` back into `ACTIVE` or erase a closed result.
 
 ## New-signal collision policy
 
-Only one open XAUUSD signal is allowed.
+Only one open XAUUSD signal per timeframe is allowed. M1, M5, M15, and H1 may
+each have an independent open signal.
 
 | Existing signal | Candidate | Contract action |
 |---|---|---|
@@ -117,7 +128,8 @@ Every signal stores:
 - result in R and replacement identity when terminal;
 - optimistic-concurrency revision.
 
-MongoDB enforces a unique signal identity and at most one open signal per symbol.
+MongoDB enforces a unique signal identity and at most one open signal per
+symbol/timeframe pair.
 Reloading a browser or replacing a Render instance must not lose the active
 signal or its history.
 
@@ -125,13 +137,14 @@ signal or its history.
 
 Authenticated REST endpoints:
 
-- `GET /api/scalping/signals?symbol=XAUUSD&limit=20`
-- `GET /api/scalping/signals/active?symbol=XAUUSD`
-- `GET /api/scalping/signals/history?symbol=XAUUSD&limit=20`
+- `GET /api/scalping/signals?symbol=XAUUSD&timeframe=M1&limit=20`
+- `GET /api/scalping/signals/active?symbol=XAUUSD&timeframe=M1`
+- `GET /api/scalping/signals/history?symbol=XAUUSD&timeframe=M1&limit=20`
 
 Socket.IO events:
 
-- `scalping_signals_snapshot` after an authenticated connection;
+- `scalping_signals_snapshot` with M1/M5/M15/H1 snapshots after an authenticated
+  connection;
 - `scalping_signal_update` after a ledger create, transition, or reconfirmation.
 
 The public health response exposes only ledger readiness, persistence backend,
@@ -140,11 +153,12 @@ active signal identity, and non-secret error state.
 ## Acceptance test vectors
 
 1. BUY entry 10 / SL 0 / TP1 15 / TP2 17.5 is accepted.
-2. BUY with TP1 at 1R is rejected.
+2. M5/M15/H1 accept only their configured longer reward profiles.
 3. SELL geometry is the exact inverse of BUY.
 4. Synthetic trigger, synthetic swing, and recent gap-fill are rejected.
 5. The same identity is idempotent.
-6. A second open identity is rejected.
+6. A second open identity on the same timeframe is rejected, while another
+   timeframe is allowed.
 7. TP1 can advance to TP2 but cannot return to ACTIVE.
 8. Terminal state is immutable.
 9. Restart initialization restores the MongoDB active signal.

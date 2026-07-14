@@ -4,7 +4,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const {
   SIGNAL_STATUS,
-  M1_RISK_REWARD,
+  TIMEFRAME_RISK_REWARD,
   buildSignalId,
   createSignalDocument,
   transitionSignal,
@@ -35,7 +35,7 @@ test('accepts the frozen M1 BUY example with 0.5R and 0.75R targets', () => {
   assert.equal(signal.entry, 10);
   assert.equal(signal.originalSl, 0);
   assert.equal(signal.riskDistance, 10);
-  assert.deepEqual(signal.riskReward, M1_RISK_REWARD);
+  assert.deepEqual(signal.riskReward, TIMEFRAME_RISK_REWARD.M1);
   assert.deepEqual(signal.allocation, { tp1Percent: 50, tp2Percent: 50 });
   assert.equal(signal.status, SIGNAL_STATUS.ACTIVE);
   assert.equal(signal.isOpen, true);
@@ -50,7 +50,19 @@ test('accepts inverse SELL geometry and derives the same R:R', () => {
     swing: { type: 'high', price: 19.8, time: SOURCE_TIME - 180, strength: 2 }
   }));
   assert.equal(signal.riskDistance, 10);
-  assert.deepEqual(signal.riskReward, M1_RISK_REWARD);
+  assert.deepEqual(signal.riskReward, TIMEFRAME_RISK_REWARD.M1);
+});
+
+test('accepts progressively longer R:R profiles for M5, M15, and H1', () => {
+  const profiles = [
+    ['M5', 17.5, 22.5],
+    ['M15', 20, 25],
+    ['H1', 25, 30]
+  ];
+  for (const [timeframe, tp1, tp2] of profiles) {
+    const signal = createSignalDocument(buyInput({ timeframe, tp1, tp2 }));
+    assert.deepEqual(signal.riskReward, TIMEFRAME_RISK_REWARD[timeframe]);
+  }
 });
 
 test('builds deterministic identities from source candle and strategy version', () => {
@@ -64,7 +76,7 @@ test('builds deterministic identities from source candle and strategy version', 
 
 test('rejects wrong M1 reward ratios and invalid side geometry', () => {
   assert.throws(() => createSignalDocument(buyInput({ tp1: 20, tp2: 30 })), {
-    code: 'INVALID_M1_RISK_REWARD'
+    code: 'INVALID_TIMEFRAME_RISK_REWARD'
   });
   assert.throws(() => createSignalDocument(buyInput({ sl: 11 })), {
     code: 'INVALID_PRICE_GEOMETRY'

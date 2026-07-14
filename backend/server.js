@@ -1613,8 +1613,7 @@ const scalpSignalLedgerStatus = {
   error: 'not-connected',
   initializedAt: null,
   signalCount: 0,
-  activeSignalId: null,
-  activeStatus: null
+  activeSignals: []
 };
 
 async function initializeScalpSignalLedger() {
@@ -1626,10 +1625,10 @@ async function initializeScalpSignalLedger() {
   const initialized = await ledger.initialize();
   scalpSignalLedger = ledger;
   Object.assign(scalpSignalLedgerStatus, ledger.health());
-  io.emit('scalping_signals_snapshot', await ledger.snapshot('XAUUSD', 20));
+  io.emit('scalping_signals_snapshot', await ledger.snapshotAll('XAUUSD', 20));
   console.log(
     `[SignalLedger] Ready (${initialized.signalCount} stored, ` +
-    `active=${initialized.activeSignal?.signalId || 'none'}).`
+    `active=${initialized.activeSignals.length}).`
   );
 }
 
@@ -1692,8 +1691,7 @@ async function connectDB() {
         ready: false,
         error: signalLedgerError.message,
         initializedAt: null,
-        activeSignalId: null,
-        activeStatus: null
+        activeSignals: []
       });
       console.error('[SignalLedger] Initialization failed:', signalLedgerError.message);
     }
@@ -1737,8 +1735,7 @@ async function connectDB() {
       ready: false,
       error: 'mongodb-unavailable',
       initializedAt: null,
-      activeSignalId: null,
-      activeStatus: null
+      activeSignals: []
     });
     console.error('[MongoDB] Connection failed on startup. Falling back to local file. Error:', err.message);
   }
@@ -2242,7 +2239,16 @@ function getScalpingSignalQuery(req, res) {
     res.status(400).json({ error: 'Scalping Signal Ledger supports XAUUSD only' });
     return null;
   }
-  return { symbol, limit: mongoSignalStore.normalizeLimit(req.query.limit) };
+  try {
+    return {
+      symbol,
+      timeframe: mongoSignalStore.normalizeTimeframe(req.query.timeframe || 'M1'),
+      limit: mongoSignalStore.normalizeLimit(req.query.limit)
+    };
+  } catch (error) {
+    res.status(400).json({ error: error.message });
+    return null;
+  }
 }
 
 function requireReadyScalpSignalLedger(res) {
@@ -2259,7 +2265,7 @@ app.get('/api/scalping/signals', requireAuth, async (req, res) => {
   const ledger = query && requireReadyScalpSignalLedger(res);
   if (!query || !ledger) return;
   try {
-    const snapshot = await ledger.snapshot(query.symbol, query.limit);
+    const snapshot = await ledger.snapshot(query.symbol, query.timeframe, query.limit);
     res.json({ success: true, ...snapshot });
   } catch (error) {
     console.error('[SignalLedger API] Snapshot failed:', error.message);
@@ -2275,7 +2281,8 @@ app.get('/api/scalping/signals/active', requireAuth, async (req, res) => {
     res.json({
       success: true,
       symbol: query.symbol,
-      activeSignal: await ledger.getActive(query.symbol),
+      timeframe: query.timeframe,
+      activeSignal: await ledger.getActive(query.symbol, query.timeframe),
       generatedAt: new Date()
     });
   } catch (error) {
@@ -2289,10 +2296,11 @@ app.get('/api/scalping/signals/history', requireAuth, async (req, res) => {
   const ledger = query && requireReadyScalpSignalLedger(res);
   if (!query || !ledger) return;
   try {
-    const history = await ledger.getHistory(query.symbol, query.limit);
+    const history = await ledger.getHistory(query.symbol, query.timeframe, query.limit);
     res.json({
       success: true,
       symbol: query.symbol,
+      timeframe: query.timeframe,
       history,
       count: history.length,
       limit: query.limit,
@@ -3049,7 +3057,7 @@ io.on('connection', (socket) => {
   socket.emit('initial_signals', signals);
 
   if (scalpSignalLedger) {
-    scalpSignalLedger.snapshot('XAUUSD', 20)
+    scalpSignalLedger.snapshotAll('XAUUSD', 20)
       .then((snapshot) => socket.emit('scalping_signals_snapshot', snapshot))
       .catch((error) => {
         console.error('[SignalLedger Socket] Snapshot failed:', error.message);

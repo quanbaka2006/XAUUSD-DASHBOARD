@@ -8,6 +8,7 @@ import {
   calculateUTBotSignals,
   calculateTrendlinesWithBreaks,
   calculateSwingRisk,
+  TIMEFRAME_RISK_REWARD,
   findConfirmedSwing,
   getSignalAnalysisHistory,
   buildConfluenceDecision,
@@ -84,13 +85,13 @@ test('signal display strength stays stable between 90 and 98 for the same signal
   assert.equal(signal.signalStrength, getStableDisplayStrength({
     symbol: 'XAUUSD', timeframe: 'M1', indicator: 'zen', timestamp: signal.timestamp
   }));
-  assert.equal(signal.algorithmVersion, '3.0.0');
+  assert.equal(signal.algorithmVersion, '3.1.0');
   assert.equal(signal.indicator, 'zen');
   assert.equal(signal.timeframe, 'M1');
   assert.equal(signal.sourceCandleTime, signal.timestamp / 1000);
   assert.equal(signal.riskModel, 'confirmed-swing-rr-v1');
-  assert.equal(signal.riskReward.tp1, 1);
-  assert.equal(signal.riskReward.tp2, 2);
+  assert.equal(signal.riskReward.tp1, 0.5);
+  assert.equal(signal.riskReward.tp2, 0.75);
   assert.equal(Object.hasOwn(signal, 'confidence'), false);
 });
 
@@ -105,7 +106,7 @@ test('XAUUSD signal generation fails closed while market data is warming up', ()
   });
   assert.equal(signal.action, 'stale');
   assert.equal(signal.signalStrength, 0);
-  assert.equal(signal.algorithmVersion, '3.0.0');
+  assert.equal(signal.algorithmVersion, '3.1.0');
 });
 
 test('gap-fill candles are excluded and synthetic candles cannot become confirmed swings', () => {
@@ -121,15 +122,37 @@ test('gap-fill candles are excluded and synthetic candles cannot become confirme
   assert.equal(findConfirmedSwing(syntheticCandidate, 'buy', 360), null);
 });
 
-test('swing-based risk places SL beyond the confirmed swing and returns 1R/2R targets', () => {
+test('swing-based M1 risk places SL beyond the swing and returns 0.5R/0.75R targets', () => {
   const history = closes([12, 11, 10, 11, 12, 13, 14]);
   const risk = calculateSwingRisk({ history, action: 'buy', entry: 14, triggerTime: 360, symbol: 'XAUUSD' });
   assert.equal(risk.swing.price, 9.5);
   assert.equal(risk.sl, 9.3);
   assert.equal(risk.riskDistance, 4.7);
-  assert.equal(risk.tp1, 18.7);
-  assert.equal(risk.tp2, 23.4);
-  assert.deepEqual(risk.riskReward, { tp1: 1, tp2: 2, minimumRequired: 1.5, valid: true });
+  assert.equal(risk.tp1, 16.35);
+  assert.equal(risk.tp2, 17.52);
+  assert.deepEqual(risk.riskReward, { tp1: 0.5, tp2: 0.75, valid: true });
+});
+
+test('swing targets extend progressively by timeframe', () => {
+  const history = closes([12, 11, 10, 11, 12, 13, 14]);
+  for (const timeframe of ['M1', 'M5', 'M15', 'H1']) {
+    const scaledHistory = history.map((candle) => ({
+      ...candle,
+      time: candle.time * ({ M1: 1, M5: 5, M15: 15, H1: 60 }[timeframe])
+    }));
+    const risk = calculateSwingRisk({
+      history: scaledHistory,
+      action: 'buy',
+      entry: 14,
+      triggerTime: 6 * ({ M1: 60, M5: 300, M15: 900, H1: 3600 }[timeframe]),
+      symbol: 'XAUUSD',
+      timeframe
+    });
+    assert.deepEqual(
+      { tp1: risk.riskReward.tp1, tp2: risk.riskReward.tp2 },
+      TIMEFRAME_RISK_REWARD[timeframe]
+    );
+  }
 });
 
 test('confirmed swing cannot cross a missing timeframe bucket', () => {
