@@ -388,7 +388,7 @@ const XAU_STALE_AFTER_MS = 15000;
 let mongoXauPersistenceReady = false;
 let mongoXauPersistenceError = 'not-connected';
 let mongoXauWriteQueue = Promise.resolve();
-let mongoXauWritesSincePrune = 0;
+const mongoXauPendingCandles = new Map();
 const xauMarketDataStatus = {
   instrument: oandaXau.INSTRUMENT,
   source: oandaXauConfig.enabled ? `oanda-v20-${oandaXauConfig.environment}` : 'unavailable',
@@ -1102,7 +1102,8 @@ function getXauMarketDataStatus() {
     marketClosed: isMarketClosed(),
     persistenceBackend: 'mongodb',
     persistenceReady: mongoXauPersistenceReady,
-    persistenceError: mongoXauPersistenceError
+    persistenceError: mongoXauPersistenceError,
+    persistencePendingCandles: mongoXauPendingCandles.size
   };
 }
 
@@ -1133,6 +1134,7 @@ async function initializeMongoXauPersistence() {
     xauMarketDataStatus.historyCandles = mergedM1.length;
     xauMarketDataStatus.historyReady = mergedM1.length >= XAU_MINIMUM_M1_HISTORY;
     await mongoCandleStore.upsertM1Batch(db, mergedM1, oandaXau.HISTORY_COUNT);
+    mongoXauPendingCandles.clear();
     onSeedReceived('XAUUSD');
     console.log(`[MongoCandleStore] Restored ${persisted.length} and retained ${mergedM1.length} completed XAUUSD M1 candles.`);
   }
@@ -1158,18 +1160,36 @@ function enqueueMongoXauWrite(operation) {
 
 function queueMongoXauCandle(candle) {
   if (!candle) return;
-  enqueueMongoXauWrite(async () => {
-    await mongoCandleStore.upsertM1(db, candle);
-    mongoXauWritesSincePrune += 1;
-    if (mongoXauWritesSincePrune >= 60) {
-      await mongoCandleStore.pruneM1(db, oandaXau.HISTORY_COUNT);
-      mongoXauWritesSincePrune = 0;
-    }
-  });
+  rememberMongoXauCandle(candle);
+  enqueueMongoXauWrite(flushPendingMongoXauCandles);
 }
 
 function queueMongoXauBatch(candles) {
-  enqueueMongoXauWrite(() => mongoCandleStore.upsertM1Batch(db, candles, oandaXau.HISTORY_COUNT));
+  for (const candle of candles || []) {
+    rememberMongoXauCandle(candle);
+  }
+  enqueueMongoXauWrite(flushPendingMongoXauCandles);
+}
+
+function rememberMongoXauCandle(candle) {
+  if (!candle || !Number.isFinite(candle.time)) return;
+  mongoXauPendingCandles.set(candle.time, { ...candle });
+  while (mongoXauPendingCandles.size > oandaXau.HISTORY_COUNT) {
+    mongoXauPendingCandles.delete(mongoXauPendingCandles.keys().next().value);
+  }
+}
+
+async function flushPendingMongoXauCandles() {
+  const pending = [...mongoXauPendingCandles.values()];
+  if (pending.length === 0) return;
+  await mongoCandleStore.upsertM1Batch(db, pending, oandaXau.HISTORY_COUNT);
+  for (const candle of pending) {
+    const current = mongoXauPendingCandles.get(candle.time);
+    if (current && current.open === candle.open && current.high === candle.high &&
+        current.low === candle.low && current.close === candle.close) {
+      mongoXauPendingCandles.delete(candle.time);
+    }
+  }
 }
 
 // Seed ALL symbols on startup with proper sources to avoid price jump
@@ -2201,7 +2221,8 @@ app.get('/api/health', (req, res) => {
       minimumHistoryCandles: marketData.minimumHistoryCandles,
       persistenceBackend: marketData.persistenceBackend,
       persistenceReady: marketData.persistenceReady,
-      persistenceError: marketData.persistenceError
+      persistenceError: marketData.persistenceError,
+      persistencePendingCandles: marketData.persistencePendingCandles
     }
   });
 });
