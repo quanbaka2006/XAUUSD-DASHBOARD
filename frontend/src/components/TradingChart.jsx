@@ -2280,24 +2280,6 @@ export function TradingChart({ mobileTab }) {
             <div className="flex items-center gap-2">
               <span className="text-xs font-black text-white tracking-widest font-mono">{selectedSymbol}</span>
               <span className="px-2 py-0.5 bg-amber-500/10 border border-amber-500/20 text-amber-500 rounded text-[11px] font-mono font-black tracking-widest">{currentSignal.timeframe || selectedTimeframe}</span>
-              {selectedSymbol === 'XAUUSD' && (
-                <span
-                  title={marketDataStatus?.source || 'Waiting for market data'}
-                  className={`px-2 py-0.5 rounded border text-[9px] font-mono font-black tracking-wider ${
-                    marketDataStatus?.stale
-                      ? 'border-red-500/30 bg-red-500/10 text-red-400'
-                      : marketDataStatus?.historyReady
-                        ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-400'
-                        : 'border-sky-500/30 bg-sky-500/10 text-sky-400'
-                  }`}
-                >
-                  {marketDataStatus?.stale
-                    ? 'FEED STALE'
-                    : marketDataStatus?.historyReady
-                      ? 'FINNHUB OANDA'
-                      : `WARMUP ${marketDataStatus?.historyCandles || 0}/500`}
-                </span>
-              )}
             </div>
 
             <SignalStatusBadge signal={currentSignal} />
