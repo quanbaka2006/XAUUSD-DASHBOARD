@@ -16,6 +16,8 @@ const net = require('net');
 const oandaXau = require('./marketData/oandaXau');
 const { aggregateCandles, buildTimeframes } = require('./marketData/candleAggregation');
 const mongoCandleStore = require('./marketData/mongoCandleStore');
+const mongoSignalStore = require('./signals/mongoSignalStore');
+const { createSignalLedger } = require('./signals/signalLedger');
 const {
   DEFAULT_BACKFILL_COUNT,
   countMissingIntervals,
@@ -1604,6 +1606,32 @@ const usersFilePath = path.join(__dirname, 'users.json');
 const MONGODB_URI = process.env.MONGODB_URI;
 let db = null;
 let useMongoDB = false;
+let scalpSignalLedger = null;
+const scalpSignalLedgerStatus = {
+  ready: false,
+  persistenceBackend: 'mongodb',
+  error: 'not-connected',
+  initializedAt: null,
+  signalCount: 0,
+  activeSignalId: null,
+  activeStatus: null
+};
+
+async function initializeScalpSignalLedger() {
+  const ledger = createSignalLedger({
+    db,
+    store: mongoSignalStore,
+    publishEvent: (payload) => io.emit('scalping_signal_update', payload)
+  });
+  const initialized = await ledger.initialize();
+  scalpSignalLedger = ledger;
+  Object.assign(scalpSignalLedgerStatus, ledger.health());
+  io.emit('scalping_signals_snapshot', await ledger.snapshot('XAUUSD', 20));
+  console.log(
+    `[SignalLedger] Ready (${initialized.signalCount} stored, ` +
+    `active=${initialized.activeSignal?.signalId || 'none'}).`
+  );
+}
 
 // Synchronous helper for local file load (used as fallback or for migration seed)
 function loadUsersFromFile() {
@@ -1656,6 +1684,20 @@ async function connectDB() {
       console.error('[MongoCandleStore] Initialization failed:', candleError.message);
     }
 
+    try {
+      await initializeScalpSignalLedger();
+    } catch (signalLedgerError) {
+      scalpSignalLedger = null;
+      Object.assign(scalpSignalLedgerStatus, {
+        ready: false,
+        error: signalLedgerError.message,
+        initializedAt: null,
+        activeSignalId: null,
+        activeStatus: null
+      });
+      console.error('[SignalLedger] Initialization failed:', signalLedgerError.message);
+    }
+
     // Auto-Migration: Seed MongoDB from users.json if empty
     const mongoCount = await db.collection('users').countDocuments();
     if (mongoCount === 0) {
@@ -1690,6 +1732,14 @@ async function connectDB() {
       console.error('[Database] Failed to auto-upgrade admins on startup:', dbErr.message);
     }
   } catch (err) {
+    scalpSignalLedger = null;
+    Object.assign(scalpSignalLedgerStatus, {
+      ready: false,
+      error: 'mongodb-unavailable',
+      initializedAt: null,
+      activeSignalId: null,
+      activeStatus: null
+    });
     console.error('[MongoDB] Connection failed on startup. Falling back to local file. Error:', err.message);
   }
 }
@@ -2186,6 +2236,74 @@ app.post('/api/webhook', webhookLimiter, (req, res) => {
 app.get('/api/signals', requireAuth, (req, res) => res.json(signals));
 app.get('/api/prices', requireAuth, (req, res) => res.json(currentPrices));
 
+function getScalpingSignalQuery(req, res) {
+  const symbol = String(req.query.symbol || 'XAUUSD').toUpperCase();
+  if (symbol !== 'XAUUSD') {
+    res.status(400).json({ error: 'Scalping Signal Ledger supports XAUUSD only' });
+    return null;
+  }
+  return { symbol, limit: mongoSignalStore.normalizeLimit(req.query.limit) };
+}
+
+function requireReadyScalpSignalLedger(res) {
+  if (scalpSignalLedger) return scalpSignalLedger;
+  res.status(503).json({
+    error: 'Scalping Signal Ledger is unavailable',
+    ledger: { ...scalpSignalLedgerStatus }
+  });
+  return null;
+}
+
+app.get('/api/scalping/signals', requireAuth, async (req, res) => {
+  const query = getScalpingSignalQuery(req, res);
+  const ledger = query && requireReadyScalpSignalLedger(res);
+  if (!query || !ledger) return;
+  try {
+    const snapshot = await ledger.snapshot(query.symbol, query.limit);
+    res.json({ success: true, ...snapshot });
+  } catch (error) {
+    console.error('[SignalLedger API] Snapshot failed:', error.message);
+    res.status(500).json({ error: 'Unable to load scalping signals', requestId: req.requestId });
+  }
+});
+
+app.get('/api/scalping/signals/active', requireAuth, async (req, res) => {
+  const query = getScalpingSignalQuery(req, res);
+  const ledger = query && requireReadyScalpSignalLedger(res);
+  if (!query || !ledger) return;
+  try {
+    res.json({
+      success: true,
+      symbol: query.symbol,
+      activeSignal: await ledger.getActive(query.symbol),
+      generatedAt: new Date()
+    });
+  } catch (error) {
+    console.error('[SignalLedger API] Active lookup failed:', error.message);
+    res.status(500).json({ error: 'Unable to load active scalping signal', requestId: req.requestId });
+  }
+});
+
+app.get('/api/scalping/signals/history', requireAuth, async (req, res) => {
+  const query = getScalpingSignalQuery(req, res);
+  const ledger = query && requireReadyScalpSignalLedger(res);
+  if (!query || !ledger) return;
+  try {
+    const history = await ledger.getHistory(query.symbol, query.limit);
+    res.json({
+      success: true,
+      symbol: query.symbol,
+      history,
+      count: history.length,
+      limit: query.limit,
+      generatedAt: new Date()
+    });
+  } catch (error) {
+    console.error('[SignalLedger API] History lookup failed:', error.message);
+    res.status(500).json({ error: 'Unable to load scalping signal history', requestId: req.requestId });
+  }
+});
+
 
 // User Bot Settings Endpoints
 app.get('/api/user/settings', requireAuth, async (req, res) => {
@@ -2243,10 +2361,12 @@ app.get('/api/history/:symbol/:interval', requireAuth, (req, res) => {
 
 app.get('/api/health', (req, res) => {
   const marketData = getXauMarketDataStatus();
+  const signalLedger = scalpSignalLedger ? scalpSignalLedger.health() : { ...scalpSignalLedgerStatus };
   res.json({
-    status: marketData.stale ? 'degraded' : 'ok',
+    status: marketData.stale || !signalLedger.ready ? 'degraded' : 'ok',
     uptimeSeconds: Math.floor(process.uptime()),
     requestId: req.requestId,
+    signalLedger,
     marketData: {
       instrument: marketData.instrument,
       source: marketData.source,
@@ -2927,6 +3047,29 @@ io.use(async (socket, next) => {
 io.on('connection', (socket) => {
   console.log(`[Socket] Authenticated client connected: ${socket.id} (${socket.user.username})`);
   socket.emit('initial_signals', signals);
+
+  if (scalpSignalLedger) {
+    scalpSignalLedger.snapshot('XAUUSD', 20)
+      .then((snapshot) => socket.emit('scalping_signals_snapshot', snapshot))
+      .catch((error) => {
+        console.error('[SignalLedger Socket] Snapshot failed:', error.message);
+        socket.emit('scalping_signals_snapshot', {
+          ready: false,
+          symbol: 'XAUUSD',
+          activeSignal: null,
+          history: [],
+          error: 'snapshot-unavailable'
+        });
+      });
+  } else {
+    socket.emit('scalping_signals_snapshot', {
+      ready: false,
+      symbol: 'XAUUSD',
+      activeSignal: null,
+      history: [],
+      error: scalpSignalLedgerStatus.error
+    });
+  }
 
   // Join user-specific room for targeted drawings broadcast
   socket.join(`user:${socket.user.username}`);

@@ -1,6 +1,6 @@
 # XAU/USD Market Data Contract
 
-Status: Signal algorithm 3.0.0
+Status: Market data plus scalping Signal Ledger schema 1.0.0
 
 ## Scope
 
@@ -69,13 +69,13 @@ simulation. Auto Trade and MT5 VPS Farm are explicitly out of scope.
 - A BUY/SELL trigger must be on a real completed candle. Synthetic warm-up data
   may initialize indicator state but cannot become a trigger, confirmed swing,
   or TP/SL hit.
-- Stop loss uses the latest confirmed real swing low/high plus an
-  instrument-specific buffer. TP1 is 1R and TP2 is 2R; the signal exposes the
-  risk distance and both risk/reward ratios.
-- XAUUSD trade decisions use H1 bias, M15 setup, then a selected-system M5
-  trigger. H1 and M15 must agree, the M5 trigger must point in the same direction
-  and be no older than two M5 candles, and the feed must not be stale. Otherwise
-  the decision is `WAIT`.
+- The persistent scalping contract uses H1 bias, M15 setup, M5 confirmation,
+  then a real completed M1 execution trigger.
+- Stop loss uses a confirmed real M1 swing low/high plus an instrument-specific
+  buffer. TP1 is 0.5R and TP2 is 0.75R; the signal exposes the risk distance and
+  both actual risk/reward ratios.
+- The existing frontend algorithm 3.0.0 remains transitional until the Phase 2
+  strategy engine begins publishing the new backend contract.
 - `signalStrength` is a stable display score between 90 and 98, derived from the
   signal identity. It is not a calibrated win probability.
 
