@@ -19,10 +19,11 @@ const mongoCandleStore = require('./marketData/mongoCandleStore');
 const mongoSignalStore = require('./signals/mongoSignalStore');
 const { createSignalLedger } = require('./signals/signalLedger');
 const {
-  DEFAULT_BACKFILL_COUNT,
-  countMissingIntervals,
-  buildSyntheticWarmupHistory
-} = require('./marketData/syntheticBackfill');
+  analyzeMissingBuckets,
+  isXauSessionOpenAt,
+  providerTimeToUnixSeconds,
+  crossesScheduledSessionClose
+} = require('./marketData/xauSession');
 
 
 // Load .env file for local development
@@ -424,6 +425,8 @@ const lastTickTimestamp = {
 function isSymbolClosedDynamic(sym) {
   const isCrypto = sym.includes('BTC') || sym.includes('ETH');
   if (isCrypto) return false;
+
+  if (sym === 'XAUUSD' && !isXauSessionOpenAt(Math.floor(Date.now() / 1000))) return true;
 
   // 1. Hardcoded weekend hours
   if (isMarketClosed()) return true;
@@ -1097,27 +1100,26 @@ async function initializeOandaXauHistory() {
 function getXauMarketDataStatus() {
   const receivedAt = priceMetadata.XAUUSD?.receivedAt || 0;
   const priceAgeMs = receivedAt > 0 ? Math.max(0, Date.now() - receivedAt) : null;
+  const sessionOpen = isXauSessionOpenAt(Math.floor(Date.now() / 1000));
   const realHistoryCandles = candleHistory.XAUUSD?.M1?.length || 0;
-  const hasSyntheticAnchor = realHistoryCandles > 0 || Boolean(activeCandles.XAUUSD?.M1);
-  const syntheticHistoryCandles = hasSyntheticAnchor && realHistoryCandles < XAU_MINIMUM_M1_HISTORY
-    ? DEFAULT_BACKFILL_COUNT
-    : 0;
-  const usableHistoryCandles = realHistoryCandles + syntheticHistoryCandles;
-  const missingRealBuckets = countMissingIntervals(candleHistory.XAUUSD?.M1, INTERVAL_SECONDS.M1);
+  const gapAnalysis = analyzeMissingBuckets(
+    candleHistory.XAUUSD?.M1,
+    INTERVAL_SECONDS.M1
+  );
   return {
     ...xauMarketDataStatus,
     historyCandles: realHistoryCandles,
     realHistoryCandles,
-    syntheticHistoryCandles,
-    usableHistoryCandles,
-    missingRealBuckets,
-    historyMode: syntheticHistoryCandles > 0 ? 'synthetic-warmup' : 'real-only',
-    historyReady: usableHistoryCandles >= XAU_MINIMUM_M1_HISTORY,
+    syntheticHistoryCandles: 0,
+    usableHistoryCandles: realHistoryCandles,
+    ...gapAnalysis,
+    historyMode: gapAnalysis.unexpectedMissingBuckets > 0 ? 'real-with-gaps' : 'real-only',
+    historyReady: realHistoryCandles >= XAU_MINIMUM_M1_HISTORY,
     minimumHistoryCandles: XAU_MINIMUM_M1_HISTORY,
     lastPriceAt: receivedAt || null,
     priceAgeMs,
-    stale: !isMarketClosed() && (priceAgeMs === null || priceAgeMs > XAU_STALE_AFTER_MS),
-    marketClosed: isMarketClosed(),
+    stale: sessionOpen && (priceAgeMs === null || priceAgeMs > XAU_STALE_AFTER_MS),
+    marketClosed: !sessionOpen,
     persistenceBackend: 'mongodb',
     persistenceReady: mongoXauPersistenceReady,
     persistenceError: mongoXauPersistenceError,
@@ -1127,14 +1129,14 @@ function getXauMarketDataStatus() {
 
 function getXauClientHistory(timeframe) {
   const intervalSeconds = INTERVAL_SECONDS[timeframe];
-  const realCandles = candleHistory.XAUUSD[timeframe];
-  return buildSyntheticWarmupHistory({
-    realCandles,
-    activeCandle: activeCandles.XAUUSD[timeframe],
-    intervalSeconds,
-    count: realCandles.length < XAU_MINIMUM_M1_HISTORY ? DEFAULT_BACKFILL_COUNT : 0,
-    seed: `XAU_USD:${timeframe}`
-  });
+  const history = [...candleHistory.XAUUSD[timeframe]];
+  const gapAnalysis = analyzeMissingBuckets(history, intervalSeconds);
+  return {
+    history,
+    syntheticCount: 0,
+    gapFillCount: 0,
+    ...gapAnalysis
+  };
 }
 
 async function initializeMongoXauPersistence() {
@@ -1530,6 +1532,15 @@ setInterval(() => {
       const isNewCandle = expectedTime > active.time;
 
       if (isNewCandle) {
+        // A new XAU candle must begin with a provider tick from that bucket.
+        // Reusing the last tick from the previous minute hides real price gaps.
+        if (sym === 'XAUUSD') {
+          const providerTime = providerTimeToUnixSeconds(priceMetadata.XAUUSD?.sourceTime);
+          if (!Number.isFinite(providerTime) || providerTime < expectedTime) return;
+        }
+        const crossedMissingBuckets = expectedTime - active.time > seconds;
+        const scheduledSessionBoundary = sym === 'XAUUSD' && crossedMissingBuckets &&
+          crossesScheduledSessionClose(active.time, expectedTime, seconds);
         let archivedCompletedCandle = false;
         if (sym === 'XAUUSD' && tf !== 'M1') {
           // Higher XAUUSD timeframes are accepted only from full contiguous M1 buckets.
@@ -1540,7 +1551,9 @@ setInterval(() => {
             candleHistory.XAUUSD[tf].push(completed);
             archivedCompletedCandle = true;
           }
-        } else if (sym !== 'XAUUSD' || xauActiveBucketEligible[tf]) {
+        } else if (sym !== 'XAUUSD' || (
+          xauActiveBucketEligible[tf] && (!crossedMissingBuckets || scheduledSessionBoundary)
+        )) {
           // M1 XAUUSD and legacy symbols archive the completed active candle.
           candleHistory[sym][tf].push({ ...active });
           archivedCompletedCandle = true;
@@ -1555,7 +1568,7 @@ setInterval(() => {
 
         activeCandles[sym][tf] = {
           time:  expectedTime,
-          open:  active.close,
+          open:  sym === 'XAUUSD' ? price : active.close,
           high:  price,
           low:   price,
           close: price
@@ -2360,8 +2373,11 @@ app.get('/api/history/:symbol/:interval', requireAuth, (req, res) => {
       ...marketData,
       syntheticHistoryCandles: clientHistory.syntheticCount,
       gapFilledCandles: clientHistory.gapFillCount,
+      missingRealBuckets: clientHistory.missingRealBuckets,
+      scheduledClosedBuckets: clientHistory.scheduledClosedBuckets,
+      unexpectedMissingBuckets: clientHistory.unexpectedMissingBuckets,
       usableHistoryCandles: clientHistory.history.length,
-      historyMode: clientHistory.syntheticCount > 0 ? 'synthetic-warmup' : 'real-only',
+      historyMode: clientHistory.unexpectedMissingBuckets > 0 ? 'real-with-gaps' : 'real-only',
       historyReady: clientHistory.history.length >= XAU_MINIMUM_M1_HISTORY
     } : null
   });
@@ -2387,6 +2403,8 @@ app.get('/api/health', (req, res) => {
       syntheticHistoryCandles: marketData.syntheticHistoryCandles,
       usableHistoryCandles: marketData.usableHistoryCandles,
       missingRealBuckets: marketData.missingRealBuckets,
+      scheduledClosedBuckets: marketData.scheduledClosedBuckets,
+      unexpectedMissingBuckets: marketData.unexpectedMissingBuckets,
       historyMode: marketData.historyMode,
       minimumHistoryCandles: marketData.minimumHistoryCandles,
       persistenceBackend: marketData.persistenceBackend,

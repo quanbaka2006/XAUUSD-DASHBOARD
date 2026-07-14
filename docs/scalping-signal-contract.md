@@ -61,15 +61,14 @@ Example BUY: entry 10, SL 0, TP1 15, TP2 17.5. The true displayed ratios are
 ## Data-quality rules
 
 - The trigger candle must be real and completed.
-- Synthetic warm-up candles may initialize indicator state but cannot trigger a
-  signal, define a swing, or count as a TP/SL hit.
-- Gap-fill candles are display-only and cannot trigger a signal, define a swing,
-  or count as a TP/SL hit.
+- The history API supplies only real provider candles. Legacy synthetic or
+  gap-fill payloads are rejected defensively and cannot trigger a signal,
+  define a swing, or count as a TP/SL hit.
 - A confirmed swing uses five real, contiguous candles on the signal timeframe:
   two candles on each side of the pivot. If it is unavailable, the fallback is
   the extreme of the latest 20 real candles before the trigger.
-- A nearby gap-fill is recorded as a warning. It cannot itself become the
-  trigger or swing, but it does not block a valid native indicator event.
+- Missing provider buckets are reported as data quality; they are never replaced
+  with invented OHLC candles.
 - On browser cold start, the latest native event is restored and all later real
   candles are replayed to recover RUNNING, TP1_HIT, TP2_HIT, or SL_HIT. A
   restored event is displayed but is not announced as a new signal.
@@ -166,8 +165,8 @@ active signal identity, and non-secret error state.
 1. BUY entry 10 / SL 0 / TP1 15 / TP2 17.5 is accepted.
 2. M5/M15/H1 accept only their configured longer reward profiles.
 3. SELL geometry is the exact inverse of BUY.
-4. Synthetic trigger and synthetic swing are rejected; recent gap-fill is
-   retained as a data-quality warning.
+4. Synthetic trigger and synthetic swing are rejected; missing provider buckets
+   remain explicit data-quality gaps.
 5. The same identity is idempotent.
 6. A second open identity on the same timeframe is rejected, while another
    timeframe is allowed.

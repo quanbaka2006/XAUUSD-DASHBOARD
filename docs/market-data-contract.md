@@ -35,13 +35,14 @@ simulation. Auto Trade and MT5 VPS Farm are explicitly out of scope.
   - H1: `floor(epoch / 3600) * 3600`
 - A missing M1 candle is a data gap. It must not be synthesized, forward-filled,
   or persisted as real market data.
-- The history API may add deterministic `warmup-backfill` candles before the
-  first real candle and `gap-fill` candles inside a missing range for chart
-  continuity only. Both types must carry `synthetic=true` and a
-  `syntheticReason`, and neither type may be written to MongoDB.
-- `gap-fill` candles are excluded from indicator, trigger, swing, and outcome
-  calculations. A nearby gap is exposed as a quality warning rather than a hard
-  signal block.
+- The history API returns only stored provider candles. It must not add
+  `warmup-backfill` or `gap-fill` candles for visual continuity.
+- Missing buckets are classified with the official OANDA XAU/USD New York
+  session (Sun-Fri 18:05-16:59), including daylight-saving changes. Scheduled
+  closure buckets and unexpected feed-loss buckets are reported separately.
+- A reopening candle starts at the first provider tick in its bucket. It must
+  not reuse the previous session close as its open, because doing so hides a
+  legitimate market gap.
 - OHLC invariants must hold for every candle:
   - `high >= max(open, close)`
   - `low <= min(open, close)`
@@ -72,9 +73,9 @@ simulation. Auto Trade and MT5 VPS Farm are explicitly out of scope.
 - Identical input candles and parameters must produce identical output.
 - A signal must contain its source candle time, symbol, timeframe, indicator name,
   parameter set, and algorithm version.
-- A BUY/SELL trigger must be on a real completed candle. Synthetic warm-up data
-  may initialize indicator state but cannot become a trigger, confirmed swing,
-  or TP/SL hit.
+- A BUY/SELL trigger must be on a real completed provider candle. Legacy
+  synthetic payloads remain rejected defensively and are not produced by the
+  current history API.
 - The persistent scalping contract supports independent M1, M5, M15, and H1
   signals. Higher-timeframe context is informational rather than a hard gate.
 - Stop loss prefers a confirmed real swing plus an instrument-specific buffer.

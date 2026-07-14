@@ -44,14 +44,12 @@ are unavailable.
 - Signal readiness requires at least 500 completed M1 candles.
 - The UI shows `WARMUP n/500`, `FEED STALE`, or `FINNHUB OANDA`.
 - `MONGODB_URI` is the only persistence setting; no Render disk is required.
-- Until enough real history has accumulated, each XAUUSD timeframe returned by
-  the history API includes 500 deterministic synthetic warm-up candles before
-  the first real candle. Missing internal time buckets are bridged separately.
-  Synthetic candles are explicitly marked and are never written to MongoDB.
-- The dashboard keeps the normal feed badge while health output reports real,
-  synthetic, and usable candle counts separately.
-- Synthetic and gap-fill candles remain a display/warm-up aid only. The signal
-  panel reports its confirmed swing, risk distance, and TP1/TP2 R:R values.
+- The XAUUSD history API now returns provider candles only. Synthetic warm-up
+  and gap-fill candles are no longer generated or displayed.
+- Health output separates scheduled OANDA session closures from unexpected
+  missing feed buckets and reports `real-only` or `real-with-gaps` explicitly.
+- Reopening candles use the first provider tick as their open, preserving real
+  session gaps instead of smoothing them with the previous close.
 
 ## Phase 5 - Dashboard security
 
