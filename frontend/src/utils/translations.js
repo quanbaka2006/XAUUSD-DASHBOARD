@@ -80,8 +80,6 @@ export const translations = {
     recommendedSize: "Khối lượng khuyên dùng:",
 
     // Signal details
-    buyNow: "BUY NOW",
-    sellNow: "SELL NOW",
     expired: "EXPIRED",
     vipSignal: "GOLD VIP SIGNAL",
     waiting: "CHỜ TÍN HIỆU",
@@ -318,8 +316,6 @@ export const translations = {
     recommendedSize: "Recommended Size:",
 
     // Signal details
-    buyNow: "BUY NOW",
-    sellNow: "SELL NOW",
     expired: "EXPIRED",
     vipSignal: "GOLD VIP SIGNAL",
     waiting: "WAITING FOR SIGNAL",

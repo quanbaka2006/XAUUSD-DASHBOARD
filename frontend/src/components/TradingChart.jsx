@@ -389,24 +389,12 @@ function ConfluencePanel({ confluence }) {
 
 function HeroActionDisplay({ currentSignal }) {
   const livePrice = useTradeStore(s => s.livePrice);
-  const { t, language } = useTranslation();
+  const { t } = useTranslation();
   const status = computeSignalStatus(currentSignal, livePrice);
   const isFinished = ['tp', 'sl', 'missed', 'expired'].includes(status) ||
     currentSignal.status === 'finished' || currentSignal.status === 'closed';
   const direction = currentSignal.action === 'buy' ? 'BUY' : currentSignal.action === 'sell' ? 'SELL' : null;
-  const actionText = status === 'missed'
-    ? language === 'en' ? 'ENTRY MISSED' : 'BỎ LỠ ENTRY'
-    : status === 'expired'
-      ? language === 'en' ? 'ENTRY EXPIRED' : 'HẾT HẠN ENTRY'
-      : status === 'pending' && direction
-        ? language === 'en' ? `WAIT ${direction}` : `CHỜ ${direction}`
-        : isFinished
-          ? 'FINISHED'
-          : direction && currentSignal.restoredFromHistory
-            ? language === 'en' ? `TRACKING ${direction}` : `THEO DÕI ${direction}`
-            : direction
-              ? `${direction} NOW`
-              : t('waiting');
+  const actionText = isFinished ? 'FINISHED' : direction || t('waiting');
 
   return (
     <div className={`relative h-14 rounded-xl flex items-center justify-center overflow-hidden transition-all duration-500 ${
@@ -2246,9 +2234,7 @@ export function TradingChart({ mobileTab }) {
             </div>
             <div className="text-center flex-1 flex flex-col justify-end">
               <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest block mb-1.5">
-                {currentSignal.restoredFromHistory
-                  ? language === 'en' ? 'SIGNAL BEING TRACKED' : 'TÍN HIỆU ĐANG THEO DÕI'
-                  : t('latestDetails')}
+                {t('latestDetails')}
               </span>
               
               <HeroActionDisplay currentSignal={currentSignal} />
