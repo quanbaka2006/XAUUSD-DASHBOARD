@@ -62,8 +62,10 @@ simulation. Auto Trade and MT5 VPS Farm are explicitly out of scope.
 ## Signal contract
 
 - Signals are evaluated only after a completed candle is accepted.
-- BUY/SELL requires a native event on that real completed candle: EMA crossover,
-  UT Bot trailing-stop cross, Chandelier direction flip, or Trendline breakout.
+- BUY/SELL requires a native event on that real completed candle: UT Bot
+  trailing-stop cross, Chandelier direction flip, or Trendline breakout.
+- Zen/MTF Trend PA remains available as a visual EMA overlay but cannot emit,
+  restore, cache, or simulate a BUY/SELL signal.
 - A page reload restores the latest native event, replays subsequent real
   candles to recover its lifecycle, and cannot announce it as a new signal.
 - The active candle may update UI price/OHLC but cannot create a confirmed signal.
@@ -78,7 +80,7 @@ simulation. Auto Trade and MT5 VPS Farm are explicitly out of scope.
 - Stop loss prefers a confirmed real swing plus an instrument-specific buffer.
   If gaps prevent a five-candle pivot, it uses the latest 20-candle real extreme.
   TP1/TP2 profiles extend from 0.5R/0.75R on M1 to 1.5R/2R on H1.
-- The existing frontend algorithm 3.4.0 remains transitional until the Phase 2
+- The existing frontend algorithm 3.5.0 remains transitional until the Phase 2
   strategy engine begins publishing the new backend contract.
 - `signalStrength` is a stable display score between 90 and 98, derived from the
   signal identity. It is not a calibrated win probability.

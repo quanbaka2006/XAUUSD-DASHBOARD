@@ -1,6 +1,5 @@
 import { create } from 'zustand';
-import { 
-  calculateZenTrendLines, 
+import {
   calculateUTBotSignals, 
   calculateChandelierExit, 
   calculateTrendlinesWithBreaks, 
@@ -10,7 +9,8 @@ import {
 import {
   advanceSignalWithPrice,
   getTrackedSignalForIndicator,
-  putTrackedSignalForIndicator
+  putTrackedSignalForIndicator,
+  removeTrackedSignalsForIndicator
 } from '../utils/signalLifecycle';
 
 export const SOCKET_URL = window.location.hostname === 'localhost' 
@@ -52,7 +52,10 @@ const TRACKED_SIGNALS_STORAGE_KEY = 'tracked_signals_v5';
 const getSavedTrackedSignals = () => {
   try {
     const parsed = JSON.parse(localStorage.getItem(TRACKED_SIGNALS_STORAGE_KEY) || '{}');
-    return parsed && typeof parsed === 'object' ? parsed : {};
+    const signals = parsed && typeof parsed === 'object' ? parsed : {};
+    const sanitized = removeTrackedSignalsForIndicator(signals, 'zen');
+    localStorage.setItem(TRACKED_SIGNALS_STORAGE_KEY, JSON.stringify(sanitized));
+    return sanitized;
   } catch {
     return {};
   }
@@ -126,7 +129,7 @@ const getSavedIsSimulating = () => {
 
 const getSavedSimulatedIndicator = () => {
   const val = localStorage.getItem('simulated_indicator');
-  return val || 'zen';
+  return val && val !== 'zen' ? val : 'chandelier';
 };
 
 const getLatestSignalForSystem = (system, candles, state) => {
@@ -226,7 +229,7 @@ export const useTradeStore = create((set, get) => ({
   selectedTimeframe: 'M1',
 
   // Custom Indicator System States
-  selectedIndicatorSystem: 'zen',
+  selectedIndicatorSystem: 'chandelier',
   zenFastPeriod: 20,
   zenSlowPeriod: 50,
   utBotKeyValue: 2,
@@ -283,7 +286,7 @@ export const useTradeStore = create((set, get) => ({
   showConfigPanel: false,
   candleColorTheme: 'premium',
   riskCalculator: { accountBalance: 10000, riskPercentage: 1 },
-  currentSignal: getTrackedSignalForIndicator(initialTrackedSignals, 'XAUUSD', 'M1', 'zen'),
+  currentSignal: getTrackedSignalForIndicator(initialTrackedSignals, 'XAUUSD', 'M1', 'chandelier'),
 
   userBotSettings: {},
 
@@ -465,6 +468,17 @@ export const useTradeStore = create((set, get) => ({
     signals: typeof val === 'function' ? val(state.signals) : val
   })),
   setTrackedSignal: (symbol, timeframe, indicator, signal) => set((state) => {
+    if (indicator === 'zen') {
+      const trackedSignals = removeTrackedSignalsForIndicator(state.trackedSignals, 'zen');
+      persistTrackedSignals(trackedSignals);
+      return {
+        trackedSignals,
+        currentSignal: state.selectedSymbol === symbol && state.selectedTimeframe === timeframe &&
+            state.selectedIndicatorSystem === 'zen'
+          ? null
+          : state.currentSignal
+      };
+    }
     const trackedSignals = putTrackedSignalForIndicator(
       state.trackedSignals, symbol, timeframe, indicator, signal
     );
@@ -818,9 +832,7 @@ export const useTradeStore = create((set, get) => ({
     let lastSignalTime = 0;
     
     let signalsData = [];
-    if (simulatedIndicator === 'zen') {
-      signalsData = calculateZenTrendLines(candlesHistory, get().zenFastPeriod, get().zenSlowPeriod);
-    } else if (simulatedIndicator === 'utbot') {
+    if (simulatedIndicator === 'utbot') {
       signalsData = calculateUTBotSignals(candlesHistory, get().utBotKeyValue, get().utBotAtrPeriod);
     } else if (simulatedIndicator === 'chandelier') {
       signalsData = calculateChandelierExit(candlesHistory, get().chandelierAtrPeriod, get().chandelierAtrMultiplier);
@@ -854,9 +866,7 @@ export const useTradeStore = create((set, get) => ({
       if (!sig) continue;
       
       let action = 'stale';
-      if (simulatedIndicator === 'zen') {
-        action = sig.trend === 'bullish' ? 'buy' : 'sell';
-      } else if (simulatedIndicator === 'utbot' || simulatedIndicator === 'chandelier' || simulatedIndicator === 'trendline') {
+      if (simulatedIndicator === 'utbot' || simulatedIndicator === 'chandelier' || simulatedIndicator === 'trendline') {
         if (sig.buy) action = 'buy';
         else if (sig.sell) action = 'sell';
       }

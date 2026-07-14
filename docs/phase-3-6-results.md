@@ -14,10 +14,12 @@ are unavailable.
 - Signal output now includes symbol, timeframe, indicator, parameter set,
   algorithm version, risk-model version, and source candle time.
 - XAUUSD signal generation fails closed while market data is not ready.
-- Algorithm version is `3.4.0`.
-- Every indicator emits only from its own fresh native event on the most recent
+- Algorithm version is `3.5.0`.
+- UT Bot, Chandelier, and Trendline emit only from their own fresh native event on the most recent
   real closed candle. Reload restores the latest event, replays later real
   candles to recover its lifecycle, and does not announce it as a new event.
+- Zen/MTF Trend PA is visual-only: it retains its EMA lines but cannot emit,
+  restore, cache, or paper-simulate a BUY/SELL signal.
 - Static/ATR-style signal exits use a real-swing risk model: BUY places SL below
   a real swing low and SELL above a real swing high. A confirmed pivot is
   preferred, with the latest 20-candle real extreme as fallback. TP1/TP2 extend

@@ -21,9 +21,10 @@ differ.
 The strategy intentionally uses few blocking conditions:
 
 1. The selected timeframe supplies a real completed trigger candle.
-2. The selected indicator must produce a new native event on that candle: Zen
-   EMA crossover, UT Bot price/trailing-stop cross, Chandelier direction flip,
-   or Trendline breakout.
+2. The selected signal system must produce a new native event on that candle:
+   UT Bot price/trailing-stop cross, Chandelier direction flip, or Trendline
+   breakout. Zen/MTF Trend PA is a visual EMA overlay and cannot publish a
+   trading signal.
 3. Its nearest higher timeframe may provide directional context.
 4. H1/M15/M5 confluence remains visible information and does not block a valid
    trigger.
@@ -176,3 +177,4 @@ active signal identity, and non-secret error state.
 10. History is returned newest first with a bounded limit.
 11. A browser reload restores the latest event and lifecycle without publishing
     a duplicate new-signal notification.
+12. Zen/MTF Trend PA output is never accepted as a BUY/SELL signal.

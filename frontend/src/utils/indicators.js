@@ -1,6 +1,6 @@
 // Math Helpers for Indicators
 
-export const SIGNAL_ALGORITHM_VERSION = '3.4.0';
+export const SIGNAL_ALGORITHM_VERSION = '3.5.0';
 
 export function getStableDisplayStrength({ symbol, timeframe, indicator, timestamp }) {
   const input = `${symbol || ''}:${timeframe || ''}:${indicator || ''}:${timestamp || 0}`;
@@ -450,6 +450,7 @@ const SIGNAL_BLOCK_MESSAGES = {
   'insufficient-indicator-warmup': 'Chỉ báo chưa đủ dữ liệu warm-up',
   'no-real-closed-candle': 'Chưa có nến thật đã đóng',
   'no-confirmed-signal': 'Chưa có tín hiệu đã xác nhận',
+  'indicator-signals-disabled': 'Zen chỉ hiển thị EMA và không phát tín hiệu',
   'synthetic-trigger-blocked': 'Trigger nằm trên nến synthetic nên đã bị chặn',
   'recent-gap-fill': 'Có gap-fill gần trigger nên đang chờ dữ liệu thật',
   'confirmed-swing-not-found': 'Chưa tìm thấy swing thật đã xác nhận'
@@ -606,6 +607,7 @@ export function getCurrentSignal({
     sourceCandleTime: null,
     timestamp: Date.now()
   });
+  if (selectedIndicatorSystem === 'zen') return staleSignal('indicator-signals-disabled');
   if (!dataReady) return staleSignal('market-data-not-ready');
   if (!history || history.length < 2) return staleSignal('insufficient-history');
 
@@ -641,20 +643,6 @@ export function getCurrentSignal({
       restoredFromHistory: Number(sessionStartedAt) > 0 && triggerAvailableAt <= Number(sessionStartedAt)
     };
   };
-
-  if (selectedIndicatorSystem === 'zen') {
-    const zenData = calculateZenTrendLines(closedHistory, zenFastPeriod, zenSlowPeriod);
-    if (zenData.length < 2) return staleSignal();
-    for (let index = zenData.length - 1; index >= 1; index -= 1) {
-      const event = zenData[index];
-      if (!realCandleByTime.has(event.time) || event.trend === zenData[index - 1].trend) continue;
-      const action = event.trend === 'bullish' ? 'buy' : 'sell';
-      rawSignal = createEventSignal(
-        event, action, `EMA fast crossed ${action === 'buy' ? 'above' : 'below'} EMA slow`
-      );
-      break;
-    }
-  }
 
   if (selectedIndicatorSystem === 'utbot') {
     const utData = calculateUTBotSignals(closedHistory, utBotKeyValue, utBotAtrPeriod);

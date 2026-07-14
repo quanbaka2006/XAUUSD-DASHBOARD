@@ -37,6 +37,17 @@ export function putTrackedSignalForIndicator(trackedSignals, symbol, timeframe, 
   };
 }
 
+export function removeTrackedSignalsForIndicator(trackedSignals, indicator) {
+  return Object.fromEntries(Object.entries(trackedSignals || {}).map(([symbol, timeframeSignals]) => [
+    symbol,
+    Object.fromEntries(Object.entries(timeframeSignals || {}).map(([timeframe, indicatorSignals]) => {
+      if (!indicatorSignals || isDisplayableSignal(indicatorSignals)) return [timeframe, indicatorSignals];
+      const { [indicator]: _removed, ...remaining } = indicatorSignals;
+      return [timeframe, remaining];
+    }))
+  ]));
+}
+
 const TIMEFRAME_SECONDS = Object.freeze({ M1: 60, M5: 300, M15: 900, H1: 3600 });
 
 function getCandidateAvailableAt(signal) {

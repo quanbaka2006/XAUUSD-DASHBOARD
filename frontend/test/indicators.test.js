@@ -62,11 +62,15 @@ test('indicator systems do not turn an unchanged state into a new signal', () =>
       trendlineLength: 14, trendlineSlopeMult: 1, livePrice: 2000
     });
     assert.equal(signal.action, 'stale', selectedIndicatorSystem);
-    assert.equal(signal.blockedReason, 'no-confirmed-signal', selectedIndicatorSystem);
+    assert.equal(
+      signal.blockedReason,
+      selectedIndicatorSystem === 'zen' ? 'indicator-signals-disabled' : 'no-confirmed-signal',
+      selectedIndicatorSystem
+    );
   }
 });
 
-test('each indicator accepts only its fresh event on the latest closed candle', () => {
+test('each enabled indicator accepts only its fresh event on the latest closed candle', () => {
   const values = [
     ...Array(30).fill(2000),
     ...Array.from({ length: 8 }, (_, index) => 2000 - (index + 1) * 2),
@@ -74,7 +78,7 @@ test('each indicator accepts only its fresh event on the latest closed candle', 
   ];
   const closed = closes(values);
   const history = [...closed, { ...closed.at(-1), time: closed.at(-1).time + 60 }];
-  for (const selectedIndicatorSystem of ['zen', 'utbot', 'chandelier', 'trendline']) {
+  for (const selectedIndicatorSystem of ['utbot', 'chandelier', 'trendline']) {
     const signal = getCurrentSignal({
       history,
       selectedSymbol: 'XAUUSD', selectedTimeframe: 'M1', selectedIndicatorSystem,
@@ -86,6 +90,21 @@ test('each indicator accepts only its fresh event on the latest closed candle', 
     assert.equal(signal.triggerType, 'fresh-indicator-event', selectedIndicatorSystem);
     assert.equal(signal.timestamp, closed.at(-1).time * 1000, selectedIndicatorSystem);
   }
+});
+
+test('Zen remains a visual EMA overlay and never emits a trading signal', () => {
+  const values = [...Array(30).fill(2000), 1990, 2010];
+  const closed = closes(values);
+  const signal = getCurrentSignal({
+    history: [...closed, { ...closed.at(-1), time: closed.at(-1).time + 60 }],
+    selectedSymbol: 'XAUUSD', selectedTimeframe: 'M1', selectedIndicatorSystem: 'zen',
+    zenFastPeriod: 2, zenSlowPeriod: 5, utBotKeyValue: 2, utBotAtrPeriod: 10,
+    chandelierAtrPeriod: 10, chandelierAtrMultiplier: 2,
+    trendlineLength: 5, trendlineSlopeMult: 1
+  });
+  assert.equal(signal.action, 'stale');
+  assert.equal(signal.blockedReason, 'indicator-signals-disabled');
+  assert.equal(signal.signalStrength, 0);
 });
 
 test('trendline breakout markers are attached to the detection candle, not back-painted', () => {
@@ -102,7 +121,7 @@ test('signal display strength stays stable between 90 and 98 for the same signal
   ];
   const history = closes([...values, values[values.length - 1]]);
   const signal = getCurrentSignal({
-    history, selectedSymbol: 'XAUUSD', selectedTimeframe: 'M1', selectedIndicatorSystem: 'zen',
+    history, selectedSymbol: 'XAUUSD', selectedTimeframe: 'M1', selectedIndicatorSystem: 'utbot',
     zenFastPeriod: 2, zenSlowPeriod: 5, utBotKeyValue: 2, utBotAtrPeriod: 10,
     chandelierAtrPeriod: 10, chandelierAtrMultiplier: 2,
     trendlineLength: 5, trendlineSlopeMult: 1, livePrice: values[values.length - 1]
@@ -110,10 +129,10 @@ test('signal display strength stays stable between 90 and 98 for the same signal
   assert.equal(signal.action, 'buy');
   assert.ok(signal.signalStrength >= 90 && signal.signalStrength <= 98);
   assert.equal(signal.signalStrength, getStableDisplayStrength({
-    symbol: 'XAUUSD', timeframe: 'M1', indicator: 'zen', timestamp: signal.timestamp
+    symbol: 'XAUUSD', timeframe: 'M1', indicator: 'utbot', timestamp: signal.timestamp
   }));
-  assert.equal(signal.algorithmVersion, '3.4.0');
-  assert.equal(signal.indicator, 'zen');
+  assert.equal(signal.algorithmVersion, '3.5.0');
+  assert.equal(signal.indicator, 'utbot');
   assert.equal(signal.timeframe, 'M1');
   assert.equal(signal.sourceCandleTime, signal.timestamp / 1000);
   assert.equal(signal.riskModel, 'real-swing-rr-v2');
@@ -126,14 +145,14 @@ test('XAUUSD signal generation fails closed while market data is warming up', ()
   const history = closes(Array.from({ length: 600 }, (_, i) => 2000 + Math.sin(i / 8)));
   const signal = getCurrentSignal({
     history,
-    selectedSymbol: 'XAUUSD', selectedTimeframe: 'M1', selectedIndicatorSystem: 'zen',
+    selectedSymbol: 'XAUUSD', selectedTimeframe: 'M1', selectedIndicatorSystem: 'utbot',
     zenFastPeriod: 5, zenSlowPeriod: 10, utBotKeyValue: 2, utBotAtrPeriod: 10,
     chandelierAtrPeriod: 22, chandelierAtrMultiplier: 3,
     trendlineLength: 14, trendlineSlopeMult: 1, dataReady: false
   });
   assert.equal(signal.action, 'stale');
   assert.equal(signal.signalStrength, 0);
-  assert.equal(signal.algorithmVersion, '3.4.0');
+  assert.equal(signal.algorithmVersion, '3.5.0');
 });
 
 test('recent gap-fill is reported as data quality and no longer blocks a real trigger', () => {
@@ -150,7 +169,7 @@ test('recent gap-fill is reported as data quality and no longer blocks a real tr
     syntheticReason: 'gap-fill'
   };
   const active = { ...closed.at(-1), time: closed.at(-1).time + 60 };
-  for (const selectedIndicatorSystem of ['zen', 'utbot', 'chandelier', 'trendline']) {
+  for (const selectedIndicatorSystem of ['utbot', 'chandelier', 'trendline']) {
     const signal = getCurrentSignal({
       history: [...closed, gap, active],
       selectedSymbol: 'XAUUSD', selectedTimeframe: 'M1', selectedIndicatorSystem,
@@ -170,7 +189,7 @@ test('cold start restores a trigger that had already closed without treating it 
   const history = [...closed, { ...closed.at(-1), time: closed.at(-1).time + 60 }];
   const common = {
     history,
-    selectedSymbol: 'XAUUSD', selectedTimeframe: 'M1', selectedIndicatorSystem: 'zen',
+    selectedSymbol: 'XAUUSD', selectedTimeframe: 'M1', selectedIndicatorSystem: 'chandelier',
     zenFastPeriod: 2, zenSlowPeriod: 5, utBotKeyValue: 2, utBotAtrPeriod: 10,
     chandelierAtrPeriod: 10, chandelierAtrMultiplier: 2,
     trendlineLength: 5, trendlineSlopeMult: 1
@@ -194,7 +213,7 @@ test('restores the latest older event and replays later candles to its lifecycle
   const runningClosed = closes([...eventValues, 2011, 2012]);
   const running = getCurrentSignal({
     history: [...runningClosed, { ...runningClosed.at(-1), time: runningClosed.at(-1).time + 60 }],
-    selectedSymbol: 'XAUUSD', selectedTimeframe: 'M1', selectedIndicatorSystem: 'zen',
+    selectedSymbol: 'XAUUSD', selectedTimeframe: 'M1', selectedIndicatorSystem: 'chandelier',
     zenFastPeriod: 2, zenSlowPeriod: 5, utBotKeyValue: 2, utBotAtrPeriod: 10,
     chandelierAtrPeriod: 10, chandelierAtrMultiplier: 2,
     trendlineLength: 5, trendlineSlopeMult: 1,
@@ -209,7 +228,7 @@ test('restores the latest older event and replays later candles to its lifecycle
   const finishedClosed = closes([...eventValues, 2035]);
   const finished = getCurrentSignal({
     history: [...finishedClosed, { ...finishedClosed.at(-1), time: finishedClosed.at(-1).time + 60 }],
-    selectedSymbol: 'XAUUSD', selectedTimeframe: 'M1', selectedIndicatorSystem: 'zen',
+    selectedSymbol: 'XAUUSD', selectedTimeframe: 'M1', selectedIndicatorSystem: 'chandelier',
     zenFastPeriod: 2, zenSlowPeriod: 5, utBotKeyValue: 2, utBotAtrPeriod: 10,
     chandelierAtrPeriod: 10, chandelierAtrMultiplier: 2,
     trendlineLength: 5, trendlineSlopeMult: 1,
@@ -221,7 +240,7 @@ test('restores the latest older event and replays later candles to its lifecycle
   assert.ok(Number.isFinite(finished.finishedAt));
 });
 
-test('restores an older native event independently for all four indicator systems', () => {
+test('restores an older native event independently for all enabled indicator systems', () => {
   const values = [
     ...Array(30).fill(2000),
     ...Array.from({ length: 8 }, (_, index) => 2000 - (index + 1) * 2),
@@ -229,7 +248,7 @@ test('restores an older native event independently for all four indicator system
   ];
   const closed = closes(values);
   const history = [...closed, { ...closed.at(-1), time: closed.at(-1).time + 60 }];
-  for (const selectedIndicatorSystem of ['zen', 'utbot', 'chandelier', 'trendline']) {
+  for (const selectedIndicatorSystem of ['utbot', 'chandelier', 'trendline']) {
     const restored = getCurrentSignal({
       history,
       selectedSymbol: 'XAUUSD', selectedTimeframe: 'M1', selectedIndicatorSystem,

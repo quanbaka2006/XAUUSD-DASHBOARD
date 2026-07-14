@@ -5,6 +5,7 @@ import {
   getTrackedSignalForIndicator,
   mapLedgerSignalForDisplay,
   putTrackedSignalForIndicator,
+  removeTrackedSignalsForIndicator,
   selectDisplayedSignal
 } from '../src/utils/signalLifecycle.js';
 
@@ -76,25 +77,41 @@ test('maps backend terminal status to a persistent FINISHED display signal', () 
 });
 
 test('tracks each indicator independently on the same symbol and timeframe', () => {
-  const zen = buy({ signalId: 'ZEN-BUY', indicator: 'zen' });
+  const chandelier = buy({ signalId: 'CE-BUY', indicator: 'chandelier' });
   const utBot = buy({
     signalId: 'UTBOT-SELL', indicator: 'utbot', action: 'sell',
     entry: 20, sl: 25, tps: [15, 12.5]
   });
-  let tracked = putTrackedSignalForIndicator({}, 'XAUUSD', 'M1', 'zen', zen);
+  let tracked = putTrackedSignalForIndicator({}, 'XAUUSD', 'M1', 'chandelier', chandelier);
   tracked = putTrackedSignalForIndicator(tracked, 'XAUUSD', 'M1', 'utbot', utBot);
 
-  assert.equal(getTrackedSignalForIndicator(tracked, 'XAUUSD', 'M1', 'zen').signalId, 'ZEN-BUY');
+  assert.equal(getTrackedSignalForIndicator(tracked, 'XAUUSD', 'M1', 'chandelier').signalId, 'CE-BUY');
   assert.equal(getTrackedSignalForIndicator(tracked, 'XAUUSD', 'M1', 'utbot').signalId, 'UTBOT-SELL');
-  assert.equal(getTrackedSignalForIndicator(tracked, 'XAUUSD', 'M1', 'chandelier'), null);
+  assert.equal(getTrackedSignalForIndicator(tracked, 'XAUUSD', 'M1', 'trendline'), null);
 
-  const finishedZen = advanceSignalWithPrice(
-    getTrackedSignalForIndicator(tracked, 'XAUUSD', 'M1', 'zen'),
+  const finishedChandelier = advanceSignalWithPrice(
+    getTrackedSignalForIndicator(tracked, 'XAUUSD', 'M1', 'chandelier'),
     17.5,
     3000
   );
-  tracked = putTrackedSignalForIndicator(tracked, 'XAUUSD', 'M1', 'zen', finishedZen);
+  tracked = putTrackedSignalForIndicator(
+    tracked, 'XAUUSD', 'M1', 'chandelier', finishedChandelier
+  );
 
-  assert.equal(getTrackedSignalForIndicator(tracked, 'XAUUSD', 'M1', 'zen').status, 'finished');
+  assert.equal(getTrackedSignalForIndicator(tracked, 'XAUUSD', 'M1', 'chandelier').status, 'finished');
   assert.equal(getTrackedSignalForIndicator(tracked, 'XAUUSD', 'M1', 'utbot').status, 'running');
+});
+
+test('removes cached Zen signals without deleting other indicator lifecycles', () => {
+  let tracked = putTrackedSignalForIndicator({}, 'XAUUSD', 'M1', 'zen', buy({ signalId: 'ZEN' }));
+  tracked = putTrackedSignalForIndicator(
+    tracked,
+    'XAUUSD',
+    'M1',
+    'chandelier',
+    buy({ signalId: 'CE' })
+  );
+  const sanitized = removeTrackedSignalsForIndicator(tracked, 'zen');
+  assert.equal(getTrackedSignalForIndicator(sanitized, 'XAUUSD', 'M1', 'zen'), null);
+  assert.equal(getTrackedSignalForIndicator(sanitized, 'XAUUSD', 'M1', 'chandelier').signalId, 'CE');
 });
