@@ -14,10 +14,10 @@ are unavailable.
 - Signal output now includes symbol, timeframe, indicator, parameter set,
   algorithm version, risk-model version, and source candle time.
 - XAUUSD signal generation fails closed while market data is not ready.
-- Algorithm version is `3.3.0`.
+- Algorithm version is `3.4.0`.
 - Every indicator emits only from its own fresh native event on the most recent
-  real closed candle. Reload establishes a baseline and does not republish an
-  event that had already closed before the page session started.
+  real closed candle. Reload restores the latest event, replays later real
+  candles to recover its lifecycle, and does not announce it as a new event.
 - Static/ATR-style signal exits use a real-swing risk model: BUY places SL below
   a real swing low and SELL above a real swing high. A confirmed pivot is
   preferred, with the latest 20-candle real extreme as fallback. TP1/TP2 extend

@@ -64,8 +64,8 @@ simulation. Auto Trade and MT5 VPS Farm are explicitly out of scope.
 - Signals are evaluated only after a completed candle is accepted.
 - BUY/SELL requires a native event on that real completed candle: EMA crossover,
   UT Bot trailing-stop cross, Chandelier direction flip, or Trendline breakout.
-- A page reload treats indicator events that closed before page start as
-  historical baseline and cannot publish them as new signals.
+- A page reload restores the latest native event, replays subsequent real
+  candles to recover its lifecycle, and cannot announce it as a new signal.
 - The active candle may update UI price/OHLC but cannot create a confirmed signal.
 - Identical input candles and parameters must produce identical output.
 - A signal must contain its source candle time, symbol, timeframe, indicator name,
@@ -78,7 +78,7 @@ simulation. Auto Trade and MT5 VPS Farm are explicitly out of scope.
 - Stop loss prefers a confirmed real swing plus an instrument-specific buffer.
   If gaps prevent a five-candle pivot, it uses the latest 20-candle real extreme.
   TP1/TP2 profiles extend from 0.5R/0.75R on M1 to 1.5R/2R on H1.
-- The existing frontend algorithm 3.3.0 remains transitional until the Phase 2
+- The existing frontend algorithm 3.4.0 remains transitional until the Phase 2
   strategy engine begins publishing the new backend contract.
 - `signalStrength` is a stable display score between 90 and 98, derived from the
   signal identity. It is not a calibrated win probability.

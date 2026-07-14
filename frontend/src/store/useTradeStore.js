@@ -47,7 +47,7 @@ const getSavedUser = () => {
   }
 };
 
-const TRACKED_SIGNALS_STORAGE_KEY = 'tracked_signals_v4';
+const TRACKED_SIGNALS_STORAGE_KEY = 'tracked_signals_v5';
 
 const getSavedTrackedSignals = () => {
   try {

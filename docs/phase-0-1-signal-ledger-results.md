@@ -61,9 +61,10 @@ The public `/api/health` payload includes a non-secret `signalLedger` section.
 
 ## Intentional Phase 1 limitation
 
-Phase 1 is persistence infrastructure. Frontend algorithm 3.3.0 emits only a
-fresh native indicator event and retains lifecycle state locally per
-symbol/timeframe/indicator. A cold start establishes a baseline and cannot turn
-an already-closed historical event into a new signal. Phase 2 will move that
-strategy generation to the backend and publish contract-valid timeframe signals
-into the ledger so every client shares one authoritative history.
+Phase 1 is persistence infrastructure. Frontend algorithm 3.4.0 emits only a
+native indicator event and retains lifecycle state locally per
+symbol/timeframe/indicator. On cold start it restores the latest native event,
+replays later real candles to recover its lifecycle, and suppresses duplicate
+new-signal notifications. Phase 2 will move that strategy generation to the
+backend and publish contract-valid timeframe signals into the ledger so every
+client shares one authoritative history.

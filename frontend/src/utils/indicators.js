@@ -1,6 +1,6 @@
 // Math Helpers for Indicators
 
-export const SIGNAL_ALGORITHM_VERSION = '3.3.0';
+export const SIGNAL_ALGORITHM_VERSION = '3.4.0';
 
 export function getStableDisplayStrength({ symbol, timeframe, indicator, timestamp }) {
   const input = `${symbol || ''}:${timeframe || ''}:${indicator || ''}:${timestamp || 0}`;
@@ -243,12 +243,18 @@ export function calculateZenTrendLines(data, fastPeriod = 20, slowPeriod = 50) {
   const slowByTime = new Map(slowEma.map((item) => [item.time, item.value]));
   return fastEma
     .filter((fast) => slowByTime.has(fast.time))
-    .map((fast) => ({
-      time: fast.time,
-      fast: fast.value,
-      slow: slowByTime.get(fast.time),
-      trend: fast.value >= slowByTime.get(fast.time) ? 'bullish' : 'bearish'
-    }));
+    .map((fast) => {
+      const slow = slowByTime.get(fast.time);
+      // Suppress floating-point noise around equality so a flat EMA pair cannot
+      // manufacture a crossover while its mathematical values are unchanged.
+      const epsilon = Math.max(1e-10, Math.abs(slow) * 1e-12);
+      return {
+        time: fast.time,
+        fast: fast.value,
+        slow,
+        trend: fast.value - slow >= -epsilon ? 'bullish' : 'bearish'
+      };
+    });
 }
 
 export function calculateChandelierExit(data, length = 22, mult = 3.0, useClose = true) {
@@ -444,7 +450,6 @@ const SIGNAL_BLOCK_MESSAGES = {
   'insufficient-indicator-warmup': 'Chỉ báo chưa đủ dữ liệu warm-up',
   'no-real-closed-candle': 'Chưa có nến thật đã đóng',
   'no-confirmed-signal': 'Chưa có tín hiệu đã xác nhận',
-  'historical-trigger': 'Trigger đã xảy ra trước khi phiên web bắt đầu',
   'synthetic-trigger-blocked': 'Trigger nằm trên nến synthetic nên đã bị chặn',
   'recent-gap-fill': 'Có gap-fill gần trigger nên đang chờ dữ liệu thật',
   'confirmed-swing-not-found': 'Chưa tìm thấy swing thật đã xác nhận'
@@ -570,7 +575,7 @@ export function getCurrentSignal({
   trendlineSlopeMult,
   livePrice,
   dataReady = true,
-  minimumTriggerAvailableAt = 0
+  sessionStartedAt = 0
 }) {
   const parameters = selectedIndicatorSystem === 'zen'
     ? { fastPeriod: zenFastPeriod, slowPeriod: zenSlowPeriod }
@@ -617,54 +622,78 @@ export function getCurrentSignal({
 
   let rawSignal = null;
   const decimalPlaces = (selectedSymbol === 'XAGUSD') ? 4 : 2;
-  const triggerCandle = realClosedHistory.at(-1);
-  if (!triggerCandle) return staleSignal('no-real-closed-candle');
-  const entry = Number(triggerCandle.close.toFixed(decimalPlaces));
-  const createEventSignal = (action, stateEvidence) => ({
-    action,
-    entry,
-    triggerCandle,
-    triggerType: 'fresh-indicator-event',
-    stateEvidence,
-    timestamp: triggerCandle.time * 1000,
-    triggerAvailableAt: (triggerCandle.time + (TIMEFRAME_SECONDS[selectedTimeframe] || 0)) * 1000
-  });
+  const realCandleByTime = new Map(realClosedHistory.map((candle) => [candle.time, candle]));
+  if (realCandleByTime.size === 0) return staleSignal('no-real-closed-candle');
+  const createEventSignal = (event, action, stateEvidence) => {
+    const triggerCandle = realCandleByTime.get(event?.time);
+    if (!triggerCandle) return null;
+    const triggerAvailableAt = (
+      triggerCandle.time + (TIMEFRAME_SECONDS[selectedTimeframe] || 0)
+    ) * 1000;
+    return {
+      action,
+      entry: Number(triggerCandle.close.toFixed(decimalPlaces)),
+      triggerCandle,
+      triggerType: 'fresh-indicator-event',
+      stateEvidence,
+      timestamp: triggerCandle.time * 1000,
+      triggerAvailableAt,
+      restoredFromHistory: Number(sessionStartedAt) > 0 && triggerAvailableAt <= Number(sessionStartedAt)
+    };
+  };
 
   if (selectedIndicatorSystem === 'zen') {
     const zenData = calculateZenTrendLines(closedHistory, zenFastPeriod, zenSlowPeriod);
     if (zenData.length < 2) return staleSignal();
-    const last = zenData[zenData.length - 1];
-    const previous = zenData[zenData.length - 2];
-    if (last.time !== triggerCandle.time || last.trend === previous.trend) return staleSignal();
-    const action = last.trend === 'bullish' ? 'buy' : 'sell';
-    rawSignal = createEventSignal(action, `EMA fast crossed ${action === 'buy' ? 'above' : 'below'} EMA slow`);
+    for (let index = zenData.length - 1; index >= 1; index -= 1) {
+      const event = zenData[index];
+      if (!realCandleByTime.has(event.time) || event.trend === zenData[index - 1].trend) continue;
+      const action = event.trend === 'bullish' ? 'buy' : 'sell';
+      rawSignal = createEventSignal(
+        event, action, `EMA fast crossed ${action === 'buy' ? 'above' : 'below'} EMA slow`
+      );
+      break;
+    }
   }
 
   if (selectedIndicatorSystem === 'utbot') {
     const utData = calculateUTBotSignals(closedHistory, utBotKeyValue, utBotAtrPeriod);
     if (utData.length === 0) return staleSignal();
-    const last = utData[utData.length - 1];
-    if (last.time !== triggerCandle.time || (!last.buy && !last.sell)) return staleSignal();
-    const action = last.buy ? 'buy' : 'sell';
-    rawSignal = createEventSignal(action, `Price crossed ${action === 'buy' ? 'above' : 'below'} UT trailing stop`);
+    const event = [...utData].reverse().find((item) =>
+      realCandleByTime.has(item.time) && (item.buy || item.sell)
+    );
+    if (event) {
+      const action = event.buy ? 'buy' : 'sell';
+      rawSignal = createEventSignal(
+        event, action, `Price crossed ${action === 'buy' ? 'above' : 'below'} UT trailing stop`
+      );
+    }
   }
 
   if (selectedIndicatorSystem === 'chandelier') {
     const chData = calculateChandelierExit(closedHistory, chandelierAtrPeriod, chandelierAtrMultiplier);
     if (chData.length === 0) return staleSignal();
-    const last = chData[chData.length - 1];
-    if (last.time !== triggerCandle.time || (!last.buy && !last.sell)) return staleSignal();
-    const action = last.buy ? 'buy' : 'sell';
-    rawSignal = createEventSignal(action, `Chandelier direction changed to ${action === 'buy' ? '+1' : '-1'}`);
+    const event = [...chData].reverse().find((item) =>
+      realCandleByTime.has(item.time) && (item.buy || item.sell)
+    );
+    if (event) {
+      const action = event.buy ? 'buy' : 'sell';
+      rawSignal = createEventSignal(
+        event, action, `Chandelier direction changed to ${action === 'buy' ? '+1' : '-1'}`
+      );
+    }
   }
 
   if (selectedIndicatorSystem === 'trendline') {
     const tlData = calculateTrendlinesWithBreaks(closedHistory, trendlineLength, trendlineSlopeMult);
     if (tlData.length === 0) return staleSignal();
-    const last = tlData[tlData.length - 1];
-    if (last.time !== triggerCandle.time || (!last.buy && !last.sell)) return staleSignal();
-    const action = last.buy ? 'buy' : 'sell';
-    rawSignal = createEventSignal(action, `Fresh trendline break ${action}`);
+    const event = [...tlData].reverse().find((item) =>
+      realCandleByTime.has(item.time) && (item.buy || item.sell)
+    );
+    if (event) {
+      const action = event.buy ? 'buy' : 'sell';
+      rawSignal = createEventSignal(event, action, `Fresh trendline break ${action}`);
+    }
   }
 
   if (!rawSignal || rawSignal.action === 'stale') {
@@ -673,10 +702,6 @@ export function getCurrentSignal({
 
   if (!rawSignal.triggerCandle || isSyntheticCandle(rawSignal.triggerCandle)) {
     return staleSignal('synthetic-trigger-blocked');
-  }
-  if (Number(minimumTriggerAvailableAt) > 0 &&
-      rawSignal.triggerAvailableAt <= Number(minimumTriggerAvailableAt)) {
-    return staleSignal('historical-trigger');
   }
   const triggerTime = rawSignal.timestamp / 1000;
   const recentGapFill = history.slice(0, -1).slice(-5).some(isGapFillCandle);
@@ -692,55 +717,53 @@ export function getCurrentSignal({
   if (!swingRisk) return staleSignal('confirmed-swing-not-found');
   const { sl, tp1, tp2 } = swingRisk;
 
-  // --- Calculate hitTps by scanning from signal timestamp to present ---
+  // Replay real candles in chronological order. When one candle spans both SL
+  // and a target, use conservative SL-first ordering because tick order is unknown.
   let hitTps = [false, false];
   let finalStatus = 'running';
-  
-  if (rawSignal.timestamp > 0) {
-    const signalTime = rawSignal.timestamp / 1000;
-    // The signal becomes actionable only after its source candle closes.
-    const startIdx = realClosedHistory.findIndex(c => c.time > signalTime);
-    
-    if (startIdx !== -1) {
-      let maxSince = rawSignal.entry;
-      let minSince = rawSignal.entry;
-      
-      // Include the live price as well in case the current candle hasn't closed yet
-      const currentLivePrice = typeof livePrice !== 'undefined' ? livePrice : null;
-      if (currentLivePrice) {
-        if (currentLivePrice > maxSince) maxSince = currentLivePrice;
-        if (currentLivePrice < minSince) minSince = currentLivePrice;
+  let tp1HitAt = null;
+  let finishedAt = null;
+  const applyRange = (low, high, eventTime) => {
+    if (finalStatus === 'finished' || finalStatus === 'sl') return;
+    if (rawSignal.action === 'buy') {
+      if (low <= sl) {
+        finalStatus = 'sl';
+        finishedAt = eventTime;
+      } else if (high >= tp2) {
+        hitTps = [true, true];
+        finalStatus = 'finished';
+        tp1HitAt ||= eventTime;
+        finishedAt = eventTime;
+      } else if (high >= tp1) {
+        hitTps = [true, false];
+        finalStatus = 'tp1';
+        tp1HitAt ||= eventTime;
       }
-      
-      for (let i = startIdx; i < realClosedHistory.length; i++) {
-        if (realClosedHistory[i].high > maxSince) maxSince = realClosedHistory[i].high;
-        if (realClosedHistory[i].low < minSince) minSince = realClosedHistory[i].low;
-      }
-      
-      if (rawSignal.action === 'buy') {
-        if (minSince <= sl) {
-          finalStatus = 'sl';
-        } else if (maxSince >= tp2) {
-          hitTps = [true, true];
-          finalStatus = 'finished';
-        } else if (maxSince >= tp1) {
-          hitTps = [true, false];
-          finalStatus = 'tp1';
-        }
-      } else if (rawSignal.action === 'sell') {
-        if (maxSince >= sl) {
-          finalStatus = 'sl';
-        } else if (minSince <= tp2) {
-          hitTps = [true, true];
-          finalStatus = 'finished';
-        } else if (minSince <= tp1) {
-          hitTps = [true, false];
-          finalStatus = 'tp1';
-        }
-      }
+    } else if (high >= sl) {
+      finalStatus = 'sl';
+      finishedAt = eventTime;
+    } else if (low <= tp2) {
+      hitTps = [true, true];
+      finalStatus = 'finished';
+      tp1HitAt ||= eventTime;
+      finishedAt = eventTime;
+    } else if (low <= tp1) {
+      hitTps = [true, false];
+      finalStatus = 'tp1';
+      tp1HitAt ||= eventTime;
     }
+  };
+  const lifecycleCandles = (history || []).filter((candle) =>
+    candle.time > triggerTime && !isSyntheticCandle(candle) && !isGapFillCandle(candle)
+  );
+  for (const candle of lifecycleCandles) {
+    applyRange(candle.low, candle.high, candle.time * 1000);
+    if (finalStatus === 'finished' || finalStatus === 'sl') break;
   }
-  // --- end hitTps logic ---
+  const numericLivePrice = Number(livePrice);
+  if (livePrice !== null && livePrice !== '' && Number.isFinite(numericLivePrice)) {
+    applyRange(numericLivePrice, numericLivePrice, Date.now());
+  }
   const { triggerCandle: _triggerCandle, ...publicSignal } = rawSignal;
 
   return {
@@ -768,7 +791,9 @@ export function getCurrentSignal({
       recentGapFill
     },
     hitTps,
-    status: finalStatus
+    status: finalStatus,
+    tp1HitAt,
+    finishedAt
   };
 }
 

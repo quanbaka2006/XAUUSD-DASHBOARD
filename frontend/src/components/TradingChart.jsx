@@ -2082,7 +2082,7 @@ export function TradingChart({ mobileTab }) {
       trendlineLength,
       trendlineSlopeMult,
       dataReady: true,
-      minimumTriggerAvailableAt: pageLoadTimeRef.current,
+      sessionStartedAt: pageLoadTimeRef.current,
     });
     const state = useTradeStore.getState();
     const existing = state.trackedSignals?.[selectedSymbol]?.[selectedTimeframe]?.[selectedIndicatorSystem] || null;
@@ -2105,7 +2105,7 @@ export function TradingChart({ mobileTab }) {
       setTrackedSignal(selectedSymbol, selectedTimeframe, selectedIndicatorSystem, next);
       const isNewIdentity = getSignalIdentity(next) !== getSignalIdentity(existing);
       const isInitialLoad = (Date.now() - pageLoadTimeRef.current) < 5000;
-      if (isNewIdentity && !isInitialLoad && next.action !== 'stale') {
+      if (isNewIdentity && !isInitialLoad && !next.restoredFromHistory && next.action !== 'stale') {
         playNotificationSound();
         state.addToast({
           ticker: selectedSymbol,

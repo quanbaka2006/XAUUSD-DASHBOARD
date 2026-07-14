@@ -69,8 +69,9 @@ Example BUY: entry 10, SL 0, TP1 15, TP2 17.5. The true displayed ratios are
   the extreme of the latest 20 real candles before the trigger.
 - A nearby gap-fill is recorded as a warning. It cannot itself become the
   trigger or swing, but it does not block a valid native indicator event.
-- On browser cold start, events whose source candle had already closed before
-  the page session began are baseline history, not new signals.
+- On browser cold start, the latest native event is restored and all later real
+  candles are replayed to recover RUNNING, TP1_HIT, TP2_HIT, or SL_HIT. A
+  restored event is displayed but is not announced as a new signal.
 - A stale feed cannot publish or advance a signal.
 - `signalStrength` remains a stable display integer from 90 to 98 and is not a
   calibrated win probability.
@@ -173,4 +174,5 @@ active signal identity, and non-secret error state.
 8. Terminal state is immutable.
 9. Restart initialization restores the MongoDB active signal.
 10. History is returned newest first with a bounded limit.
-11. A browser reload cannot republish a historical indicator event as new.
+11. A browser reload restores the latest event and lifecycle without publishing
+    a duplicate new-signal notification.
