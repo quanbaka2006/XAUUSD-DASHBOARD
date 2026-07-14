@@ -83,12 +83,22 @@ test('rejects wrong M1 reward ratios and invalid side geometry', () => {
   });
 });
 
-test('rejects synthetic/gap data and invalid swing direction', () => {
+test('accepts a real latest-state trigger near a gap with a real extreme swing fallback', () => {
+  const signal = createSignalDocument(buyInput({
+    swing: {
+      type: 'low', price: 0.2, time: SOURCE_TIME - 180,
+      strength: 0, method: 'recent-real-extreme'
+    },
+    dataQuality: { trigger: 'real', recentGapFill: true }
+  }));
+  assert.equal(signal.dataQuality.recentGapFill, true);
+  assert.equal(signal.swing.method, 'recent-real-extreme');
+  assert.equal(signal.swing.confirmed, false);
+});
+
+test('rejects synthetic trigger/swing and invalid swing direction or method', () => {
   assert.throws(() => createSignalDocument(buyInput({
     dataQuality: { trigger: 'synthetic', recentGapFill: false }
-  })), { code: 'INVALID_DATA_QUALITY' });
-  assert.throws(() => createSignalDocument(buyInput({
-    dataQuality: { trigger: 'real', recentGapFill: true }
   })), { code: 'INVALID_DATA_QUALITY' });
   assert.throws(() => createSignalDocument(buyInput({
     swing: { type: 'low', price: 0.2, time: SOURCE_TIME - 180, synthetic: true }
@@ -99,6 +109,9 @@ test('rejects synthetic/gap data and invalid swing direction', () => {
   assert.throws(() => createSignalDocument(buyInput({
     swing: { type: 'low', price: 0.2, time: SOURCE_TIME - 180, strength: 1 }
   })), { code: 'INVALID_SWING_STRENGTH' });
+  assert.throws(() => createSignalDocument(buyInput({
+    swing: { type: 'low', price: 0.2, time: SOURCE_TIME - 180, method: 'unknown' }
+  })), { code: 'INVALID_SWING_METHOD' });
 });
 
 test('advances ACTIVE to TP1 and TP2 while retaining immutable status events', () => {

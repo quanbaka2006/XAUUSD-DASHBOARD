@@ -14,14 +14,17 @@ are unavailable.
 - Signal output now includes symbol, timeframe, indicator, parameter set,
   algorithm version, risk-model version, and source candle time.
 - XAUUSD signal generation fails closed while market data is not ready.
-- Algorithm version is `3.1.0`.
-- Static/ATR-style signal exits were replaced by a confirmed-swing risk model:
-  BUY places SL below the latest confirmed real swing low, SELL places SL above
-  the latest confirmed real swing high. TP1/TP2 extend by timeframe: M1 uses
+- Algorithm version is `3.2.0`.
+- Every indicator now emits from its latest state on the most recent real closed
+  candle instead of waiting indefinitely for a fresh crossover/breakout.
+- Static/ATR-style signal exits use a real-swing risk model: BUY places SL below
+  a real swing low and SELL above a real swing high. A confirmed pivot is
+  preferred, with the latest 20-candle real extreme as fallback. TP1/TP2 extend
+  by timeframe: M1 uses
   0.5R/0.75R, M5 uses 0.75R/1.25R, M15 uses 1R/1.5R, and H1 uses 1.5R/2R.
 - Synthetic warm-up candles can initialize indicators but cannot trigger a
-  signal, define a swing, or count as a TP/SL hit. Gap-fill candles are excluded;
-  a recent gap or a non-contiguous swing window forces `WAIT`.
+  signal, define a swing, or count as a TP/SL hit. Gap-fill candles are excluded
+  from calculations and shown as a warning instead of forcing `WAIT`.
 - XAUUSD exposes H1 -> M15 -> M5 confluence as supporting context. It does not
   hard-block a valid signal on the selected timeframe.
 
@@ -73,8 +76,8 @@ are unavailable.
 ## Operational limitations
 
 - Finnhub REST history is unavailable with the current plan. Deterministic
-  synthetic candles provide immediate indicator warm-up, but the system remains
-  `WAIT` until it has a real completed M5 trigger and a confirmed real swing.
+  synthetic candles provide immediate indicator warm-up, while a signal still
+  requires at least one real completed candle and a real swing anchor.
 - If MongoDB is temporarily unavailable, the realtime feed continues in memory,
   `/api/health` reports the persistence error, and later candle writes retry.
 - H1/M15/M5 confluence can remain `WAIT` after warm-up when a layer is neutral,

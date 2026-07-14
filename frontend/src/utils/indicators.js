@@ -1,6 +1,6 @@
 // Math Helpers for Indicators
 
-export const SIGNAL_ALGORITHM_VERSION = '3.1.0';
+export const SIGNAL_ALGORITHM_VERSION = '3.2.0';
 
 export function getStableDisplayStrength({ symbol, timeframe, indicator, timestamp }) {
   const input = `${symbol || ''}:${timeframe || ''}:${indicator || ''}:${timestamp || 0}`;
@@ -442,6 +442,7 @@ const SIGNAL_BLOCK_MESSAGES = {
   'market-data-not-ready': 'Dữ liệu thị trường chưa sẵn sàng',
   'insufficient-history': 'Chưa đủ lịch sử nến',
   'insufficient-indicator-warmup': 'Chỉ báo chưa đủ dữ liệu warm-up',
+  'no-real-closed-candle': 'Chưa có nến thật đã đóng',
   'no-confirmed-signal': 'Chưa có tín hiệu đã xác nhận',
   'synthetic-trigger-blocked': 'Trigger nằm trên nến synthetic nên đã bị chặn',
   'recent-gap-fill': 'Có gap-fill gần trigger nên đang chờ dữ liệu thật',
@@ -501,10 +502,37 @@ export function findConfirmedSwing(history, action, beforeTime = Infinity, stren
   return null;
 }
 
+export function findRecentRealSwingAnchor(history, action, beforeTime = Infinity, lookback = 20) {
+  const source = (history || [])
+    .filter((candle) => !isSyntheticCandle(candle) && !isGapFillCandle(candle) && candle.time < beforeTime)
+    .slice(-lookback);
+  if (source.length === 0) return null;
+  const candidate = source.reduce((best, candle) => {
+    if (!best) return candle;
+    return action === 'buy'
+      ? (candle.low < best.low ? candle : best)
+      : (candle.high > best.high ? candle : best);
+  }, null);
+  return {
+    type: action === 'buy' ? 'low' : 'high',
+    price: action === 'buy' ? candidate.low : candidate.high,
+    time: candidate.time,
+    strength: 0,
+    confirmed: false,
+    method: 'recent-real-extreme',
+    synthetic: false
+  };
+}
+
 export function calculateSwingRisk({ history, action, entry, triggerTime, symbol, timeframe = 'M1' }) {
   const settings = SWING_RISK_SETTINGS[symbol] || { buffer: 0.01, decimals: 2 };
   const profile = TIMEFRAME_RISK_REWARD[timeframe] || TIMEFRAME_RISK_REWARD.M1;
-  const swing = findConfirmedSwing(history, action, triggerTime, 2, 100, TIMEFRAME_SECONDS[timeframe]);
+  const confirmedSwing = findConfirmedSwing(
+    history, action, triggerTime, 2, 100, TIMEFRAME_SECONDS[timeframe]
+  );
+  const swing = confirmedSwing
+    ? { ...confirmedSwing, strength: 2, confirmed: true, method: 'confirmed-pivot', synthetic: false }
+    : findRecentRealSwingAnchor(history, action, triggerTime, 20);
   if (!swing) return null;
   const sl = action === 'buy'
     ? Number((swing.price - settings.buffer).toFixed(settings.decimals))
@@ -557,7 +585,7 @@ export function getCurrentSignal({
     indicator: selectedIndicatorSystem || null,
     parameters,
     algorithmVersion: SIGNAL_ALGORITHM_VERSION,
-    riskModel: 'confirmed-swing-rr-v1'
+    riskModel: 'real-swing-rr-v2'
   };
   const staleSignal = (blockedReason = 'no-confirmed-signal') => ({
     ...signalIdentity,
@@ -587,127 +615,56 @@ export function getCurrentSignal({
 
   let rawSignal = null;
   const decimalPlaces = (selectedSymbol === 'XAGUSD') ? 4 : 2;
-  const candleByTime = new Map(closedHistory.map((candle) => [candle.time, candle]));
+  const triggerCandle = realClosedHistory.at(-1);
+  if (!triggerCandle) return staleSignal('no-real-closed-candle');
+  const entry = Number(triggerCandle.close.toFixed(decimalPlaces));
+  const createStateSignal = (action, stateEvidence) => ({
+    action,
+    entry,
+    triggerCandle,
+    triggerType: 'latest-indicator-state',
+    stateEvidence,
+    timestamp: triggerCandle.time * 1000
+  });
 
   if (selectedIndicatorSystem === 'zen') {
     const zenData = calculateZenTrendLines(closedHistory, zenFastPeriod, zenSlowPeriod);
     if (zenData.length === 0) return staleSignal();
     const last = zenData[zenData.length - 1];
     const action = last.trend === 'bullish' ? 'buy' : 'sell';
-
-    let crossoverIdx = -1;
-    const currentTrend = last.trend;
-    for (let i = zenData.length - 2; i >= 0; i--) {
-      if (zenData[i].trend !== currentTrend) {
-        crossoverIdx = i + 1;
-        break;
-      }
-    }
-    if (crossoverIdx === -1) return staleSignal();
-    const entryCandle = candleByTime.get(zenData[crossoverIdx].time);
-    if (!entryCandle) return staleSignal();
-    const entry = Number(entryCandle.close.toFixed(decimalPlaces));
-
-    const diffPercent = Math.abs(last.fast - last.slow) / last.slow * 100;
-    const signalStrength = Math.min(95, Math.max(65, Math.round(65 + diffPercent * 50)));
-
-    rawSignal = {
-      action,
-      entry,
-      signalStrength,
-      triggerCandle: entryCandle,
-      timestamp: zenData[crossoverIdx].time * 1000
-    };
+    rawSignal = createStateSignal(action, `EMA fast ${action === 'buy' ? '>=' : '<'} EMA slow`);
   }
 
   if (selectedIndicatorSystem === 'utbot') {
     const utData = calculateUTBotSignals(closedHistory, utBotKeyValue, utBotAtrPeriod);
     if (utData.length === 0) return staleSignal();
-    
-    let triggerIdx = -1;
-    for (let i = utData.length - 1; i >= 0; i--) {
-      if (utData[i].buy || utData[i].sell) {
-        triggerIdx = i;
-        break;
-      }
-    }
-
-    if (triggerIdx === -1) return staleSignal();
-    {
-      const trigger = utData[triggerIdx];
-      const action = trigger.buy ? 'buy' : 'sell';
-      const entry = Number(closedHistory[triggerIdx].close.toFixed(decimalPlaces));
-      const age = utData.length - 1 - triggerIdx;
-      const signalStrength = Math.max(60, Math.min(94, 90 - age));
-
-      rawSignal = {
-        action,
-        entry,
-        signalStrength,
-        triggerCandle: closedHistory[triggerIdx],
-        timestamp: trigger.time * 1000
-      };
-    }
+    const last = utData[utData.length - 1];
+    if (!Number.isFinite(last.trailingStop)) return staleSignal();
+    const action = triggerCandle.close >= last.trailingStop ? 'buy' : 'sell';
+    rawSignal = createStateSignal(action, `Close ${action === 'buy' ? '>=' : '<'} UT trailing stop`);
   }
 
   if (selectedIndicatorSystem === 'chandelier') {
     const chData = calculateChandelierExit(closedHistory, chandelierAtrPeriod, chandelierAtrMultiplier);
     if (chData.length === 0) return staleSignal();
-
-    let triggerIdx = -1;
-    for (let i = chData.length - 1; i >= 0; i--) {
-      if (chData[i].buy || chData[i].sell) {
-        triggerIdx = i;
-        break;
-      }
-    }
-
-    if (triggerIdx === -1) return staleSignal();
-    {
-      const trigger = chData[triggerIdx];
-      const action = trigger.buy ? 'buy' : 'sell';
-      const entry = Number(closedHistory[triggerIdx].close.toFixed(decimalPlaces));
-      const age = chData.length - 1 - triggerIdx;
-      const signalStrength = Math.max(60, Math.min(94, 90 - age));
-
-      rawSignal = {
-        action,
-        entry,
-        signalStrength,
-        triggerCandle: closedHistory[triggerIdx],
-        timestamp: trigger.time * 1000
-      };
-    }
+    const last = chData[chData.length - 1];
+    const action = last.dir === -1 ? 'sell' : 'buy';
+    rawSignal = createStateSignal(action, `Chandelier direction ${last.dir === -1 ? '-1' : '+1'}`);
   }
 
   if (selectedIndicatorSystem === 'trendline') {
     const tlData = calculateTrendlinesWithBreaks(closedHistory, trendlineLength, trendlineSlopeMult);
     if (tlData.length === 0) return staleSignal();
-
-    let triggerIdx = -1;
-    for (let i = tlData.length - 1; i >= 0; i--) {
-      if (tlData[i].buy || tlData[i].sell) {
-        triggerIdx = i;
-        break;
-      }
-    }
-
-    if (triggerIdx === -1) return staleSignal();
-    {
-      const trigger = tlData[triggerIdx];
-      const action = trigger.buy ? 'buy' : 'sell';
-      const entry = Number(closedHistory[triggerIdx].close.toFixed(decimalPlaces));
-      const age = tlData.length - 1 - triggerIdx;
-      const signalStrength = Math.max(60, Math.min(94, 85 - age));
-
-      rawSignal = {
-        action,
-        entry,
-        signalStrength,
-        triggerCandle: closedHistory[triggerIdx],
-        timestamp: trigger.time * 1000
-      };
-    }
+    const latestBreak = [...tlData].reverse().find((item) => item.buy || item.sell);
+    const recentCloses = realClosedHistory.slice(-Math.max(2, trendlineLength || 14));
+    const average = recentCloses.reduce((sum, candle) => sum + candle.close, 0) / recentCloses.length;
+    const action = latestBreak
+      ? (latestBreak.buy ? 'buy' : 'sell')
+      : (triggerCandle.close >= average ? 'buy' : 'sell');
+    rawSignal = createStateSignal(
+      action,
+      latestBreak ? `Latest trendline break ${action}` : `Close ${action === 'buy' ? '>=' : '<'} recent mean`
+    );
   }
 
   if (!rawSignal || rawSignal.action === 'stale') {
@@ -718,10 +675,7 @@ export function getCurrentSignal({
     return staleSignal('synthetic-trigger-blocked');
   }
   const triggerTime = rawSignal.timestamp / 1000;
-  const triggerContext = history.slice(0, -1).filter((candle) => candle.time <= triggerTime).slice(-5);
-  if (triggerContext.some(isGapFillCandle)) {
-    return staleSignal('recent-gap-fill');
-  }
+  const recentGapFill = history.slice(0, -1).slice(-5).some(isGapFillCandle);
 
   const swingRisk = calculateSwingRisk({
     history: closedHistory,
@@ -740,11 +694,8 @@ export function getCurrentSignal({
   
   if (rawSignal.timestamp > 0) {
     const signalTime = rawSignal.timestamp / 1000;
-    // Find the first candle that includes or comes after the signal time
-    let startIdx = realClosedHistory.findIndex(c => c.time === signalTime);
-    if (startIdx === -1) {
-      startIdx = realClosedHistory.findIndex(c => c.time >= signalTime);
-    }
+    // The signal becomes actionable only after its source candle closes.
+    const startIdx = realClosedHistory.findIndex(c => c.time > signalTime);
     
     if (startIdx !== -1) {
       let maxSince = rawSignal.entry;
@@ -809,7 +760,8 @@ export function getCurrentSignal({
       trigger: 'real',
       realCandles: realClosedHistory.length,
       syntheticWarmupCandles: closedHistory.length - realClosedHistory.length,
-      gapFillExcluded: history.slice(0, -1).filter(isGapFillCandle).length
+      gapFillExcluded: history.slice(0, -1).filter(isGapFillCandle).length,
+      recentGapFill
     },
     hitTps,
     status: finalStatus

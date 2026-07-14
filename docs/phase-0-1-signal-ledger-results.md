@@ -13,7 +13,7 @@ Scope excludes Auto Trade, MT5 execution, Telegram execution, and VPS Farm.
   profiles, from 0.5R/0.75R on M1 to 1.5R/2R on H1.
 - Defined open, terminal, reversal, expiry, invalidation, and ambiguous states.
 - Defined monotonic state transitions and one open XAUUSD signal per timeframe.
-- Defined deterministic signal identity, data-quality rules, and collision policy.
+- Defined deterministic signal identity, data-quality warnings, and collision policy.
 - Converted the contract examples into executable unit tests.
 
 ## Phase 1 - MongoDB Signal Ledger
@@ -61,8 +61,7 @@ The public `/api/health` payload includes a non-secret `signalLedger` section.
 
 ## Intentional Phase 1 limitation
 
-Phase 1 is persistence infrastructure. It does not yet generate a scalping
-signal or replace the current frontend signal card. Phase 2 will move strategy
-generation to the backend and publish contract-valid timeframe signals into this
-ledger. This separation avoids implementing lifecycle state in the frontend and
-then rewriting it later.
+Phase 1 is persistence infrastructure. Frontend algorithm 3.2.0 currently emits
+latest-state signals and retains their lifecycle locally. Phase 2 will move that
+same strategy generation to the backend and publish contract-valid timeframe
+signals into the ledger so every client shares one authoritative history.

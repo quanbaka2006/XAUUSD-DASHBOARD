@@ -1,8 +1,8 @@
 # XAUUSD Scalping Signal Contract
 
-Status: Phase 0 frozen contract
+Status: Phase 0 contract, revised for latest-state signals
 
-Schema version: `1.1.0`
+Schema version: `1.2.0`
 
 Strategy identity: `xauusd-scalp`
 Date: 2026-07-14
@@ -21,8 +21,10 @@ differ.
 The strategy intentionally uses few blocking conditions:
 
 1. The selected timeframe supplies a real completed trigger candle.
-2. Its nearest higher timeframe may provide directional context.
-3. H1/M15/M5 confluence remains visible information and does not block a valid
+2. The selected indicator's latest state determines BUY or SELL; a new
+   crossover/breakout event is not required.
+3. Its nearest higher timeframe may provide directional context.
+4. H1/M15/M5 confluence remains visible information and does not block a valid
    trigger.
 
 Phase 1 implements the persistent ledger and lifecycle contract. Automatic
@@ -32,8 +34,9 @@ generation from this decision chain is Phase 2 work.
 
 - Signals are `buy` or `sell` on XAUUSD M1, M5, M15, or H1.
 - Each timeframe has an independent lifecycle.
-- Stop loss is derived from a confirmed real swing on the signal timeframe, not
-  ATR.
+- Stop loss is derived from a real swing on the signal timeframe, not ATR. A
+  five-candle confirmed pivot is preferred; the recent real high/low is the
+  fallback when gaps prevent a contiguous pivot.
 - BUY requires `SL < entry < TP1 < TP2` and a swing low.
 - SELL requires `SL > entry > TP1 > TP2` and a swing high.
 - `riskDistance = abs(entry - SL)`.
@@ -61,7 +64,10 @@ Example BUY: entry 10, SL 0, TP1 15, TP2 17.5. The true displayed ratios are
 - Gap-fill candles are display-only and cannot trigger a signal, define a swing,
   or count as a TP/SL hit.
 - A confirmed swing uses five real, contiguous candles on the signal timeframe:
-  two candles on each side of the pivot.
+  two candles on each side of the pivot. If it is unavailable, the fallback is
+  the extreme of the latest 20 real candles before the trigger.
+- A nearby gap-fill is recorded as a warning. It cannot itself become the
+  trigger or swing, but it no longer blocks a latest-state signal.
 - A stale feed cannot publish or advance a signal.
 - `signalStrength` remains a stable display integer from 90 to 98 and is not a
   calibrated win probability.
@@ -155,7 +161,8 @@ active signal identity, and non-secret error state.
 1. BUY entry 10 / SL 0 / TP1 15 / TP2 17.5 is accepted.
 2. M5/M15/H1 accept only their configured longer reward profiles.
 3. SELL geometry is the exact inverse of BUY.
-4. Synthetic trigger, synthetic swing, and recent gap-fill are rejected.
+4. Synthetic trigger and synthetic swing are rejected; recent gap-fill is
+   retained as a data-quality warning.
 5. The same identity is idempotent.
 6. A second open identity on the same timeframe is rejected, while another
    timeframe is allowed.

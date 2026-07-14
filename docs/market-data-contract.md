@@ -1,6 +1,6 @@
 # XAU/USD Market Data Contract
 
-Status: Market data plus scalping Signal Ledger schema 1.1.0
+Status: Market data plus scalping Signal Ledger schema 1.2.0
 
 ## Scope
 
@@ -39,9 +39,9 @@ simulation. Auto Trade and MT5 VPS Farm are explicitly out of scope.
   first real candle and `gap-fill` candles inside a missing range for chart
   continuity only. Both types must carry `synthetic=true` and a
   `syntheticReason`, and neither type may be written to MongoDB.
-- `gap-fill` candles are excluded from signal calculations. A signal near a
-  recent gap must fail closed, and a confirmed swing must contain five real,
-  contiguous candles at the requested timeframe.
+- `gap-fill` candles are excluded from indicator, trigger, swing, and outcome
+  calculations. A nearby gap is exposed as a quality warning rather than a hard
+  signal block.
 - OHLC invariants must hold for every candle:
   - `high >= max(open, close)`
   - `low <= min(open, close)`
@@ -62,6 +62,8 @@ simulation. Auto Trade and MT5 VPS Farm are explicitly out of scope.
 ## Signal contract
 
 - Signals are evaluated only after a completed candle is accepted.
+- The latest indicator state on that real completed candle determines BUY/SELL;
+  the engine does not wait indefinitely for a new crossover or breakout event.
 - The active candle may update UI price/OHLC but cannot create a confirmed signal.
 - Identical input candles and parameters must produce identical output.
 - A signal must contain its source candle time, symbol, timeframe, indicator name,
@@ -71,10 +73,10 @@ simulation. Auto Trade and MT5 VPS Farm are explicitly out of scope.
   or TP/SL hit.
 - The persistent scalping contract supports independent M1, M5, M15, and H1
   signals. Higher-timeframe context is informational rather than a hard gate.
-- Stop loss uses a confirmed real swing on the signal timeframe plus an
-  instrument-specific buffer. TP1/TP2 profiles extend from 0.5R/0.75R on M1 to
-  1.5R/2R on H1.
-- The existing frontend algorithm 3.1.0 remains transitional until the Phase 2
+- Stop loss prefers a confirmed real swing plus an instrument-specific buffer.
+  If gaps prevent a five-candle pivot, it uses the latest 20-candle real extreme.
+  TP1/TP2 profiles extend from 0.5R/0.75R on M1 to 1.5R/2R on H1.
+- The existing frontend algorithm 3.2.0 remains transitional until the Phase 2
   strategy engine begins publishing the new backend contract.
 - `signalStrength` is a stable display score between 90 and 98, derived from the
   signal identity. It is not a calibrated win probability.

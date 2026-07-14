@@ -2,9 +2,9 @@
 
 const crypto = require('crypto');
 
-const SIGNAL_SCHEMA_VERSION = '1.1.0';
+const SIGNAL_SCHEMA_VERSION = '1.2.0';
 const STRATEGY_ID = 'xauusd-scalp';
-const STRATEGY_VERSION = '1.1.0-contract';
+const STRATEGY_VERSION = '1.2.0-contract';
 const SUPPORTED_TIMEFRAMES = Object.freeze(['M1', 'M5', 'M15', 'H1']);
 
 const SIGNAL_STATUS = Object.freeze({
@@ -189,15 +189,23 @@ function createSignalDocument(input, now = new Date()) {
       (action === 'sell' && !(sl > Number(swing.price) && Number(swing.price) > entry))) {
     contractError('INVALID_SWING_PRICE', 'Confirmed swing must sit between entry and buffered stop loss');
   }
-  const swingStrength = swing.strength === undefined ? 2 : Number(swing.strength);
-  if (swingStrength !== 2) {
-    contractError('INVALID_SWING_STRENGTH', 'A confirmed swing requires two candles on each side');
+  const swingMethod = swing.method || 'confirmed-pivot';
+  const swingStrength = swing.strength === undefined
+    ? (swingMethod === 'recent-real-extreme' ? 0 : 2)
+    : Number(swing.strength);
+  if (!['confirmed-pivot', 'recent-real-extreme'].includes(swingMethod)) {
+    contractError('INVALID_SWING_METHOD', 'Unsupported real swing method');
+  }
+  if ((swingMethod === 'confirmed-pivot' && swingStrength !== 2) ||
+      (swingMethod === 'recent-real-extreme' && swingStrength !== 0)) {
+    contractError('INVALID_SWING_STRENGTH', 'Swing strength does not match its real swing method');
   }
 
   const dataQuality = input.dataQuality || {};
-  if (dataQuality.trigger !== 'real' || dataQuality.recentGapFill !== false) {
-    contractError('INVALID_DATA_QUALITY', 'Signal trigger must be real and cannot be near a gap-fill');
+  if (dataQuality.trigger !== 'real') {
+    contractError('INVALID_DATA_QUALITY', 'Signal trigger must be a real completed candle');
   }
+  const recentGapFill = dataQuality.recentGapFill === true;
 
   const signalStrength = Number(input.signalStrength);
   if (!Number.isInteger(signalStrength) || signalStrength < 90 || signalStrength > 98) {
@@ -237,12 +245,14 @@ function createSignalDocument(input, now = new Date()) {
       type: swing.type,
       price: Number(swing.price),
       time: Number(swing.time),
-      strength: swingStrength
+      strength: swingStrength,
+      method: swingMethod,
+      confirmed: swingMethod === 'confirmed-pivot'
     },
     confluence: input.confluence || null,
     dataQuality: {
       trigger: 'real',
-      recentGapFill: false,
+      recentGapFill,
       source: dataQuality.source || 'finnhub-oanda-spot'
     },
     signalStrength,
