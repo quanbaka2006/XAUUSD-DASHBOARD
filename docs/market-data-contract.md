@@ -1,6 +1,6 @@
 # XAU/USD Market Data Contract
 
-Status: Phase 0 baseline
+Status: Signal algorithm 3.0.0
 
 ## Scope
 
@@ -33,7 +33,15 @@ simulation. Auto Trade and MT5 VPS Farm are explicitly out of scope.
   - M5: `floor(epoch / 300) * 300`
   - M15: `floor(epoch / 900) * 900`
   - H1: `floor(epoch / 3600) * 3600`
-- A missing M1 candle is a data gap. It must not be synthesized or forward-filled.
+- A missing M1 candle is a data gap. It must not be synthesized, forward-filled,
+  or persisted as real market data.
+- The history API may add deterministic `warmup-backfill` candles before the
+  first real candle and `gap-fill` candles inside a missing range for chart
+  continuity only. Both types must carry `synthetic=true` and a
+  `syntheticReason`, and neither type may be written to MongoDB.
+- `gap-fill` candles are excluded from signal calculations. A signal near a
+  recent gap must fail closed, and a confirmed swing must contain five real,
+  contiguous candles at the requested timeframe.
 - OHLC invariants must hold for every candle:
   - `high >= max(open, close)`
   - `low <= min(open, close)`
@@ -58,6 +66,16 @@ simulation. Auto Trade and MT5 VPS Farm are explicitly out of scope.
 - Identical input candles and parameters must produce identical output.
 - A signal must contain its source candle time, symbol, timeframe, indicator name,
   parameter set, and algorithm version.
+- A BUY/SELL trigger must be on a real completed candle. Synthetic warm-up data
+  may initialize indicator state but cannot become a trigger, confirmed swing,
+  or TP/SL hit.
+- Stop loss uses the latest confirmed real swing low/high plus an
+  instrument-specific buffer. TP1 is 1R and TP2 is 2R; the signal exposes the
+  risk distance and both risk/reward ratios.
+- XAUUSD trade decisions use H1 bias, M15 setup, then a selected-system M5
+  trigger. H1 and M15 must agree, the M5 trigger must point in the same direction
+  and be no older than two M5 candles, and the feed must not be stale. Otherwise
+  the decision is `WAIT`.
 - `signalStrength` is a stable display score between 90 and 98, derived from the
   signal identity. It is not a calibrated win probability.
 

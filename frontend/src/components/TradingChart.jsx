@@ -36,7 +36,8 @@ import {
   calculateUTBotSignals,
   calculateChandelierExit,
   calculateTrendlinesWithBreaks,
-  getCurrentSignal
+  getCurrentSignal,
+  getMultiTimeframeConfluence
 } from '../utils/indicators';
 
 const SYMBOLS = ['XAUUSD', 'WTIUSD', 'XAGUSD', 'BTCUSD', 'ETHUSD'];
@@ -273,6 +274,75 @@ function SignalProgressBar({ signal, symbol }) {
   );
 }
 
+function ConfluencePanel({ confluence }) {
+  const rows = [
+    { label: 'H1 BIAS', value: confluence?.h1 },
+    { label: 'M15 SETUP', value: confluence?.m15 },
+    { label: 'M5 TRIGGER', value: confluence?.m5 }
+  ];
+  const decision = confluence?.decision || 'wait';
+  const decisionClass = decision === 'buy'
+    ? 'text-emerald-400 border-emerald-500/30 bg-emerald-500/10'
+    : decision === 'sell'
+      ? 'text-red-400 border-red-500/30 bg-red-500/10'
+      : 'text-amber-400 border-amber-500/30 bg-amber-500/10';
+  return (
+    <div className="panel-primary rounded-2xl overflow-hidden text-left">
+      <div className="flex items-center justify-between px-4 py-3 border-b border-white/[0.06] bg-white/[0.03]">
+        <div className="flex items-center gap-2">
+          <Shield className="h-4 w-4 text-sky-400" />
+          <span className="text-[11px] font-black text-white tracking-widest font-mono">CONFLUENCE</span>
+        </div>
+        <span className={`px-2 py-0.5 rounded border text-[10px] font-black tracking-wider ${decisionClass}`}>
+          {decision.toUpperCase()}
+        </span>
+      </div>
+      <div className="divide-y divide-white/[0.05]">
+        {rows.map(({ label, value }) => {
+          const direction = value?.direction || 'neutral';
+          const quality = value?.dataQuality?.recentGapFill
+            ? 'RECENT GAP'
+            : value?.dataQuality?.latestReal === false
+              ? 'NO REAL CLOSE'
+              : value?.dataQuality?.trigger === 'real'
+                ? 'REAL TRIGGER'
+                : value?.dataQuality?.latestReal
+                  ? 'REAL CLOSE'
+                : 'WAIT';
+          const color = direction === 'bullish'
+            ? 'text-emerald-400'
+            : direction === 'bearish'
+              ? 'text-red-400'
+              : 'text-amber-400';
+          return (
+            <div key={label} className="px-4 py-3">
+              <div className="flex items-center justify-between gap-3">
+                <span className="text-[10px] font-black text-slate-500 tracking-widest">{label}</span>
+                <div className="flex items-center gap-2">
+                  <span className="text-[8px] font-black text-slate-600">{quality}</span>
+                  <span className={`text-[10px] font-black uppercase ${color}`}>{direction}</span>
+                </div>
+              </div>
+              <div className="mt-1 text-[10px] leading-relaxed text-slate-400 break-words">
+                {value?.evidence || 'Đang chờ dữ liệu'}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+      <div className="px-4 py-3 border-t border-white/[0.06] bg-black/10">
+        <div className="text-[10px] text-slate-400 leading-relaxed">{confluence?.reason || 'Đang tính confluence'}</div>
+        {confluence?.signal?.riskReward && (
+          <div className="mt-2 flex items-center justify-between text-[10px] font-black">
+            <span className="text-slate-500">RISK / REWARD</span>
+            <span className="text-emerald-400">TP1 1:{confluence.signal.riskReward.tp1} · TP2 1:{confluence.signal.riskReward.tp2}</span>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function HeroActionDisplay({ currentSignal }) {
   const livePrice = useTradeStore(s => s.livePrice);
   const { t } = useTranslation();
@@ -428,6 +498,7 @@ export function TradingChart({ mobileTab }) {
 
   // Keyboard shortcut toast hint
   const [keyHint, setKeyHint] = React.useState(null);
+  const [confluenceVersion, setConfluenceVersion] = React.useState(0);
   const keyHintTimerRef = React.useRef(null);
   const drawingsSyncDebounceRef = React.useRef(null);
   const pageLoadTimeRef = React.useRef(Date.now());
@@ -437,9 +508,9 @@ export function TradingChart({ mobileTab }) {
     'M15': [],
     'H1': []
   });
-  const lastSignalsRef = React.useRef({});
+  const lastConfluenceSignalRef = React.useRef(null);
 
-  // Background Multi-Indicator Signal Scanner Pre-fetch
+  // Pre-fetch every timeframe required by the H1 -> M15 -> M5 decision chain.
   useEffect(() => {
     if (!isLoggedIn) return;
     const token = localStorage.getItem('auth_token');
@@ -462,30 +533,9 @@ export function TradingChart({ mobileTab }) {
             }
           }
           allCandlesHistoryRef.current[tf] = history;
-
-          // Initialize background signals
-          const state = useTradeStore.getState();
-          const systems = ['utbot', 'chandelier', 'trendline'];
-          systems.forEach(sys => {
-            const sig = getCurrentSignal({
-              history,
-              selectedSymbol: 'XAUUSD',
-              selectedTimeframe: tf,
-              selectedIndicatorSystem: sys,
-              zenFastPeriod: state.zenFastPeriod,
-              zenSlowPeriod: state.zenSlowPeriod,
-              utBotKeyValue: state.utBotKeyValue,
-              utBotAtrPeriod: state.utBotAtrPeriod,
-              chandelierAtrPeriod: state.chandelierAtrPeriod,
-              chandelierAtrMultiplier: state.chandelierAtrMultiplier,
-              trendlineLength: state.trendlineLength,
-              trendlineSlopeMult: state.trendlineSlopeMult,
-              dataReady: data.marketData?.historyReady !== false,
-            });
-            lastSignalsRef.current[`${tf}:${sys}`] = sig;
-          });
+          setConfluenceVersion((version) => version + 1);
         })
-        .catch(err => console.error('Failed to pre-fetch history for scanner:', tf, err));
+        .catch(err => console.error('Failed to pre-fetch confluence history:', tf, err));
     });
   }, [isLoggedIn]);
 
@@ -1134,7 +1184,7 @@ export function TradingChart({ mobileTab }) {
       const tf = data.interval;
       const candle = data.candle;
 
-      // Update background candles history for XAUUSD multi-indicator scanner
+      // Update the multi-timeframe histories only when a new candle opens.
       if (sym === 'XAUUSD' && allCandlesHistoryRef.current[tf]) {
         const history = allCandlesHistoryRef.current[tf];
         if (history.length > 0) {
@@ -1143,47 +1193,7 @@ export function TradingChart({ mobileTab }) {
           if (isNew) {
             history.push(candle);
             if (history.length > 200) history.shift();
-
-            // Run calculations for all indicators
-            const state = useTradeStore.getState();
-            const systems = ['utbot', 'chandelier', 'trendline'];
-            systems.forEach(sys => {
-              const sig = getCurrentSignal({
-                history,
-                selectedSymbol: 'XAUUSD',
-                selectedTimeframe: tf,
-                selectedIndicatorSystem: sys,
-                zenFastPeriod: state.zenFastPeriod,
-                zenSlowPeriod: state.zenSlowPeriod,
-                utBotKeyValue: state.utBotKeyValue,
-                utBotAtrPeriod: state.utBotAtrPeriod,
-                chandelierAtrPeriod: state.chandelierAtrPeriod,
-                chandelierAtrMultiplier: state.chandelierAtrMultiplier,
-                trendlineLength: state.trendlineLength,
-                trendlineSlopeMult: state.trendlineSlopeMult,
-                dataReady: state.marketDataStatus?.historyReady === true,
-              });
-
-              const key = `${tf}:${sys}`;
-              const lastSig = lastSignalsRef.current[key];
-              const isInitialLoad = (Date.now() - pageLoadTimeRef.current) < 5000;
-
-              if (!isInitialLoad && lastSig && sig && sig.action !== 'stale' && (lastSig.action !== sig.action || lastSig.timestamp !== sig.timestamp) && !isSignalLocked()) {
-                playNotificationSound();
-                useTradeStore.getState().addToast({
-                  ticker: 'XAUUSD',
-                  system: sys.toUpperCase(),
-                  interval: tf,
-                  action: sig.action,
-                  entry: sig.entry,
-                  sl: sig.sl,
-                  tp: sig.tp,
-                  signalStrength: sig.signalStrength || 0,
-                  timestamp: sig.timestamp || Date.now()
-                });
-              }
-              lastSignalsRef.current[key] = sig;
-            });
+            setConfluenceVersion((version) => version + 1);
           } else {
             history[history.length - 1] = candle;
           }
@@ -1992,8 +2002,65 @@ export function TradingChart({ mobileTab }) {
   // Sync latest signal with Zustand store so that App.jsx can read it
   // NOTE: livePrice intentionally excluded from deps — signal should only update
   // when a new candle CLOSES (historyCount changes), not on every live tick.
-  const currentSignal = useTradeStore(state => state.currentSignal) || { action: 'stale', entry: 0, sl: 0, tp: 0, signalStrength: 0 };
+  const storedCurrentSignal = useTradeStore(state => state.currentSignal) || { action: 'stale', entry: 0, sl: 0, tp: 0, signalStrength: 0 };
   const historyCount = useTradeStore(state => state.historyCount);
+  const confluence = useMemo(() => getMultiTimeframeConfluence({
+    histories: allCandlesHistoryRef.current,
+    selectedIndicatorSystem,
+    zenFastPeriod,
+    zenSlowPeriod,
+    utBotKeyValue,
+    utBotAtrPeriod,
+    chandelierAtrPeriod,
+    chandelierAtrMultiplier,
+    trendlineLength,
+    trendlineSlopeMult,
+    dataReady: marketDataStatus?.historyReady === true,
+    feedStale: marketDataStatus?.stale === true
+  }), [
+    confluenceVersion,
+    selectedIndicatorSystem,
+    zenFastPeriod,
+    zenSlowPeriod,
+    utBotKeyValue,
+    utBotAtrPeriod,
+    chandelierAtrPeriod,
+    chandelierAtrMultiplier,
+    trendlineLength,
+    trendlineSlopeMult,
+    marketDataStatus?.historyReady,
+    marketDataStatus?.stale
+  ]);
+  const currentSignal = useMemo(() => {
+    if (selectedSymbol !== 'XAUUSD') return storedCurrentSignal;
+    if (confluence.decision === 'buy' || confluence.decision === 'sell') return confluence.signal;
+    return {
+      action: 'stale', entry: 0, sl: 0, tp: 0, tps: [], signalStrength: 0,
+      timeframe: 'MTF', timestamp: Date.now(), blockedReason: confluence.reason
+    };
+  }, [selectedSymbol, storedCurrentSignal, confluence]);
+
+  useEffect(() => {
+    if (selectedSymbol !== 'XAUUSD' || (confluence.decision !== 'buy' && confluence.decision !== 'sell')) return;
+    const signal = confluence.signal;
+    if (!signal) return;
+    const identity = `${signal.action}:${signal.timestamp}:${signal.indicator}`;
+    if (lastConfluenceSignalRef.current === identity) return;
+    lastConfluenceSignalRef.current = identity;
+    if ((Date.now() - pageLoadTimeRef.current) < 5000) return;
+    playNotificationSound();
+    useTradeStore.getState().addToast({
+      ticker: 'XAUUSD',
+      system: 'MTF CONFLUENCE',
+      interval: 'H1→M15→M5',
+      action: signal.action,
+      entry: signal.entry,
+      sl: signal.sl,
+      tp: signal.tp,
+      signalStrength: signal.signalStrength || 0,
+      timestamp: signal.timestamp
+    });
+  }, [selectedSymbol, confluence.decision, confluence.signal]);
 
   useEffect(() => {
     const history = candlesHistoryRef.current || [];
@@ -2010,13 +2077,31 @@ export function TradingChart({ mobileTab }) {
       chandelierAtrMultiplier,
       trendlineLength,
       trendlineSlopeMult,
-      dataReady: selectedSymbol !== 'XAUUSD' || marketDataStatus?.historyReady === true,
+      dataReady: true,
     });
     // ── Signal Lock Guard ──────────────────────────────────────────────────
     // If a signal is currently RUNNING (not yet hit SL or full TP2), do NOT
     // overwrite it with a new signal. This prevents the signal panel from
     // jumping to a different signal when the user switches indicators or
     // timeframes, or when a new candle closes with a different signal.
+    if (selectedSymbol === 'XAUUSD') {
+      const confluenceSignal = confluence.decision === 'buy' || confluence.decision === 'sell'
+        ? {
+            ...confluence.signal,
+            symbol: 'XAUUSD',
+            timeframe: 'M5',
+            indicatorSystem: selectedIndicatorSystem,
+            confluence: { h1: confluence.h1, m15: confluence.m15, m5: confluence.m5 }
+          }
+        : {
+            action: 'stale', entry: 0, sl: 0, tp: 0, tps: [], signalStrength: 0,
+            symbol: 'XAUUSD', timeframe: 'MTF', indicatorSystem: selectedIndicatorSystem,
+            timestamp: Date.now(), blockedReason: confluence.reason
+          };
+      useTradeStore.setState({ currentSignal: confluenceSignal });
+      return;
+    }
+
     const existing = useTradeStore.getState().currentSignal;
     const isSameSystem = existing
       && existing.symbol === selectedSymbol
@@ -2062,7 +2147,8 @@ export function TradingChart({ mobileTab }) {
     trendlineLength,
     trendlineSlopeMult,
     marketDataStatus?.historyReady,
-    historyCount
+    historyCount,
+    confluence
   ]);
 
   const psychologyScore = useMemo(() => {
@@ -2206,7 +2292,7 @@ export function TradingChart({ mobileTab }) {
           <div className="flex justify-between items-center px-3 lg:px-5 py-3 lg:py-4 border-b border-white/[0.06] bg-white/[0.03]">
             <div className="flex items-center gap-2">
               <span className="text-xs font-black text-white tracking-widest font-mono">{selectedSymbol}</span>
-              <span className="px-2 py-0.5 bg-amber-500/10 border border-amber-500/20 text-amber-500 rounded text-[11px] font-mono font-black tracking-widest">{selectedTimeframe}</span>
+              <span className="px-2 py-0.5 bg-amber-500/10 border border-amber-500/20 text-amber-500 rounded text-[11px] font-mono font-black tracking-widest">{currentSignal.timeframe || selectedTimeframe}</span>
               {selectedSymbol === 'XAUUSD' && (
                 <span
                   title={marketDataStatus?.source || 'Waiting for market data'}
@@ -2315,6 +2401,29 @@ export function TradingChart({ mobileTab }) {
                   </div>
                 );
               })}
+              {currentSignal.action !== 'stale' && currentSignal.swing && (
+                <div className="flex items-center justify-between px-4 py-2.5">
+                  <div className="flex items-center gap-2">
+                    <div className="w-1.5 h-1.5 rounded-full bg-sky-500" />
+                    <span className="text-[11px] font-black text-slate-400 uppercase tracking-wider">
+                      {currentSignal.swing.type === 'low' ? 'Swing Low' : 'Swing High'}
+                    </span>
+                  </div>
+                  <span className="text-sm font-mono font-black text-sky-400">{formatPrice(currentSignal.swing.price)}</span>
+                </div>
+              )}
+              {currentSignal.action !== 'stale' && currentSignal.riskReward && (
+                <div className="flex items-center justify-between px-4 py-3 bg-emerald-500/[0.03]">
+                  <div className="flex flex-col gap-0.5">
+                    <span className="text-[11px] font-black text-slate-400 uppercase tracking-wider">Risk / Reward</span>
+                    <span className="text-[9px] font-mono text-slate-500">RISK {formatPrice(currentSignal.riskDistance)}</span>
+                  </div>
+                  <div className="flex items-center gap-2 text-[10px] font-black font-mono">
+                    <span className="px-2 py-1 rounded bg-blue-500/10 border border-blue-500/20 text-blue-400">TP1 1:{currentSignal.riskReward.tp1}</span>
+                    <span className="px-2 py-1 rounded bg-emerald-500/10 border border-emerald-500/20 text-emerald-400">TP2 1:{currentSignal.riskReward.tp2}</span>
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* ── LIVE PRICE POSITION GAUGE (SL ↔ live ↔ TP) ── */}
@@ -2380,7 +2489,7 @@ export function TradingChart({ mobileTab }) {
           </div>
         </div>
 
-
+        {selectedSymbol === 'XAUUSD' && <ConfluencePanel confluence={confluence} />}
 
         {/* 3. TRADER PSYCHOLOGY CARD */}
         <div className="panel-primary rounded-2xl flex flex-col relative overflow-hidden transition-all duration-500">

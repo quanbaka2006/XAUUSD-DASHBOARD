@@ -14,7 +14,16 @@ are unavailable.
 - Signal output now includes symbol, timeframe, indicator, parameter set,
   algorithm version, risk-model version, and source candle time.
 - XAUUSD signal generation fails closed while market data is not ready.
-- Algorithm version is `2.1.0`.
+- Algorithm version is `3.0.0`.
+- Static/ATR-style signal exits were replaced by a confirmed-swing risk model:
+  BUY places SL below the latest confirmed real swing low, SELL places SL above
+  the latest confirmed real swing high, and TP1/TP2 are 1R/2R.
+- Synthetic warm-up candles can initialize indicators but cannot trigger a
+  signal, define a swing, or count as a TP/SL hit. Gap-fill candles are excluded;
+  a recent gap or a non-contiguous swing window forces `WAIT`.
+- XAUUSD now exposes an H1 bias -> M15 setup -> M5 trigger confluence decision.
+  A BUY/SELL notification is emitted only when those three layers agree and the
+  M5 trigger is no older than two candles.
 
 ## Phase 4 - Market-data readiness and recovery
 
@@ -35,6 +44,8 @@ are unavailable.
   Synthetic candles are explicitly marked and are never written to MongoDB.
 - The dashboard keeps the normal feed badge while health output reports real,
   synthetic, and usable candle counts separately.
+- Synthetic and gap-fill candles remain a display/warm-up aid only. The signal
+  panel reports its confirmed swing, risk distance, and TP1/TP2 R:R values.
 
 ## Phase 5 - Dashboard security
 
@@ -54,19 +65,21 @@ are unavailable.
 - Reduced TradingChart re-renders caused by high-frequency live-price updates.
 - Added `GET /api/health`, returning service and non-secret XAUUSD market-data
   status.
-- Added MongoDB persistence, aggregation, warm-up, signal-contract, and indicator tests.
+- Added MongoDB persistence, aggregation, warm-up, signal-contract, indicator,
+  swing-risk, data-gap guard, and confluence tests.
 - Production frontend build passes. The existing main bundle remains about 699
   kB before gzip and should be code-split in a later UI-only optimization.
 
 ## Operational limitations
 
-- Finnhub REST history is unavailable with the current plan, so the first run
-  must accumulate 500 real M1 candles (about 8 hours 20 minutes of continuous
-  open-market data) before the global XAUUSD readiness gate opens.
+- Finnhub REST history is unavailable with the current plan. Deterministic
+  synthetic candles provide immediate indicator warm-up, but the system remains
+  `WAIT` until it has a real completed M5 trigger and a confirmed real swing.
 - If MongoDB is temporarily unavailable, the realtime feed continues in memory,
   `/api/health` reports the persistence error, and later candle writes retry.
-- Higher-timeframe indicators can remain stale after the 500-M1 gate if their
-  own warm-up periods still require more completed candles.
+- H1/M15/M5 confluence can remain `WAIT` after warm-up when a layer is neutral,
+  the trigger is older than two M5 candles, a recent gap exists, or the feed is
+  stale. This is expected fail-closed behavior.
 
 ## Render deployment
 

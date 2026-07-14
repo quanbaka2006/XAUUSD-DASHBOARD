@@ -1,6 +1,6 @@
 // Math Helpers for Indicators
 
-export const SIGNAL_ALGORITHM_VERSION = '2.1.0';
+export const SIGNAL_ALGORITHM_VERSION = '3.0.0';
 
 export function getStableDisplayStrength({ symbol, timeframe, indicator, timestamp }) {
   const input = `${symbol || ''}:${timeframe || ''}:${indicator || ''}:${timestamp || 0}`;
@@ -422,13 +422,102 @@ export function calculateTrendlinesWithBreaks(data, length = 14, k = 1.0) {
   return result;
 }
 
-const STATIC_SIGNAL_SETTINGS = {
-  'XAUUSD': { sl: 10.0, tp1: 5.0, tp2: 7.5 },
-  'WTIUSD': { sl: 1.0, tp1: 0.5, tp2: 0.75 },
-  'XAGUSD': { sl: 0.4, tp1: 0.2, tp2: 0.3 },
-  'BTCUSD': { sl: 600.0, tp1: 300.0, tp2: 450.0 },
-  'ETHUSD': { sl: 30.0, tp1: 15.0, tp2: 22.5 }
+const SWING_RISK_SETTINGS = {
+  'XAUUSD': { buffer: 0.2, decimals: 2 },
+  'WTIUSD': { buffer: 0.02, decimals: 2 },
+  'XAGUSD': { buffer: 0.01, decimals: 4 },
+  'BTCUSD': { buffer: 5, decimals: 2 },
+  'ETHUSD': { buffer: 0.5, decimals: 2 }
 };
+
+const TIMEFRAME_SECONDS = { M1: 60, M5: 300, M15: 900, H1: 3600 };
+
+const SIGNAL_BLOCK_MESSAGES = {
+  'market-data-not-ready': 'Dữ liệu thị trường chưa sẵn sàng',
+  'insufficient-history': 'Chưa đủ lịch sử nến',
+  'insufficient-indicator-warmup': 'Chỉ báo chưa đủ dữ liệu warm-up',
+  'no-confirmed-signal': 'Chưa có tín hiệu đã xác nhận',
+  'synthetic-trigger-blocked': 'Trigger nằm trên nến synthetic nên đã bị chặn',
+  'recent-gap-fill': 'Có gap-fill gần trigger nên đang chờ dữ liệu thật',
+  'confirmed-swing-not-found': 'Chưa tìm thấy swing thật đã xác nhận'
+};
+
+export function getSignalBlockMessage(reason) {
+  return SIGNAL_BLOCK_MESSAGES[reason] || reason || 'Chưa có trigger M5';
+}
+
+export function isSyntheticCandle(candle) {
+  return Boolean(candle?.synthetic);
+}
+
+export function isGapFillCandle(candle) {
+  return candle?.syntheticReason === 'gap-fill';
+}
+
+export function getSignalAnalysisHistory(history) {
+  if (!Array.isArray(history) || history.length < 2) return [];
+  return history.slice(0, -1).filter((candle) => !isGapFillCandle(candle));
+}
+
+function inferIntervalSeconds(history) {
+  const frequencies = new Map();
+  for (let index = 1; index < (history || []).length; index += 1) {
+    const difference = history[index].time - history[index - 1].time;
+    if (!Number.isFinite(difference) || difference <= 0) continue;
+    frequencies.set(difference, (frequencies.get(difference) || 0) + 1);
+  }
+  return [...frequencies.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] || null;
+}
+
+function isContiguousWindow(window, intervalSeconds) {
+  if (!Number.isFinite(intervalSeconds)) return false;
+  return window.every((candle, index) => index === 0 || candle.time - window[index - 1].time === intervalSeconds);
+}
+
+export function findConfirmedSwing(history, action, beforeTime = Infinity, strength = 2, lookback = 100, intervalSeconds = null) {
+  const source = (history || []).filter((candle) => !isGapFillCandle(candle));
+  const expectedInterval = intervalSeconds || inferIntervalSeconds(source);
+  const lastEligibleIndex = source.findLastIndex((candle) => candle.time < beforeTime);
+  const firstIndex = Math.max(strength, lastEligibleIndex - lookback + 1);
+  for (let index = lastEligibleIndex - strength; index >= firstIndex; index -= 1) {
+    const window = source.slice(index - strength, index + strength + 1);
+    if (window.length !== strength * 2 + 1 || window.some(isSyntheticCandle) ||
+        !isContiguousWindow(window, expectedInterval)) continue;
+    const candidate = source[index];
+    if (action === 'buy') {
+      const isSwingLow = window.every((candle, windowIndex) => windowIndex === strength || candidate.low < candle.low);
+      if (isSwingLow) return { type: 'low', price: candidate.low, time: candidate.time };
+    } else if (action === 'sell') {
+      const isSwingHigh = window.every((candle, windowIndex) => windowIndex === strength || candidate.high > candle.high);
+      if (isSwingHigh) return { type: 'high', price: candidate.high, time: candidate.time };
+    }
+  }
+  return null;
+}
+
+export function calculateSwingRisk({ history, action, entry, triggerTime, symbol, timeframe = 'M1' }) {
+  const settings = SWING_RISK_SETTINGS[symbol] || { buffer: 0.01, decimals: 2 };
+  const swing = findConfirmedSwing(history, action, triggerTime, 2, 100, TIMEFRAME_SECONDS[timeframe]);
+  if (!swing) return null;
+  const sl = action === 'buy'
+    ? Number((swing.price - settings.buffer).toFixed(settings.decimals))
+    : Number((swing.price + settings.buffer).toFixed(settings.decimals));
+  const riskDistance = Number(Math.abs(entry - sl).toFixed(settings.decimals));
+  if (!Number.isFinite(riskDistance) || riskDistance <= settings.buffer ||
+      (action === 'buy' && sl >= entry) || (action === 'sell' && sl <= entry)) return null;
+  const direction = action === 'buy' ? 1 : -1;
+  const tp1 = Number((entry + direction * riskDistance).toFixed(settings.decimals));
+  const tp2 = Number((entry + direction * riskDistance * 2).toFixed(settings.decimals));
+  return {
+    sl,
+    tp1,
+    tp2,
+    swing,
+    buffer: settings.buffer,
+    riskDistance,
+    riskReward: { tp1: 1, tp2: 2, minimumRequired: 1.5, valid: true }
+  };
+}
 
 export function getCurrentSignal({
   history,
@@ -461,9 +550,9 @@ export function getCurrentSignal({
     indicator: selectedIndicatorSystem || null,
     parameters,
     algorithmVersion: SIGNAL_ALGORITHM_VERSION,
-    riskModel: 'static-distance-v1'
+    riskModel: 'confirmed-swing-rr-v1'
   };
-  const staleSignal = () => ({
+  const staleSignal = (blockedReason = 'no-confirmed-signal') => ({
     ...signalIdentity,
     action: 'stale',
     entry: 0,
@@ -471,20 +560,23 @@ export function getCurrentSignal({
     tp: 0,
     tps: [],
     signalStrength: 0,
+    blockedReason,
     sourceCandleTime: null,
     timestamp: Date.now()
   });
-  if (!dataReady || !history || history.length < 2) return staleSignal();
+  if (!dataReady) return staleSignal('market-data-not-ready');
+  if (!history || history.length < 2) return staleSignal('insufficient-history');
 
-  // Use only closed candles (excluding the last one which is active and fluctuating with livePrice)
-  const closedHistory = history.slice(0, -1);
+  // Active candles and gap-fill candles can be displayed, but cannot participate in signals.
+  const closedHistory = getSignalAnalysisHistory(history);
+  const realClosedHistory = closedHistory.filter((candle) => !isSyntheticCandle(candle));
   const minimumHistory = {
     zen: Math.max(zenFastPeriod || 20, zenSlowPeriod || 50) + 1,
     utbot: (utBotAtrPeriod || 10) + 2,
     chandelier: (chandelierAtrPeriod || 22) + 2,
     trendline: 2 * (trendlineLength || 14) + 2
   }[selectedIndicatorSystem] || Infinity;
-  if (closedHistory.length < minimumHistory) return staleSignal();
+  if (closedHistory.length < minimumHistory) return staleSignal('insufficient-indicator-warmup');
 
   let rawSignal = null;
   const decimalPlaces = (selectedSymbol === 'XAGUSD') ? 4 : 2;
@@ -516,6 +608,7 @@ export function getCurrentSignal({
       action,
       entry,
       signalStrength,
+      triggerCandle: entryCandle,
       timestamp: zenData[crossoverIdx].time * 1000
     };
   }
@@ -544,6 +637,7 @@ export function getCurrentSignal({
         action,
         entry,
         signalStrength,
+        triggerCandle: closedHistory[triggerIdx],
         timestamp: trigger.time * 1000
       };
     }
@@ -573,6 +667,7 @@ export function getCurrentSignal({
         action,
         entry,
         signalStrength,
+        triggerCandle: closedHistory[triggerIdx],
         timestamp: trigger.time * 1000
       };
     }
@@ -602,6 +697,7 @@ export function getCurrentSignal({
         action,
         entry,
         signalStrength,
+        triggerCandle: closedHistory[triggerIdx],
         timestamp: trigger.time * 1000
       };
     }
@@ -611,21 +707,25 @@ export function getCurrentSignal({
     return staleSignal();
   }
 
-  // Calculate static TP / SL
-  const settings = STATIC_SIGNAL_SETTINGS[selectedSymbol] || { sl: 10.0, tp1: 5.0, tp2: 7.5 };
-  
-  let sl = 0;
-  let tp1 = 0;
-  let tp2 = 0;
-  if (rawSignal.action === 'buy') {
-    sl = parseFloat((rawSignal.entry - settings.sl).toFixed(decimalPlaces));
-    tp1 = parseFloat((rawSignal.entry + settings.tp1).toFixed(decimalPlaces));
-    tp2 = parseFloat((rawSignal.entry + settings.tp2).toFixed(decimalPlaces));
-  } else if (rawSignal.action === 'sell') {
-    sl = parseFloat((rawSignal.entry + settings.sl).toFixed(decimalPlaces));
-    tp1 = parseFloat((rawSignal.entry - settings.tp1).toFixed(decimalPlaces));
-    tp2 = parseFloat((rawSignal.entry - settings.tp2).toFixed(decimalPlaces));
+  if (!rawSignal.triggerCandle || isSyntheticCandle(rawSignal.triggerCandle)) {
+    return staleSignal('synthetic-trigger-blocked');
   }
+  const triggerTime = rawSignal.timestamp / 1000;
+  const triggerContext = history.slice(0, -1).filter((candle) => candle.time <= triggerTime).slice(-5);
+  if (triggerContext.some(isGapFillCandle)) {
+    return staleSignal('recent-gap-fill');
+  }
+
+  const swingRisk = calculateSwingRisk({
+    history: closedHistory,
+    action: rawSignal.action,
+    entry: rawSignal.entry,
+    triggerTime,
+    symbol: selectedSymbol,
+    timeframe: selectedTimeframe
+  });
+  if (!swingRisk) return staleSignal('confirmed-swing-not-found');
+  const { sl, tp1, tp2 } = swingRisk;
 
   // --- Calculate hitTps by scanning from signal timestamp to present ---
   let hitTps = [false, false];
@@ -634,9 +734,9 @@ export function getCurrentSignal({
   if (rawSignal.timestamp > 0) {
     const signalTime = rawSignal.timestamp / 1000;
     // Find the first candle that includes or comes after the signal time
-    let startIdx = closedHistory.findIndex(c => c.time === signalTime);
+    let startIdx = realClosedHistory.findIndex(c => c.time === signalTime);
     if (startIdx === -1) {
-      startIdx = closedHistory.findIndex(c => c.time >= signalTime);
+      startIdx = realClosedHistory.findIndex(c => c.time >= signalTime);
     }
     
     if (startIdx !== -1) {
@@ -650,9 +750,9 @@ export function getCurrentSignal({
         if (currentLivePrice < minSince) minSince = currentLivePrice;
       }
       
-      for (let i = startIdx; i < closedHistory.length; i++) {
-        if (closedHistory[i].high > maxSince) maxSince = closedHistory[i].high;
-        if (closedHistory[i].low < minSince) minSince = closedHistory[i].low;
+      for (let i = startIdx; i < realClosedHistory.length; i++) {
+        if (realClosedHistory[i].high > maxSince) maxSince = realClosedHistory[i].high;
+        if (realClosedHistory[i].low < minSince) minSince = realClosedHistory[i].low;
       }
       
       if (rawSignal.action === 'buy') {
@@ -679,10 +779,11 @@ export function getCurrentSignal({
     }
   }
   // --- end hitTps logic ---
+  const { triggerCandle: _triggerCandle, ...publicSignal } = rawSignal;
 
   return {
     ...signalIdentity,
-    ...rawSignal,
+    ...publicSignal,
     signalStrength: getStableDisplayStrength({
       symbol: selectedSymbol,
       timeframe: selectedTimeframe,
@@ -693,8 +794,142 @@ export function getCurrentSignal({
     sl,
     tp: tp1,
     tps: [tp1, tp2],
+    swing: swingRisk.swing,
+    swingBuffer: swingRisk.buffer,
+    riskDistance: swingRisk.riskDistance,
+    riskReward: swingRisk.riskReward,
+    dataQuality: {
+      trigger: 'real',
+      realCandles: realClosedHistory.length,
+      syntheticWarmupCandles: closedHistory.length - realClosedHistory.length,
+      gapFillExcluded: history.slice(0, -1).filter(isGapFillCandle).length
+    },
     hitTps,
     status: finalStatus
   };
+}
+
+export function getTimeframeBias(history, fastPeriod = 20, slowPeriod = 50) {
+  const rawClosed = Array.isArray(history) ? history.slice(0, -1) : [];
+  const analysis = rawClosed.filter((candle) => !isGapFillCandle(candle));
+  const latest = analysis[analysis.length - 1];
+  const dataQuality = {
+    latestReal: Boolean(latest && !isSyntheticCandle(latest)),
+    syntheticWarmupCandles: analysis.filter(isSyntheticCandle).length,
+    recentGapFill: rawClosed.slice(-5).some(isGapFillCandle)
+  };
+  if (!latest || !dataQuality.latestReal) {
+    return { direction: 'neutral', state: 'wait', evidence: 'Chưa có nến thật đã đóng', dataQuality };
+  }
+  if (dataQuality.recentGapFill) {
+    return { direction: 'neutral', state: 'wait', evidence: 'Có gap-fill trong 5 nến gần nhất', dataQuality };
+  }
+  const fast = calculateEMA(analysis, fastPeriod).at(-1)?.value;
+  const slow = calculateEMA(analysis, slowPeriod).at(-1)?.value;
+  if (!Number.isFinite(fast) || !Number.isFinite(slow)) {
+    return { direction: 'neutral', state: 'wait', evidence: 'Chưa đủ EMA warm-up', dataQuality };
+  }
+  if (latest.close > fast && fast > slow) {
+    return {
+      direction: 'bullish', state: 'confirmed',
+      evidence: `Close > EMA${fastPeriod} > EMA${slowPeriod}`,
+      sourceCandleTime: latest.time, dataQuality
+    };
+  }
+  if (latest.close < fast && fast < slow) {
+    return {
+      direction: 'bearish', state: 'confirmed',
+      evidence: `Close < EMA${fastPeriod} < EMA${slowPeriod}`,
+      sourceCandleTime: latest.time, dataQuality
+    };
+  }
+  return {
+    direction: 'neutral', state: 'wait',
+    evidence: `EMA${fastPeriod}/EMA${slowPeriod} chưa đồng thuận`,
+    sourceCandleTime: latest.time, dataQuality
+  };
+}
+
+export function buildConfluenceDecision({ h1Bias, m15Bias, m5Signal, m5AgeCandles, feedStale = false }) {
+  if (feedStale) return { decision: 'wait', reason: 'Feed đang stale' };
+  if (!h1Bias || h1Bias.direction === 'neutral') {
+    return { decision: 'wait', reason: h1Bias?.evidence || 'H1 chưa có bias' };
+  }
+  if (!m15Bias || m15Bias.direction !== h1Bias.direction) {
+    return { decision: 'wait', reason: 'M15 chưa đồng thuận với H1' };
+  }
+  if (!m5Signal || m5Signal.action === 'stale') {
+    return { decision: 'wait', reason: getSignalBlockMessage(m5Signal?.blockedReason) };
+  }
+  const expectedAction = h1Bias.direction === 'bullish' ? 'buy' : 'sell';
+  if (m5Signal.action !== expectedAction) {
+    return { decision: 'wait', reason: 'M5 trigger ngược hướng H1' };
+  }
+  if (!Number.isFinite(m5AgeCandles) || m5AgeCandles > 2) {
+    return { decision: 'wait', reason: 'M5 trigger đã quá 2 nến' };
+  }
+  if (!m5Signal.riskReward?.valid || m5Signal.riskReward.tp2 < 1.5) {
+    return { decision: 'wait', reason: 'Risk/Reward dưới 1:1.5' };
+  }
+  return {
+    decision: expectedAction,
+    reason: 'H1, M15 và M5 đồng thuận',
+    signal: m5Signal
+  };
+}
+
+export function getMultiTimeframeConfluence({
+  histories,
+  selectedIndicatorSystem = 'utbot',
+  zenFastPeriod = 20,
+  zenSlowPeriod = 50,
+  utBotKeyValue = 2,
+  utBotAtrPeriod = 10,
+  chandelierAtrPeriod = 22,
+  chandelierAtrMultiplier = 3,
+  trendlineLength = 14,
+  trendlineSlopeMult = 1,
+  dataReady = true,
+  feedStale = false
+}) {
+  const h1 = getTimeframeBias(histories?.H1 || []);
+  const m15Bias = getTimeframeBias(histories?.M15 || []);
+  const m15 = {
+    ...m15Bias,
+    state: h1.direction !== 'neutral' && m15Bias.direction === h1.direction ? 'ready' : 'wait'
+  };
+  const m5Signal = getCurrentSignal({
+    history: histories?.M5 || [],
+    selectedSymbol: 'XAUUSD',
+    selectedTimeframe: 'M5',
+    selectedIndicatorSystem,
+    zenFastPeriod,
+    zenSlowPeriod,
+    utBotKeyValue,
+    utBotAtrPeriod,
+    chandelierAtrPeriod,
+    chandelierAtrMultiplier,
+    trendlineLength,
+    trendlineSlopeMult,
+    dataReady
+  });
+  const latestM5RealTime = getSignalAnalysisHistory(histories?.M5 || [])
+    .filter((candle) => !isSyntheticCandle(candle))
+    .at(-1)?.time;
+  const m5AgeCandles = Number.isFinite(latestM5RealTime) && Number.isFinite(m5Signal.sourceCandleTime)
+    ? Math.max(0, Math.floor((latestM5RealTime - m5Signal.sourceCandleTime) / TIMEFRAME_SECONDS.M5))
+    : Infinity;
+  const m5 = {
+    direction: m5Signal.action === 'buy' ? 'bullish' : m5Signal.action === 'sell' ? 'bearish' : 'neutral',
+    state: m5Signal.action !== 'stale' && m5AgeCandles <= 2 ? 'confirmed' : 'wait',
+    evidence: m5Signal.action === 'stale'
+      ? getSignalBlockMessage(m5Signal.blockedReason)
+      : `${m5Signal.indicator?.toUpperCase()} ${m5Signal.action.toUpperCase()} (${m5AgeCandles} nến trước)`,
+    sourceCandleTime: m5Signal.sourceCandleTime,
+    ageCandles: m5AgeCandles,
+    dataQuality: m5Signal.dataQuality
+  };
+  const result = buildConfluenceDecision({ h1Bias: h1, m15Bias: m15, m5Signal, m5AgeCandles, feedStale });
+  return { h1, m15, m5, ...result };
 }
 

@@ -7,6 +7,10 @@ import {
   calculateMACD,
   calculateUTBotSignals,
   calculateTrendlinesWithBreaks,
+  calculateSwingRisk,
+  findConfirmedSwing,
+  getSignalAnalysisHistory,
+  buildConfluenceDecision,
   getStableDisplayStrength,
   getCurrentSignal
 } from '../src/utils/indicators.js';
@@ -80,10 +84,13 @@ test('signal display strength stays stable between 90 and 98 for the same signal
   assert.equal(signal.signalStrength, getStableDisplayStrength({
     symbol: 'XAUUSD', timeframe: 'M1', indicator: 'zen', timestamp: signal.timestamp
   }));
-  assert.equal(signal.algorithmVersion, '2.1.0');
+  assert.equal(signal.algorithmVersion, '3.0.0');
   assert.equal(signal.indicator, 'zen');
   assert.equal(signal.timeframe, 'M1');
   assert.equal(signal.sourceCandleTime, signal.timestamp / 1000);
+  assert.equal(signal.riskModel, 'confirmed-swing-rr-v1');
+  assert.equal(signal.riskReward.tp1, 1);
+  assert.equal(signal.riskReward.tp2, 2);
   assert.equal(Object.hasOwn(signal, 'confidence'), false);
 });
 
@@ -98,5 +105,53 @@ test('XAUUSD signal generation fails closed while market data is warming up', ()
   });
   assert.equal(signal.action, 'stale');
   assert.equal(signal.signalStrength, 0);
-  assert.equal(signal.algorithmVersion, '2.1.0');
+  assert.equal(signal.algorithmVersion, '3.0.0');
+});
+
+test('gap-fill candles are excluded and synthetic candles cannot become confirmed swings', () => {
+  const history = closes([12, 11, 10, 11, 12, 13, 14]);
+  history.splice(3, 0, { ...history[2], time: 150, synthetic: true, syntheticReason: 'gap-fill' });
+  history.push({ ...history.at(-1), time: 420 }); // active candle
+  const analysis = getSignalAnalysisHistory(history);
+  assert.equal(analysis.some((item) => item.syntheticReason === 'gap-fill'), false);
+
+  const swing = findConfirmedSwing(analysis, 'buy', 360);
+  assert.equal(swing.time, 120);
+  const syntheticCandidate = analysis.map((item) => item.time === 120 ? { ...item, synthetic: true } : item);
+  assert.equal(findConfirmedSwing(syntheticCandidate, 'buy', 360), null);
+});
+
+test('swing-based risk places SL beyond the confirmed swing and returns 1R/2R targets', () => {
+  const history = closes([12, 11, 10, 11, 12, 13, 14]);
+  const risk = calculateSwingRisk({ history, action: 'buy', entry: 14, triggerTime: 360, symbol: 'XAUUSD' });
+  assert.equal(risk.swing.price, 9.5);
+  assert.equal(risk.sl, 9.3);
+  assert.equal(risk.riskDistance, 4.7);
+  assert.equal(risk.tp1, 18.7);
+  assert.equal(risk.tp2, 23.4);
+  assert.deepEqual(risk.riskReward, { tp1: 1, tp2: 2, minimumRequired: 1.5, valid: true });
+});
+
+test('confirmed swing cannot cross a missing timeframe bucket', () => {
+  const history = closes([12, 11, 10, 11, 12]);
+  history[3] = { ...history[3], time: 240 };
+  history[4] = { ...history[4], time: 300 };
+  assert.equal(findConfirmedSwing(history, 'buy', 360, 2, 100, 60), null);
+});
+
+test('confluence requires H1, M15 and a fresh aligned M5 trigger', () => {
+  const bullish = { direction: 'bullish', state: 'confirmed', evidence: 'bullish' };
+  const buySignal = { action: 'buy', riskReward: { valid: true, tp2: 2 } };
+  assert.equal(buildConfluenceDecision({
+    h1Bias: bullish, m15Bias: bullish, m5Signal: buySignal, m5AgeCandles: 1
+  }).decision, 'buy');
+  assert.equal(buildConfluenceDecision({
+    h1Bias: bullish,
+    m15Bias: { direction: 'bearish' },
+    m5Signal: buySignal,
+    m5AgeCandles: 1
+  }).decision, 'wait');
+  assert.equal(buildConfluenceDecision({
+    h1Bias: bullish, m15Bias: bullish, m5Signal: buySignal, m5AgeCandles: 3
+  }).decision, 'wait');
 });
