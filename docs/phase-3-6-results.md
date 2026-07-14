@@ -18,18 +18,17 @@ are unavailable.
 
 ## Phase 4 - Market-data readiness and recovery
 
-- Completed Finnhub XAUUSD M1 candles are persisted in a versioned atomic JSON
-  snapshot and restored after restart.
-- Snapshot contents are normalized, de-duplicated, sorted, and limited to 5,000
-  completed M1 candles. Active candles are never persisted.
+- Completed Finnhub XAUUSD M1 candles are upserted into the existing MongoDB
+  Atlas database and restored after restart or instance replacement.
+- Stored candles are normalized, de-duplicated, sorted, and limited to the most
+  recent 5,000 completed M1 candles. Active candles are never persisted.
 - M5, M15, and H1 completed candles are accepted only from full contiguous M1
   buckets.
 - XAUUSD candle updates stop after 15 seconds without a realtime price while the
   market is scheduled to be open. No flat candles are forward-filled.
 - Signal readiness requires at least 500 completed M1 candles.
 - The UI shows `WARMUP n/500`, `FEED STALE`, or `FINNHUB OANDA`.
-- Default snapshot path is `backend/data/xauusd-m1.json`. Set
-  `XAU_CANDLE_STORE_PATH` to a mounted durable volume in production.
+- `MONGODB_URI` is the only persistence setting; no Render disk is required.
 
 ## Phase 5 - Dashboard security
 
@@ -49,7 +48,7 @@ are unavailable.
 - Reduced TradingChart re-renders caused by high-frequency live-price updates.
 - Added `GET /api/health`, returning service and non-secret XAUUSD market-data
   status.
-- Added persistence, aggregation, warm-up, signal-contract, and indicator tests.
+- Added MongoDB persistence, aggregation, warm-up, signal-contract, and indicator tests.
 - Production frontend build passes. The existing main bundle remains about 699
   kB before gzip and should be code-split in a later UI-only optimization.
 
@@ -58,15 +57,14 @@ are unavailable.
 - Finnhub REST history is unavailable with the current plan, so the first run
   must accumulate 500 real M1 candles (about 8 hours 20 minutes of continuous
   open-market data) before the global XAUUSD readiness gate opens.
-- A local snapshot survives process restarts only while its filesystem remains.
-  Cloud deployments need `XAU_CANDLE_STORE_PATH` on durable storage.
+- If MongoDB is temporarily unavailable, the realtime feed continues in memory,
+  `/api/health` reports the persistence error, and later candle writes retry.
 - Higher-timeframe indicators can remain stale after the 500-M1 gate if their
   own warm-up periods still require more completed candles.
 
 ## Render deployment
 
 The repository includes `render.yaml` for the existing
-`xauusd-dashboard-izrr` web service. It declares a 1 GB persistent disk mounted
-at `/var/data`, sets `XAU_CANDLE_STORE_PATH=/var/data/xauusd-m1.json`, and uses
-`/api/health` as the health-check path. Render persistent disks require a paid
-web-service instance and a single running instance.
+`xauusd-dashboard-izrr` web service and uses `/api/health` as its health-check
+path. Candle persistence uses the existing `MONGODB_URI` environment variable,
+so no Render persistent disk or `XAU_CANDLE_STORE_PATH` is required.

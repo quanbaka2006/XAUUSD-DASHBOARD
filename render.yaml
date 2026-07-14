@@ -8,10 +8,3 @@ services:
     startCommand: npm start
     healthCheckPath: /api/health
     autoDeployTrigger: commit
-    envVars:
-      - key: XAU_CANDLE_STORE_PATH
-        value: /var/data/xauusd-m1.json
-    disk:
-      name: xauusd-market-data
-      mountPath: /var/data
-      sizeGB: 1

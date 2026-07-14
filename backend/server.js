@@ -15,7 +15,7 @@ const vpsManager = require('./vpsManager');
 const net = require('net');
 const oandaXau = require('./marketData/oandaXau');
 const { aggregateCandles, buildTimeframes } = require('./marketData/candleAggregation');
-const { createCandleStore } = require('./marketData/candleStore');
+const mongoCandleStore = require('./marketData/mongoCandleStore');
 
 
 // Load .env file for local development
@@ -383,13 +383,12 @@ const xauActiveBucketEligible = { M1: false, M5: false, M15: false, H1: false };
 const currentPrices = { ...defaultPrices };
 const priceMetadata = {};
 const oandaXauConfig = oandaXau.getConfig();
-const xauCandleStorePath = process.env.XAU_CANDLE_STORE_PATH || path.join(__dirname, 'data', 'xauusd-m1.json');
-const xauCandleStore = createCandleStore({
-  filePath: xauCandleStorePath,
-  limit: oandaXau.HISTORY_COUNT
-});
 const XAU_MINIMUM_M1_HISTORY = 500;
 const XAU_STALE_AFTER_MS = 15000;
+let mongoXauPersistenceReady = false;
+let mongoXauPersistenceError = 'not-connected';
+let mongoXauWriteQueue = Promise.resolve();
+let mongoXauWritesSincePrune = 0;
 const xauMarketDataStatus = {
   instrument: oandaXau.INSTRUMENT,
   source: oandaXauConfig.enabled ? `oanda-v20-${oandaXauConfig.environment}` : 'unavailable',
@@ -485,25 +484,6 @@ SYMBOLS.forEach((sym) => {
   activeCandles[sym] = { 'M1': null, 'M5': null, 'M15': null, 'H1': null };
 });
 
-const restoredXauM1 = xauCandleStore.load();
-if (restoredXauM1.length > 0) {
-  const restored = buildTimeframes(restoredXauM1, oandaXau.HISTORY_COUNT);
-  candleHistory.XAUUSD = restored;
-  const latest = restored.M1[restored.M1.length - 1];
-  currentPrices.XAUUSD = latest.close;
-  lastRealPrices.XAUUSD = latest.close;
-  hasAlignedHistory.XAUUSD = true;
-  priceMetadata.XAUUSD = {
-    source: 'finnhub-oanda-spot-persisted',
-    sourceTime: latest.time,
-    receivedAt: 0
-  };
-  xauMarketDataStatus.source = 'finnhub-oanda-spot-persisted';
-  xauMarketDataStatus.historyCandles = restored.M1.length;
-  xauMarketDataStatus.historyReady = restored.M1.length >= XAU_MINIMUM_M1_HISTORY;
-  console.log(`[CandleStore] Restored ${restored.M1.length} completed XAUUSD M1 candles.`);
-}
-
 // ==========================================
 // Historical Candle Generator
 // ==========================================
@@ -566,7 +546,7 @@ function applyRealPrice(sym, newPrice, metadata = {}) {
   lastTickTimestamp[sym] = Date.now();
   const price = parseFloat(newPrice.toFixed(sym.includes('BTC') ? 2 : 4));
   const firstLiveTickAfterRestore = sym === 'XAUUSD' &&
-    priceMetadata.XAUUSD?.source === 'finnhub-oanda-spot-persisted' &&
+    priceMetadata.XAUUSD?.persisted === true &&
     priceMetadata.XAUUSD?.receivedAt === 0;
 
   // Align legacy synthetic history to the first live price. XAUUSD has no synthetic history.
@@ -1072,7 +1052,7 @@ function onSeedReceived(sym) {
 }
 
 async function initializeOandaXauHistory() {
-  if (!oandaXauConfig.enabled) return restoredXauM1.length > 0;
+  if (!oandaXauConfig.enabled) return candleHistory.XAUUSD.M1.length > 0;
   try {
     const result = await oandaXau.fetchHistory(oandaXauConfig);
     const m1 = result.timeframes.M1;
@@ -1096,7 +1076,7 @@ async function initializeOandaXauHistory() {
     xauMarketDataStatus.historyReady = true;
     xauMarketDataStatus.historyCandles = m1.length;
     xauMarketDataStatus.lastError = null;
-    xauCandleStore.scheduleSave(m1);
+    queueMongoXauBatch(m1);
     console.log(`[OANDA history] Loaded ${m1.length} completed XAU_USD M1 candles.`);
     return true;
   } catch (error) {
@@ -1119,8 +1099,77 @@ function getXauMarketDataStatus() {
     lastPriceAt: receivedAt || null,
     priceAgeMs,
     stale: !isMarketClosed() && (priceAgeMs === null || priceAgeMs > XAU_STALE_AFTER_MS),
-    marketClosed: isMarketClosed()
+    marketClosed: isMarketClosed(),
+    persistenceBackend: 'mongodb',
+    persistenceReady: mongoXauPersistenceReady,
+    persistenceError: mongoXauPersistenceError
   };
+}
+
+async function initializeMongoXauPersistence() {
+  await mongoCandleStore.ensureIndexes(db);
+  const persisted = await mongoCandleStore.loadM1(db, oandaXau.HISTORY_COUNT);
+  const mergedM1 = mongoCandleStore.mergeCompletedM1(
+    [persisted, candleHistory.XAUUSD.M1],
+    oandaXau.HISTORY_COUNT
+  );
+
+  if (mergedM1.length > 0) {
+    candleHistory.XAUUSD = buildTimeframes(mergedM1, oandaXau.HISTORY_COUNT);
+    const latest = mergedM1[mergedM1.length - 1];
+    const hasLivePrice = (priceMetadata.XAUUSD?.receivedAt || 0) > 0;
+    if (!hasLivePrice) {
+      currentPrices.XAUUSD = latest.close;
+      lastRealPrices.XAUUSD = latest.close;
+      hasAlignedHistory.XAUUSD = true;
+      priceMetadata.XAUUSD = {
+        source: 'finnhub-oanda-spot-mongodb',
+        sourceTime: latest.time,
+        receivedAt: 0,
+        persisted: true
+      };
+      xauMarketDataStatus.source = 'finnhub-oanda-spot-mongodb';
+    }
+    xauMarketDataStatus.historyCandles = mergedM1.length;
+    xauMarketDataStatus.historyReady = mergedM1.length >= XAU_MINIMUM_M1_HISTORY;
+    await mongoCandleStore.upsertM1Batch(db, mergedM1, oandaXau.HISTORY_COUNT);
+    onSeedReceived('XAUUSD');
+    console.log(`[MongoCandleStore] Restored ${persisted.length} and retained ${mergedM1.length} completed XAUUSD M1 candles.`);
+  }
+
+  mongoXauPersistenceReady = true;
+  mongoXauPersistenceError = null;
+}
+
+function enqueueMongoXauWrite(operation) {
+  if (!useMongoDB || !db) return;
+  mongoXauWriteQueue = mongoXauWriteQueue
+    .then(operation)
+    .then(() => {
+      mongoXauPersistenceReady = true;
+      mongoXauPersistenceError = null;
+    })
+    .catch((error) => {
+      mongoXauPersistenceReady = false;
+      mongoXauPersistenceError = 'write-failed';
+      console.error('[MongoCandleStore] Write failed:', error.message);
+    });
+}
+
+function queueMongoXauCandle(candle) {
+  if (!candle) return;
+  enqueueMongoXauWrite(async () => {
+    await mongoCandleStore.upsertM1(db, candle);
+    mongoXauWritesSincePrune += 1;
+    if (mongoXauWritesSincePrune >= 60) {
+      await mongoCandleStore.pruneM1(db, oandaXau.HISTORY_COUNT);
+      mongoXauWritesSincePrune = 0;
+    }
+  });
+}
+
+function queueMongoXauBatch(candles) {
+  enqueueMongoXauWrite(() => mongoCandleStore.upsertM1Batch(db, candles, oandaXau.HISTORY_COUNT));
 }
 
 // Seed ALL symbols on startup with proper sources to avoid price jump
@@ -1449,7 +1498,7 @@ setInterval(() => {
         const historyLimit = sym === 'XAUUSD' ? oandaXau.HISTORY_COUNT : CHART_HISTORY_LIMIT;
         if (candleHistory[sym][tf].length > historyLimit) candleHistory[sym][tf].shift();
         if (sym === 'XAUUSD' && tf === 'M1' && archivedCompletedCandle) {
-          xauCandleStore.scheduleSave(candleHistory.XAUUSD.M1);
+          queueMongoXauCandle(candleHistory.XAUUSD.M1[candleHistory.XAUUSD.M1.length - 1]);
           xauMarketDataStatus.historyCandles = candleHistory.XAUUSD.M1.length;
           xauMarketDataStatus.historyReady = candleHistory.XAUUSD.M1.length >= XAU_MINIMUM_M1_HISTORY;
         }
@@ -1538,6 +1587,7 @@ function saveUsersToFile(users) {
 
 async function connectDB() {
   if (!MONGODB_URI) {
+    mongoXauPersistenceError = 'not-configured';
     console.log('[Database] MONGODB_URI not set. Running with local users.json fallback.');
     return;
   }
@@ -1549,6 +1599,14 @@ async function connectDB() {
     db = client.db();
     useMongoDB = true;
     console.log('[MongoDB] Connected successfully to the remote database.');
+
+    try {
+      await initializeMongoXauPersistence();
+    } catch (candleError) {
+      mongoXauPersistenceReady = false;
+      mongoXauPersistenceError = 'initialization-failed';
+      console.error('[MongoCandleStore] Initialization failed:', candleError.message);
+    }
 
     // Auto-Migration: Seed MongoDB from users.json if empty
     const mongoCount = await db.collection('users').countDocuments();
@@ -2141,7 +2199,9 @@ app.get('/api/health', (req, res) => {
       historyReady: marketData.historyReady,
       historyCandles: marketData.historyCandles,
       minimumHistoryCandles: marketData.minimumHistoryCandles,
-      persistentStoreConfigured: Boolean(process.env.XAU_CANDLE_STORE_PATH)
+      persistenceBackend: marketData.persistenceBackend,
+      persistenceReady: marketData.persistenceReady,
+      persistenceError: marketData.persistenceError
     }
   });
 });
