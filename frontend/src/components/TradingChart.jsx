@@ -2209,7 +2209,9 @@ export function TradingChart({ mobileTab }) {
               <span className="px-2 py-0.5 bg-amber-500/10 border border-amber-500/20 text-amber-500 rounded text-[11px] font-mono font-black tracking-widest">{selectedTimeframe}</span>
               {selectedSymbol === 'XAUUSD' && (
                 <span
-                  title={marketDataStatus?.source || 'Waiting for market data'}
+                  title={marketDataStatus?.historyMode === 'synthetic-warmup'
+                    ? `${marketDataStatus?.realHistoryCandles || 0} real candles + synthetic warm-up history`
+                    : marketDataStatus?.source || 'Waiting for market data'}
                   className={`px-2 py-0.5 rounded border text-[9px] font-mono font-black tracking-wider ${
                     marketDataStatus?.stale
                       ? 'border-red-500/30 bg-red-500/10 text-red-400'
@@ -2220,6 +2222,8 @@ export function TradingChart({ mobileTab }) {
                 >
                   {marketDataStatus?.stale
                     ? 'FEED STALE'
+                    : marketDataStatus?.historyMode === 'synthetic-warmup'
+                      ? `SIM WARMUP +${marketDataStatus?.syntheticHistoryCandles || 500}`
                     : marketDataStatus?.historyReady
                       ? 'FINNHUB OANDA'
                       : `WARMUP ${marketDataStatus?.historyCandles || 0}/500`}

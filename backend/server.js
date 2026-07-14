@@ -16,6 +16,11 @@ const net = require('net');
 const oandaXau = require('./marketData/oandaXau');
 const { aggregateCandles, buildTimeframes } = require('./marketData/candleAggregation');
 const mongoCandleStore = require('./marketData/mongoCandleStore');
+const {
+  DEFAULT_BACKFILL_COUNT,
+  countMissingIntervals,
+  buildSyntheticWarmupHistory
+} = require('./marketData/syntheticBackfill');
 
 
 // Load .env file for local development
@@ -1090,11 +1095,22 @@ async function initializeOandaXauHistory() {
 function getXauMarketDataStatus() {
   const receivedAt = priceMetadata.XAUUSD?.receivedAt || 0;
   const priceAgeMs = receivedAt > 0 ? Math.max(0, Date.now() - receivedAt) : null;
-  const historyCandles = candleHistory.XAUUSD?.M1?.length || 0;
+  const realHistoryCandles = candleHistory.XAUUSD?.M1?.length || 0;
+  const hasSyntheticAnchor = realHistoryCandles > 0 || Boolean(activeCandles.XAUUSD?.M1);
+  const syntheticHistoryCandles = hasSyntheticAnchor && realHistoryCandles < XAU_MINIMUM_M1_HISTORY
+    ? DEFAULT_BACKFILL_COUNT
+    : 0;
+  const usableHistoryCandles = realHistoryCandles + syntheticHistoryCandles;
+  const missingRealBuckets = countMissingIntervals(candleHistory.XAUUSD?.M1, INTERVAL_SECONDS.M1);
   return {
     ...xauMarketDataStatus,
-    historyCandles,
-    historyReady: historyCandles >= XAU_MINIMUM_M1_HISTORY,
+    historyCandles: realHistoryCandles,
+    realHistoryCandles,
+    syntheticHistoryCandles,
+    usableHistoryCandles,
+    missingRealBuckets,
+    historyMode: syntheticHistoryCandles > 0 ? 'synthetic-warmup' : 'real-only',
+    historyReady: usableHistoryCandles >= XAU_MINIMUM_M1_HISTORY,
     minimumHistoryCandles: XAU_MINIMUM_M1_HISTORY,
     lastPriceAt: receivedAt || null,
     priceAgeMs,
@@ -1105,6 +1121,18 @@ function getXauMarketDataStatus() {
     persistenceError: mongoXauPersistenceError,
     persistencePendingCandles: mongoXauPendingCandles.size
   };
+}
+
+function getXauClientHistory(timeframe) {
+  const intervalSeconds = INTERVAL_SECONDS[timeframe];
+  const realCandles = candleHistory.XAUUSD[timeframe];
+  return buildSyntheticWarmupHistory({
+    realCandles,
+    activeCandle: activeCandles.XAUUSD[timeframe],
+    intervalSeconds,
+    count: realCandles.length < XAU_MINIMUM_M1_HISTORY ? DEFAULT_BACKFILL_COUNT : 0,
+    seed: `XAU_USD:${timeframe}`
+  });
 }
 
 async function initializeMongoXauPersistence() {
@@ -2197,10 +2225,19 @@ app.get('/api/history/:symbol/:interval', requireAuth, (req, res) => {
   const tf  = req.params.interval;
   if (!candleHistory[sym] || !candleHistory[sym][tf])
     return res.status(400).json({ error: 'Invalid symbol or interval' });
+  const clientHistory = sym === 'XAUUSD' ? getXauClientHistory(tf) : null;
+  const marketData = sym === 'XAUUSD' ? getXauMarketDataStatus() : null;
   res.json({
-    history: candleHistory[sym][tf],
+    history: clientHistory ? clientHistory.history : candleHistory[sym][tf],
     active: activeCandles[sym][tf],
-    marketData: sym === 'XAUUSD' ? getXauMarketDataStatus() : null
+    marketData: marketData ? {
+      ...marketData,
+      syntheticHistoryCandles: clientHistory.syntheticCount,
+      gapFilledCandles: clientHistory.gapFillCount,
+      usableHistoryCandles: clientHistory.history.length,
+      historyMode: clientHistory.syntheticCount > 0 ? 'synthetic-warmup' : 'real-only',
+      historyReady: clientHistory.history.length >= XAU_MINIMUM_M1_HISTORY
+    } : null
   });
 });
 
@@ -2218,6 +2255,11 @@ app.get('/api/health', (req, res) => {
       marketClosed: marketData.marketClosed,
       historyReady: marketData.historyReady,
       historyCandles: marketData.historyCandles,
+      realHistoryCandles: marketData.realHistoryCandles,
+      syntheticHistoryCandles: marketData.syntheticHistoryCandles,
+      usableHistoryCandles: marketData.usableHistoryCandles,
+      missingRealBuckets: marketData.missingRealBuckets,
+      historyMode: marketData.historyMode,
       minimumHistoryCandles: marketData.minimumHistoryCandles,
       persistenceBackend: marketData.persistenceBackend,
       persistenceReady: marketData.persistenceReady,

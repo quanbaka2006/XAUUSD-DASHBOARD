@@ -29,6 +29,12 @@ are unavailable.
 - Signal readiness requires at least 500 completed M1 candles.
 - The UI shows `WARMUP n/500`, `FEED STALE`, or `FINNHUB OANDA`.
 - `MONGODB_URI` is the only persistence setting; no Render disk is required.
+- Until enough real history has accumulated, each XAUUSD timeframe returned by
+  the history API includes 500 deterministic synthetic warm-up candles before
+  the first real candle. Missing internal time buckets are bridged separately.
+  Synthetic candles are explicitly marked and are never written to MongoDB.
+- The dashboard labels this mode `SIM WARMUP +500`. Health output reports real,
+  synthetic, and usable candle counts separately.
 
 ## Phase 5 - Dashboard security
 
