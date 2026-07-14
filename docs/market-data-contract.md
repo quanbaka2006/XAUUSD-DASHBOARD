@@ -1,6 +1,6 @@
 # XAU/USD Market Data Contract
 
-Status: Market data plus scalping Signal Ledger schema 1.2.0
+Status: Market data plus scalping Signal Ledger schema 1.3.0
 
 ## Scope
 
@@ -62,8 +62,10 @@ simulation. Auto Trade and MT5 VPS Farm are explicitly out of scope.
 ## Signal contract
 
 - Signals are evaluated only after a completed candle is accepted.
-- The latest indicator state on that real completed candle determines BUY/SELL;
-  the engine does not wait indefinitely for a new crossover or breakout event.
+- BUY/SELL requires a native event on that real completed candle: EMA crossover,
+  UT Bot trailing-stop cross, Chandelier direction flip, or Trendline breakout.
+- A page reload treats indicator events that closed before page start as
+  historical baseline and cannot publish them as new signals.
 - The active candle may update UI price/OHLC but cannot create a confirmed signal.
 - Identical input candles and parameters must produce identical output.
 - A signal must contain its source candle time, symbol, timeframe, indicator name,
@@ -76,7 +78,7 @@ simulation. Auto Trade and MT5 VPS Farm are explicitly out of scope.
 - Stop loss prefers a confirmed real swing plus an instrument-specific buffer.
   If gaps prevent a five-candle pivot, it uses the latest 20-candle real extreme.
   TP1/TP2 profiles extend from 0.5R/0.75R on M1 to 1.5R/2R on H1.
-- The existing frontend algorithm 3.2.0 remains transitional until the Phase 2
+- The existing frontend algorithm 3.3.0 remains transitional until the Phase 2
   strategy engine begins publishing the new backend contract.
 - `signalStrength` is a stable display score between 90 and 98, derived from the
   signal identity. It is not a calibrated win probability.

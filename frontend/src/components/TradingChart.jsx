@@ -2082,6 +2082,7 @@ export function TradingChart({ mobileTab }) {
       trendlineLength,
       trendlineSlopeMult,
       dataReady: true,
+      minimumTriggerAvailableAt: pageLoadTimeRef.current,
     });
     const state = useTradeStore.getState();
     const existing = state.trackedSignals?.[selectedSymbol]?.[selectedTimeframe]?.[selectedIndicatorSystem] || null;

@@ -1,6 +1,6 @@
 // Math Helpers for Indicators
 
-export const SIGNAL_ALGORITHM_VERSION = '3.2.0';
+export const SIGNAL_ALGORITHM_VERSION = '3.3.0';
 
 export function getStableDisplayStrength({ symbol, timeframe, indicator, timestamp }) {
   const input = `${symbol || ''}:${timeframe || ''}:${indicator || ''}:${timestamp || 0}`;
@@ -444,6 +444,7 @@ const SIGNAL_BLOCK_MESSAGES = {
   'insufficient-indicator-warmup': 'Chỉ báo chưa đủ dữ liệu warm-up',
   'no-real-closed-candle': 'Chưa có nến thật đã đóng',
   'no-confirmed-signal': 'Chưa có tín hiệu đã xác nhận',
+  'historical-trigger': 'Trigger đã xảy ra trước khi phiên web bắt đầu',
   'synthetic-trigger-blocked': 'Trigger nằm trên nến synthetic nên đã bị chặn',
   'recent-gap-fill': 'Có gap-fill gần trigger nên đang chờ dữ liệu thật',
   'confirmed-swing-not-found': 'Chưa tìm thấy swing thật đã xác nhận'
@@ -568,7 +569,8 @@ export function getCurrentSignal({
   trendlineLength,
   trendlineSlopeMult,
   livePrice,
-  dataReady = true
+  dataReady = true,
+  minimumTriggerAvailableAt = 0
 }) {
   const parameters = selectedIndicatorSystem === 'zen'
     ? { fastPeriod: zenFastPeriod, slowPeriod: zenSlowPeriod }
@@ -618,53 +620,51 @@ export function getCurrentSignal({
   const triggerCandle = realClosedHistory.at(-1);
   if (!triggerCandle) return staleSignal('no-real-closed-candle');
   const entry = Number(triggerCandle.close.toFixed(decimalPlaces));
-  const createStateSignal = (action, stateEvidence) => ({
+  const createEventSignal = (action, stateEvidence) => ({
     action,
     entry,
     triggerCandle,
-    triggerType: 'latest-indicator-state',
+    triggerType: 'fresh-indicator-event',
     stateEvidence,
-    timestamp: triggerCandle.time * 1000
+    timestamp: triggerCandle.time * 1000,
+    triggerAvailableAt: (triggerCandle.time + (TIMEFRAME_SECONDS[selectedTimeframe] || 0)) * 1000
   });
 
   if (selectedIndicatorSystem === 'zen') {
     const zenData = calculateZenTrendLines(closedHistory, zenFastPeriod, zenSlowPeriod);
-    if (zenData.length === 0) return staleSignal();
+    if (zenData.length < 2) return staleSignal();
     const last = zenData[zenData.length - 1];
+    const previous = zenData[zenData.length - 2];
+    if (last.time !== triggerCandle.time || last.trend === previous.trend) return staleSignal();
     const action = last.trend === 'bullish' ? 'buy' : 'sell';
-    rawSignal = createStateSignal(action, `EMA fast ${action === 'buy' ? '>=' : '<'} EMA slow`);
+    rawSignal = createEventSignal(action, `EMA fast crossed ${action === 'buy' ? 'above' : 'below'} EMA slow`);
   }
 
   if (selectedIndicatorSystem === 'utbot') {
     const utData = calculateUTBotSignals(closedHistory, utBotKeyValue, utBotAtrPeriod);
     if (utData.length === 0) return staleSignal();
     const last = utData[utData.length - 1];
-    if (!Number.isFinite(last.trailingStop)) return staleSignal();
-    const action = triggerCandle.close >= last.trailingStop ? 'buy' : 'sell';
-    rawSignal = createStateSignal(action, `Close ${action === 'buy' ? '>=' : '<'} UT trailing stop`);
+    if (last.time !== triggerCandle.time || (!last.buy && !last.sell)) return staleSignal();
+    const action = last.buy ? 'buy' : 'sell';
+    rawSignal = createEventSignal(action, `Price crossed ${action === 'buy' ? 'above' : 'below'} UT trailing stop`);
   }
 
   if (selectedIndicatorSystem === 'chandelier') {
     const chData = calculateChandelierExit(closedHistory, chandelierAtrPeriod, chandelierAtrMultiplier);
     if (chData.length === 0) return staleSignal();
     const last = chData[chData.length - 1];
-    const action = last.dir === -1 ? 'sell' : 'buy';
-    rawSignal = createStateSignal(action, `Chandelier direction ${last.dir === -1 ? '-1' : '+1'}`);
+    if (last.time !== triggerCandle.time || (!last.buy && !last.sell)) return staleSignal();
+    const action = last.buy ? 'buy' : 'sell';
+    rawSignal = createEventSignal(action, `Chandelier direction changed to ${action === 'buy' ? '+1' : '-1'}`);
   }
 
   if (selectedIndicatorSystem === 'trendline') {
     const tlData = calculateTrendlinesWithBreaks(closedHistory, trendlineLength, trendlineSlopeMult);
     if (tlData.length === 0) return staleSignal();
-    const latestBreak = [...tlData].reverse().find((item) => item.buy || item.sell);
-    const recentCloses = realClosedHistory.slice(-Math.max(2, trendlineLength || 14));
-    const average = recentCloses.reduce((sum, candle) => sum + candle.close, 0) / recentCloses.length;
-    const action = latestBreak
-      ? (latestBreak.buy ? 'buy' : 'sell')
-      : (triggerCandle.close >= average ? 'buy' : 'sell');
-    rawSignal = createStateSignal(
-      action,
-      latestBreak ? `Latest trendline break ${action}` : `Close ${action === 'buy' ? '>=' : '<'} recent mean`
-    );
+    const last = tlData[tlData.length - 1];
+    if (last.time !== triggerCandle.time || (!last.buy && !last.sell)) return staleSignal();
+    const action = last.buy ? 'buy' : 'sell';
+    rawSignal = createEventSignal(action, `Fresh trendline break ${action}`);
   }
 
   if (!rawSignal || rawSignal.action === 'stale') {
@@ -673,6 +673,10 @@ export function getCurrentSignal({
 
   if (!rawSignal.triggerCandle || isSyntheticCandle(rawSignal.triggerCandle)) {
     return staleSignal('synthetic-trigger-blocked');
+  }
+  if (Number(minimumTriggerAvailableAt) > 0 &&
+      rawSignal.triggerAvailableAt <= Number(minimumTriggerAvailableAt)) {
+    return staleSignal('historical-trigger');
   }
   const triggerTime = rawSignal.timestamp / 1000;
   const recentGapFill = history.slice(0, -1).slice(-5).some(isGapFillCandle);

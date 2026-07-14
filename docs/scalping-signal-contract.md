@@ -1,8 +1,8 @@
 # XAUUSD Scalping Signal Contract
 
-Status: Phase 0 contract, revised for latest-state signals
+Status: Phase 0 contract, revised for native indicator-event signals
 
-Schema version: `1.2.0`
+Schema version: `1.3.0`
 
 Strategy identity: `xauusd-scalp`
 Date: 2026-07-14
@@ -21,8 +21,9 @@ differ.
 The strategy intentionally uses few blocking conditions:
 
 1. The selected timeframe supplies a real completed trigger candle.
-2. The selected indicator's latest state determines BUY or SELL; a new
-   crossover/breakout event is not required.
+2. The selected indicator must produce a new native event on that candle: Zen
+   EMA crossover, UT Bot price/trailing-stop cross, Chandelier direction flip,
+   or Trendline breakout.
 3. Its nearest higher timeframe may provide directional context.
 4. H1/M15/M5 confluence remains visible information and does not block a valid
    trigger.
@@ -67,7 +68,9 @@ Example BUY: entry 10, SL 0, TP1 15, TP2 17.5. The true displayed ratios are
   two candles on each side of the pivot. If it is unavailable, the fallback is
   the extreme of the latest 20 real candles before the trigger.
 - A nearby gap-fill is recorded as a warning. It cannot itself become the
-  trigger or swing, but it no longer blocks a latest-state signal.
+  trigger or swing, but it does not block a valid native indicator event.
+- On browser cold start, events whose source candle had already closed before
+  the page session began are baseline history, not new signals.
 - A stale feed cannot publish or advance a signal.
 - `signalStrength` remains a stable display integer from 90 to 98 and is not a
   calibrated win probability.
@@ -170,3 +173,4 @@ active signal identity, and non-secret error state.
 8. Terminal state is immutable.
 9. Restart initialization restores the MongoDB active signal.
 10. History is returned newest first with a bounded limit.
+11. A browser reload cannot republish a historical indicator event as new.

@@ -49,7 +49,7 @@ test('MACD starts only after slow and signal warm-up and remains finite', () => 
   });
 });
 
-test('all four indicator systems emit a state signal without waiting for a fresh crossing', () => {
+test('indicator systems do not turn an unchanged state into a new signal', () => {
   const data = closes(Array(80).fill(2000));
   assert.equal(calculateUTBotSignals(data, 2, 10).some((item) => item.buy || item.sell), false);
   const history = [...data, ...closes([2000]).map((item) => ({ ...item, time: 80 * 60 }))];
@@ -61,14 +61,30 @@ test('all four indicator systems emit a state signal without waiting for a fresh
       chandelierAtrPeriod: 22, chandelierAtrMultiplier: 3,
       trendlineLength: 14, trendlineSlopeMult: 1, livePrice: 2000
     });
-    assert.ok(['buy', 'sell'].includes(signal.action), selectedIndicatorSystem);
-    assert.equal(signal.triggerType, 'latest-indicator-state', selectedIndicatorSystem);
-    assert.equal(signal.status, 'running', selectedIndicatorSystem);
-    assert.equal(signal.entry, 2000, selectedIndicatorSystem);
-    assert.ok(
-      signal.action === 'buy' ? signal.sl < signal.entry : signal.sl > signal.entry,
-      selectedIndicatorSystem
-    );
+    assert.equal(signal.action, 'stale', selectedIndicatorSystem);
+    assert.equal(signal.blockedReason, 'no-confirmed-signal', selectedIndicatorSystem);
+  }
+});
+
+test('each indicator accepts only its fresh event on the latest closed candle', () => {
+  const values = [
+    ...Array(30).fill(2000),
+    ...Array.from({ length: 8 }, (_, index) => 2000 - (index + 1) * 2),
+    2020
+  ];
+  const closed = closes(values);
+  const history = [...closed, { ...closed.at(-1), time: closed.at(-1).time + 60 }];
+  for (const selectedIndicatorSystem of ['zen', 'utbot', 'chandelier', 'trendline']) {
+    const signal = getCurrentSignal({
+      history,
+      selectedSymbol: 'XAUUSD', selectedTimeframe: 'M1', selectedIndicatorSystem,
+      zenFastPeriod: 2, zenSlowPeriod: 5, utBotKeyValue: 2, utBotAtrPeriod: 10,
+      chandelierAtrPeriod: 10, chandelierAtrMultiplier: 2,
+      trendlineLength: 5, trendlineSlopeMult: 1
+    });
+    assert.equal(signal.action, 'buy', selectedIndicatorSystem);
+    assert.equal(signal.triggerType, 'fresh-indicator-event', selectedIndicatorSystem);
+    assert.equal(signal.timestamp, closed.at(-1).time * 1000, selectedIndicatorSystem);
   }
 });
 
@@ -80,22 +96,23 @@ test('trendline breakout markers are attached to the detection candle, not back-
 
 test('signal display strength stays stable between 90 and 98 for the same signal', () => {
   const values = [
-    ...Array.from({ length: 40 }, (_, i) => 2000 - i * 0.1),
-    ...Array.from({ length: 50 }, (_, i) => 1996 + i * 0.1)
+    ...Array(30).fill(2000),
+    ...Array.from({ length: 8 }, (_, index) => 2000 - (index + 1) * 2),
+    2020
   ];
   const history = closes([...values, values[values.length - 1]]);
   const signal = getCurrentSignal({
     history, selectedSymbol: 'XAUUSD', selectedTimeframe: 'M1', selectedIndicatorSystem: 'zen',
-    zenFastPeriod: 5, zenSlowPeriod: 10, utBotKeyValue: 2, utBotAtrPeriod: 10,
-    chandelierAtrPeriod: 22, chandelierAtrMultiplier: 3,
-    trendlineLength: 14, trendlineSlopeMult: 1, livePrice: values[values.length - 1]
+    zenFastPeriod: 2, zenSlowPeriod: 5, utBotKeyValue: 2, utBotAtrPeriod: 10,
+    chandelierAtrPeriod: 10, chandelierAtrMultiplier: 2,
+    trendlineLength: 5, trendlineSlopeMult: 1, livePrice: values[values.length - 1]
   });
   assert.equal(signal.action, 'buy');
   assert.ok(signal.signalStrength >= 90 && signal.signalStrength <= 98);
   assert.equal(signal.signalStrength, getStableDisplayStrength({
     symbol: 'XAUUSD', timeframe: 'M1', indicator: 'zen', timestamp: signal.timestamp
   }));
-  assert.equal(signal.algorithmVersion, '3.2.0');
+  assert.equal(signal.algorithmVersion, '3.3.0');
   assert.equal(signal.indicator, 'zen');
   assert.equal(signal.timeframe, 'M1');
   assert.equal(signal.sourceCandleTime, signal.timestamp / 1000);
@@ -116,11 +133,16 @@ test('XAUUSD signal generation fails closed while market data is warming up', ()
   });
   assert.equal(signal.action, 'stale');
   assert.equal(signal.signalStrength, 0);
-  assert.equal(signal.algorithmVersion, '3.2.0');
+  assert.equal(signal.algorithmVersion, '3.3.0');
 });
 
 test('recent gap-fill is reported as data quality and no longer blocks a real trigger', () => {
-  const closed = closes(Array.from({ length: 80 }, (_, index) => 2000 + index * 0.02));
+  const values = [
+    ...Array(30).fill(2000),
+    ...Array.from({ length: 8 }, (_, index) => 2000 - (index + 1) * 2),
+    2020
+  ];
+  const closed = closes(values);
   const gap = {
     ...closed.at(-1),
     time: closed.at(-1).time + 30,
@@ -132,14 +154,36 @@ test('recent gap-fill is reported as data quality and no longer blocks a real tr
     const signal = getCurrentSignal({
       history: [...closed, gap, active],
       selectedSymbol: 'XAUUSD', selectedTimeframe: 'M1', selectedIndicatorSystem,
-      zenFastPeriod: 5, zenSlowPeriod: 10, utBotKeyValue: 2, utBotAtrPeriod: 10,
-      chandelierAtrPeriod: 22, chandelierAtrMultiplier: 3,
-      trendlineLength: 14, trendlineSlopeMult: 1
+      zenFastPeriod: 2, zenSlowPeriod: 5, utBotKeyValue: 2, utBotAtrPeriod: 10,
+      chandelierAtrPeriod: 10, chandelierAtrMultiplier: 2,
+      trendlineLength: 5, trendlineSlopeMult: 1
     });
     assert.ok(['buy', 'sell'].includes(signal.action), selectedIndicatorSystem);
     assert.equal(signal.dataQuality.recentGapFill, true, selectedIndicatorSystem);
     assert.equal(signal.dataQuality.gapFillExcluded, 1, selectedIndicatorSystem);
   }
+});
+
+test('cold start rejects a trigger that had already closed before page load', () => {
+  const values = [...Array(30).fill(2000), 1990, 2010];
+  const closed = closes(values);
+  const history = [...closed, { ...closed.at(-1), time: closed.at(-1).time + 60 }];
+  const common = {
+    history,
+    selectedSymbol: 'XAUUSD', selectedTimeframe: 'M1', selectedIndicatorSystem: 'zen',
+    zenFastPeriod: 2, zenSlowPeriod: 5, utBotKeyValue: 2, utBotAtrPeriod: 10,
+    chandelierAtrPeriod: 10, chandelierAtrMultiplier: 2,
+    trendlineLength: 5, trendlineSlopeMult: 1
+  };
+  const triggerAvailableAt = (closed.at(-1).time + 60) * 1000;
+  assert.equal(getCurrentSignal({
+    ...common,
+    minimumTriggerAvailableAt: triggerAvailableAt
+  }).blockedReason, 'historical-trigger');
+  assert.equal(getCurrentSignal({
+    ...common,
+    minimumTriggerAvailableAt: triggerAvailableAt - 1
+  }).action, 'buy');
 });
 
 test('gap-fill candles are excluded and synthetic candles cannot become confirmed swings', () => {
