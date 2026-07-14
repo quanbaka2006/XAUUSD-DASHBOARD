@@ -74,6 +74,9 @@ function buildConfirmedSignalMarkers(history, selectedIndicatorSystem, settings)
 // ── Live signal status: compares the latest live price against SL/TP ──
 function computeSignalStatus(signal, livePrice) {
   if (!signal || signal.action === 'stale' || !signal.entry) return 'none';
+  if (signal.status === 'pending') return 'pending';
+  if (signal.status === 'missed') return 'missed';
+  if (signal.status === 'expired') return 'expired';
   
   // If the signal has already been permanently flagged as finished or sl by indicators.js, return it immediately
   if (signal.status === 'finished') {
@@ -105,7 +108,12 @@ function computeSignalStatus(signal, livePrice) {
 }
 
 const STATUS_META = {
-  running: { 
+  pending: {
+    vn: 'CHỜ ENTRY',
+    en: 'WAITING ENTRY',
+    cls: 'text-amber-400 bg-amber-950/40 border-amber-500/40 shadow-[0_0_15px_rgba(245,158,11,0.2)] font-black uppercase tracking-wider',
+  },
+  running: {
     vn: 'ĐANG CHẠY', 
     en: 'ACTIVE', 
     cls: 'text-emerald-400 bg-emerald-950/40 border-emerald-500/40 shadow-[0_0_15px_rgba(16,185,129,0.25),inset_0_1px_1px_rgba(255,255,255,0.05)] font-black uppercase tracking-wider', 
@@ -120,10 +128,20 @@ const STATUS_META = {
     en: 'FINISHED · TP2',
     cls: 'text-amber-400 bg-amber-950/45 backdrop-blur-md border-amber-500/30 shadow-[0_0_15px_rgba(245,158,11,0.2),inset_0_1px_1px_rgba(255,255,255,0.05)] font-extrabold', 
   },
-  sl: { 
+  sl: {
     vn: 'FINISHED · SL',
     en: 'FINISHED · SL',
-    cls: 'text-red-400 bg-red-950/45 backdrop-blur-md border-red-500/30 shadow-[0_0_15px_rgba(239,68,68,0.2),inset_0_1px_1px_rgba(255,255,255,0.05)] font-extrabold', 
+    cls: 'text-red-400 bg-red-950/45 backdrop-blur-md border-red-500/30 shadow-[0_0_15px_rgba(239,68,68,0.2),inset_0_1px_1px_rgba(255,255,255,0.05)] font-extrabold',
+  },
+  missed: {
+    vn: 'BỎ LỠ ENTRY',
+    en: 'ENTRY MISSED',
+    cls: 'text-orange-400 bg-orange-950/35 border-orange-500/30 font-extrabold tracking-wider',
+  },
+  expired: {
+    vn: 'HẾT HẠN ENTRY',
+    en: 'ENTRY EXPIRED',
+    cls: 'text-slate-400 bg-slate-950/30 border-slate-600/40 font-extrabold tracking-wider',
   },
   none: { 
     vn: 'HẾT HIỆU LỰC', 
@@ -170,7 +188,7 @@ function isSignalLocked() {
   const status = computeSignalStatus(sig, livePrice);
   // 'running' = price has not yet reached SL, TP1, or TP2
   // 'tp1'     = TP1 touched but TP2 (full finish) not yet reached — still locked
-  return status === 'running' || status === 'tp1';
+  return status === 'pending' || status === 'running' || status === 'tp1';
 }
 
 function ToastContainer() {
@@ -246,7 +264,7 @@ function SignalProgressBar({ signal, symbol }) {
   if (!signal || signal.action === 'stale' || !signal.entry || !signal.sl || !tp2Value) return null;
 
   const status = computeSignalStatus(signal, livePrice);
-  const isFinished = status === 'tp' || status === 'sl' || signal.status === 'finished';
+  const isFinished = ['tp', 'sl', 'missed', 'expired'].includes(status) || signal.status === 'finished';
 
   const dec = symbol === 'XAGUSD' ? 4 : 2;
   const lo = Math.min(signal.sl, tp2Value);
@@ -373,15 +391,22 @@ function HeroActionDisplay({ currentSignal }) {
   const livePrice = useTradeStore(s => s.livePrice);
   const { t, language } = useTranslation();
   const status = computeSignalStatus(currentSignal, livePrice);
-  const isFinished = status === 'tp' || status === 'sl' || currentSignal.status === 'finished' || currentSignal.status === 'closed';
+  const isFinished = ['tp', 'sl', 'missed', 'expired'].includes(status) ||
+    currentSignal.status === 'finished' || currentSignal.status === 'closed';
   const direction = currentSignal.action === 'buy' ? 'BUY' : currentSignal.action === 'sell' ? 'SELL' : null;
-  const actionText = isFinished
-    ? 'FINISHED'
-    : direction && currentSignal.restoredFromHistory
-      ? language === 'en' ? `TRACKING ${direction}` : `THEO DÕI ${direction}`
-      : direction
-        ? `${direction} NOW`
-        : t('waiting');
+  const actionText = status === 'missed'
+    ? language === 'en' ? 'ENTRY MISSED' : 'BỎ LỠ ENTRY'
+    : status === 'expired'
+      ? language === 'en' ? 'ENTRY EXPIRED' : 'HẾT HẠN ENTRY'
+      : status === 'pending' && direction
+        ? language === 'en' ? `WAIT ${direction}` : `CHỜ ${direction}`
+        : isFinished
+          ? 'FINISHED'
+          : direction && currentSignal.restoredFromHistory
+            ? language === 'en' ? `TRACKING ${direction}` : `THEO DÕI ${direction}`
+            : direction
+              ? `${direction} NOW`
+              : t('waiting');
 
   return (
     <div className={`relative h-14 rounded-xl flex items-center justify-center overflow-hidden transition-all duration-500 ${
@@ -2234,7 +2259,7 @@ export function TradingChart({ mobileTab }) {
           <div className="px-3 lg:px-5 pb-4 lg:pb-5 flex flex-col gap-4 lg:gap-5">
             {currentSignal && currentSignal.action !== 'stale' && (
               <TimeAgoDisplay
-                timestamp={currentSignal.timestamp}
+                timestamp={currentSignal.triggerAvailableAt || currentSignal.timestamp}
                 restoredFromHistory={currentSignal.restoredFromHistory}
               />
             )}
@@ -2243,9 +2268,17 @@ export function TradingChart({ mobileTab }) {
               <div className="flex items-center justify-between px-4 py-3 hover:bg-slate-900/20 transition-all duration-300">
                 <div className="flex items-center gap-2">
                   <div className="w-1.5 h-1.5 rounded-full bg-amber-500" />
-                  <span className="text-[11px] font-black text-slate-400 uppercase tracking-wider">{t('entryPrice')}</span>
+                  <span className="text-[11px] font-black text-slate-400 uppercase tracking-wider">
+                    {Number.isFinite(currentSignal.entryLow) && Number.isFinite(currentSignal.entryHigh)
+                      ? language === 'en' ? 'ENTRY ZONE' : 'VÙNG ENTRY'
+                      : t('entryPrice')}
+                  </span>
                 </div>
-                <span className="text-base font-sans font-black text-white tracking-tighter">{formatPrice(currentSignal.entry)}</span>
+                <span className="text-base font-sans font-black text-white tracking-tighter">
+                  {Number.isFinite(currentSignal.entryLow) && Number.isFinite(currentSignal.entryHigh)
+                    ? `${formatPrice(currentSignal.entryLow)} – ${formatPrice(currentSignal.entryHigh)}`
+                    : formatPrice(currentSignal.entry)}
+                </span>
               </div>
 
               {/* Stop Loss (SL) */}

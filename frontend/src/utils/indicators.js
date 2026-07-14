@@ -1,6 +1,6 @@
 // Math Helpers for Indicators
 
-export const SIGNAL_ALGORITHM_VERSION = '3.6.0';
+export const SIGNAL_ALGORITHM_VERSION = '3.7.0';
 
 export function getStableDisplayStrength({ symbol, timeframe, indicator, timestamp }) {
   const input = `${symbol || ''}:${timeframe || ''}:${indicator || ''}:${timestamp || 0}`;
@@ -444,6 +444,48 @@ export const TIMEFRAME_RISK_REWARD = Object.freeze({
   H1: Object.freeze({ tp1: 1.5, tp2: 2 })
 });
 
+export const FIXED_XAUUSD_SCALP_PRESETS = Object.freeze({
+  M1: Object.freeze({
+    slDistance: 5, tp1Distance: 5, tp2Distance: 8,
+    entryZone: 0.5, entryValiditySeconds: 180, maxChaseFraction: 0.3
+  }),
+  M5: Object.freeze({
+    slDistance: 8, tp1Distance: 10, tp2Distance: 16,
+    entryZone: 0.75, entryValiditySeconds: 600, maxChaseFraction: 0.3
+  }),
+  M15: Object.freeze({
+    slDistance: 12, tp1Distance: 18, tp2Distance: 24,
+    entryZone: 1, entryValiditySeconds: 1800, maxChaseFraction: 0.3
+  }),
+  H1: Object.freeze({
+    slDistance: 20, tp1Distance: 30, tp2Distance: 40,
+    entryZone: 2, entryValiditySeconds: 7200, maxChaseFraction: 0.3
+  })
+});
+
+export function calculateFixedScalpRisk({ action, entry, timeframe = 'M1' }) {
+  const preset = FIXED_XAUUSD_SCALP_PRESETS[timeframe] || FIXED_XAUUSD_SCALP_PRESETS.M1;
+  if (!['buy', 'sell'].includes(action) || !Number.isFinite(entry)) return null;
+  const direction = action === 'buy' ? 1 : -1;
+  const round = (value) => Number(value.toFixed(2));
+  return {
+    sl: round(entry - direction * preset.slDistance),
+    tp1: round(entry + direction * preset.tp1Distance),
+    tp2: round(entry + direction * preset.tp2Distance),
+    entryLow: round(entry - preset.entryZone),
+    entryHigh: round(entry + preset.entryZone),
+    maxChasePrice: round(entry + direction * preset.tp1Distance * preset.maxChaseFraction),
+    entryValiditySeconds: preset.entryValiditySeconds,
+    riskDistance: preset.slDistance,
+    riskReward: {
+      tp1: preset.tp1Distance / preset.slDistance,
+      tp2: preset.tp2Distance / preset.slDistance,
+      valid: true
+    },
+    preset
+  };
+}
+
 const SIGNAL_BLOCK_MESSAGES = {
   'market-data-not-ready': 'Dữ liệu thị trường chưa sẵn sàng',
   'insufficient-history': 'Chưa đủ lịch sử nến',
@@ -453,7 +495,8 @@ const SIGNAL_BLOCK_MESSAGES = {
   'indicator-signals-disabled': 'Zen chỉ hiển thị EMA và không phát tín hiệu',
   'synthetic-trigger-blocked': 'Trigger nằm trên nến synthetic nên đã bị chặn',
   'recent-gap-fill': 'Có gap-fill gần trigger nên đang chờ dữ liệu thật',
-  'confirmed-swing-not-found': 'Chưa tìm thấy swing thật đã xác nhận'
+  'confirmed-swing-not-found': 'Chưa tìm thấy swing thật đã xác nhận',
+  'risk-profile-unavailable': 'Chưa có cấu hình SL/TP cố định cho khung thời gian này'
 };
 
 export function getSignalBlockMessage(reason) {
@@ -641,7 +684,8 @@ export function getCurrentSignal({
     indicator: selectedIndicatorSystem || null,
     parameters,
     algorithmVersion: SIGNAL_ALGORITHM_VERSION,
-    riskModel: 'real-swing-rr-v2'
+    riskModel: selectedSymbol === 'XAUUSD' ? 'fixed-xau-scalp-v1' : 'real-swing-rr-v2',
+    entryModel: selectedSymbol === 'XAUUSD' ? 'fixed-zone-v1' : 'market-entry'
   };
   const staleSignal = (blockedReason = 'no-confirmed-signal') => ({
     ...signalIdentity,
@@ -725,25 +769,61 @@ export function getCurrentSignal({
   const triggerTime = rawSignal.timestamp / 1000;
   const recentGapFill = history.slice(0, -1).slice(-5).some(isGapFillCandle);
 
-  const swingRisk = calculateSwingRisk({
-    history: closedHistory,
-    action: rawSignal.action,
-    entry: rawSignal.entry,
-    triggerTime,
-    symbol: selectedSymbol,
-    timeframe: selectedTimeframe
-  });
-  if (!swingRisk) return staleSignal('confirmed-swing-not-found');
-  const { sl, tp1, tp2 } = swingRisk;
+  const riskProfile = selectedSymbol === 'XAUUSD'
+    ? calculateFixedScalpRisk({
+      action: rawSignal.action,
+      entry: rawSignal.entry,
+      timeframe: selectedTimeframe
+    })
+    : calculateSwingRisk({
+      history: closedHistory,
+      action: rawSignal.action,
+      entry: rawSignal.entry,
+      triggerTime,
+      symbol: selectedSymbol,
+      timeframe: selectedTimeframe
+    });
+  if (!riskProfile) {
+    return staleSignal(selectedSymbol === 'XAUUSD'
+      ? 'risk-profile-unavailable'
+      : 'confirmed-swing-not-found');
+  }
+  const { sl, tp1, tp2 } = riskProfile;
+  const entryLow = riskProfile.entryLow ?? rawSignal.entry;
+  const entryHigh = riskProfile.entryHigh ?? rawSignal.entry;
+  const expiresAt = riskProfile.entryValiditySeconds
+    ? rawSignal.triggerAvailableAt + riskProfile.entryValiditySeconds * 1000
+    : null;
 
   // Replay real candles in chronological order. When one candle spans both SL
   // and a target, use conservative SL-first ordering because tick order is unknown.
   let hitTps = [false, false];
-  let finalStatus = 'running';
+  let finalStatus = selectedSymbol === 'XAUUSD' ? 'pending' : 'running';
+  let activatedAt = selectedSymbol === 'XAUUSD' ? null : rawSignal.triggerAvailableAt;
   let tp1HitAt = null;
   let finishedAt = null;
   const applyRange = (low, high, eventTime) => {
-    if (finalStatus === 'finished' || finalStatus === 'sl') return;
+    if (['finished', 'sl', 'missed', 'expired'].includes(finalStatus)) return;
+    if (finalStatus === 'pending') {
+      if (expiresAt && eventTime > expiresAt) {
+        finalStatus = 'expired';
+        finishedAt = eventTime;
+        return;
+      }
+      const entryTouched = high >= entryLow && low <= entryHigh;
+      if (!entryTouched) {
+        const chased = rawSignal.action === 'buy'
+          ? low > riskProfile.maxChasePrice
+          : high < riskProfile.maxChasePrice;
+        if (chased) {
+          finalStatus = 'missed';
+          finishedAt = eventTime;
+        }
+        return;
+      }
+      finalStatus = 'running';
+      activatedAt = eventTime;
+    }
     if (rawSignal.action === 'buy') {
       if (low <= sl) {
         finalStatus = 'sl';
@@ -777,7 +857,7 @@ export function getCurrentSignal({
   );
   for (const candle of lifecycleCandles) {
     applyRange(candle.low, candle.high, candle.time * 1000);
-    if (finalStatus === 'finished' || finalStatus === 'sl') break;
+    if (['finished', 'sl', 'missed', 'expired'].includes(finalStatus)) break;
   }
   const numericLivePrice = Number(livePrice);
   if (livePrice !== null && livePrice !== '' && Number.isFinite(numericLivePrice)) {
@@ -798,10 +878,14 @@ export function getCurrentSignal({
     sl,
     tp: tp1,
     tps: [tp1, tp2],
-    swing: swingRisk.swing,
-    swingBuffer: swingRisk.buffer,
-    riskDistance: swingRisk.riskDistance,
-    riskReward: swingRisk.riskReward,
+    entryLow,
+    entryHigh,
+    expiresAt,
+    maxChasePrice: riskProfile.maxChasePrice ?? null,
+    fixedPreset: riskProfile.preset || null,
+    ...(riskProfile.swing ? { swing: riskProfile.swing, swingBuffer: riskProfile.buffer } : {}),
+    riskDistance: riskProfile.riskDistance,
+    riskReward: riskProfile.riskReward,
     dataQuality: {
       trigger: 'real',
       realCandles: realClosedHistory.length,
@@ -811,6 +895,7 @@ export function getCurrentSignal({
     },
     hitTps,
     status: finalStatus,
+    activatedAt,
     tp1HitAt,
     finishedAt
   };

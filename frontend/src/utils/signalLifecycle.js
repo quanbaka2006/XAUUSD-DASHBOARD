@@ -3,7 +3,7 @@ export function isDisplayableSignal(signal) {
 }
 
 export function isFinishedSignal(signal) {
-  return signal?.status === 'finished' || signal?.status === 'sl' || signal?.status === 'closed';
+  return ['finished', 'sl', 'closed', 'missed', 'expired'].includes(signal?.status);
 }
 
 export function getSignalIdentity(signal) {
@@ -87,6 +87,33 @@ export function advanceSignalWithPrice(signal, livePrice, now = Date.now()) {
   if (livePrice === null || livePrice === undefined || livePrice === '' ||
       !isDisplayableSignal(signal) || isFinishedSignal(signal) || !Number.isFinite(Number(livePrice))) return signal;
   const price = Number(livePrice);
+  if (signal.status === 'pending') {
+    if (Number.isFinite(signal.expiresAt) && now > signal.expiresAt) {
+      return {
+        ...signal,
+        status: 'expired',
+        result: 'ENTRY_EXPIRED',
+        finishedAt: now
+      };
+    }
+    const entryLow = Number.isFinite(signal.entryLow) ? signal.entryLow : signal.entry;
+    const entryHigh = Number.isFinite(signal.entryHigh) ? signal.entryHigh : signal.entry;
+    if (price >= entryLow && price <= entryHigh) {
+      return { ...signal, status: 'running', activatedAt: now };
+    }
+    const chased = Number.isFinite(signal.maxChasePrice) && (
+      signal.action === 'buy' ? price > signal.maxChasePrice : price < signal.maxChasePrice
+    );
+    if (chased) {
+      return {
+        ...signal,
+        status: 'missed',
+        result: 'ENTRY_MISSED',
+        finishedAt: now
+      };
+    }
+    return signal;
+  }
   const tp1 = signal.tps?.[0] ?? signal.tp1 ?? signal.tp;
   const tp2 = signal.tps?.[1] ?? signal.tp2 ?? tp1;
   const hitTps = Array.isArray(signal.hitTps) ? [...signal.hitTps] : [false, false];

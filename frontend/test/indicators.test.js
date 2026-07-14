@@ -7,6 +7,7 @@ import {
   calculateMACD,
   calculateUTBotSignals,
   calculateTrendlinesWithBreaks,
+  calculateFixedScalpRisk,
   calculateSwingRisk,
   TIMEFRAME_RISK_REWARD,
   findConfirmedSwing,
@@ -145,13 +146,16 @@ test('signal display strength stays stable between 90 and 98 for the same signal
   assert.equal(signal.signalStrength, getStableDisplayStrength({
     symbol: 'XAUUSD', timeframe: 'M1', indicator: 'utbot', timestamp: signal.timestamp
   }));
-  assert.equal(signal.algorithmVersion, '3.6.0');
+  assert.equal(signal.algorithmVersion, '3.7.0');
   assert.equal(signal.indicator, 'utbot');
   assert.equal(signal.timeframe, 'M1');
   assert.equal(signal.sourceCandleTime, signal.timestamp / 1000);
-  assert.equal(signal.riskModel, 'real-swing-rr-v2');
-  assert.equal(signal.riskReward.tp1, 0.5);
-  assert.equal(signal.riskReward.tp2, 0.75);
+  assert.equal(signal.riskModel, 'fixed-xau-scalp-v1');
+  assert.equal(signal.entryModel, 'fixed-zone-v1');
+  assert.equal(signal.riskReward.tp1, 1);
+  assert.equal(signal.riskReward.tp2, 1.6);
+  assert.equal(signal.entryHigh - signal.entry, 0.5);
+  assert.equal(signal.entry - signal.entryLow, 0.5);
   assert.equal(Object.hasOwn(signal, 'confidence'), false);
 });
 
@@ -166,7 +170,7 @@ test('XAUUSD signal generation fails closed while market data is warming up', ()
   });
   assert.equal(signal.action, 'stale');
   assert.equal(signal.signalStrength, 0);
-  assert.equal(signal.algorithmVersion, '3.6.0');
+  assert.equal(signal.algorithmVersion, '3.7.0');
 });
 
 test('recent gap-fill is reported as data quality and no longer blocks a real trigger', () => {
@@ -249,9 +253,32 @@ test('restores the latest older event and replays later candles to its lifecycle
     sessionStartedAt: Date.now()
   });
   assert.equal(finished.sourceCandleTime, 31 * 60);
-  assert.equal(finished.status, 'finished');
-  assert.deepEqual(finished.hitTps, [true, true]);
+  assert.equal(finished.status, 'missed');
+  assert.deepEqual(finished.hitTps, [false, false]);
   assert.ok(Number.isFinite(finished.finishedAt));
+});
+
+test('fixed XAUUSD scalp presets produce predictable price levels for every timeframe', () => {
+  const expected = {
+    M1: { sl: 95, tp1: 105, tp2: 108, zone: 0.5, validity: 180 },
+    M5: { sl: 92, tp1: 110, tp2: 116, zone: 0.75, validity: 600 },
+    M15: { sl: 88, tp1: 118, tp2: 124, zone: 1, validity: 1800 },
+    H1: { sl: 80, tp1: 130, tp2: 140, zone: 2, validity: 7200 }
+  };
+  for (const [timeframe, values] of Object.entries(expected)) {
+    const risk = calculateFixedScalpRisk({ action: 'buy', entry: 100, timeframe });
+    assert.equal(risk.sl, values.sl, timeframe);
+    assert.equal(risk.tp1, values.tp1, timeframe);
+    assert.equal(risk.tp2, values.tp2, timeframe);
+    assert.equal(risk.entryLow, 100 - values.zone, timeframe);
+    assert.equal(risk.entryHigh, 100 + values.zone, timeframe);
+    assert.equal(risk.entryValiditySeconds, values.validity, timeframe);
+  }
+  const sell = calculateFixedScalpRisk({ action: 'sell', entry: 100, timeframe: 'M1' });
+  assert.deepEqual(
+    { sl: sell.sl, tp1: sell.tp1, tp2: sell.tp2, maxChasePrice: sell.maxChasePrice },
+    { sl: 105, tp1: 95, tp2: 92, maxChasePrice: 98.5 }
+  );
 });
 
 test('restores an older native event independently for all enabled indicator systems', () => {

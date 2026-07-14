@@ -15,6 +15,36 @@ const buy = (overrides = {}) => ({
   status: 'running', hitTps: [false, false], ...overrides
 });
 
+const pendingBuy = (overrides = {}) => buy({
+  status: 'pending',
+  entryLow: 9.5,
+  entryHigh: 10.5,
+  maxChasePrice: 11.5,
+  expiresAt: 5000,
+  ...overrides
+});
+
+test('keeps a signal pending until price reaches its fixed entry zone', () => {
+  const pending = pendingBuy();
+  assert.equal(advanceSignalWithPrice(pending, 9, 2000), pending);
+  const active = advanceSignalWithPrice(pending, 10.25, 2000);
+  assert.equal(active.status, 'running');
+  assert.equal(active.activatedAt, 2000);
+});
+
+test('marks an unfilled entry as missed after price has moved too far toward TP1', () => {
+  const missed = advanceSignalWithPrice(pendingBuy(), 11.6, 2000);
+  assert.equal(missed.status, 'missed');
+  assert.equal(missed.result, 'ENTRY_MISSED');
+  assert.equal(selectDisplayedSignal(missed, { action: 'stale' }), missed);
+});
+
+test('expires a pending entry after its timeframe validity window', () => {
+  const expired = advanceSignalWithPrice(pendingBuy(), 10, 5001);
+  assert.equal(expired.status, 'expired');
+  assert.equal(expired.result, 'ENTRY_EXPIRED');
+});
+
 test('keeps an active signal when scanner returns WAIT or a different trigger', () => {
   const active = buy();
   assert.equal(selectDisplayedSignal(active, { action: 'stale' }), active);
