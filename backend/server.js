@@ -733,14 +733,18 @@ const FINNHUB_SUBSCRIBE = Object.keys(FINNHUB_SYMBOL_MAP);
 // Seed Fetchers (Finnhub Spot & Binance HTTP API)
 // ==========================================
 function fetchFinnhubSeed(sym, callback) {
+  // Fallback polling also calls this function without a callback. Treat it as
+  // optional so rate-limit/error responses cannot crash the whole server.
+  const done = typeof callback === 'function' ? callback : () => {};
+
   if (!FINNHUB_TOKEN) {
-    return callback(null);
+    return done(null);
   }
 
   // Find the corresponding Finnhub symbol (e.g. OANDA:XAU_USD)
   const finnhubSym = FINNHUB_SUBSCRIBE.find(s => FINNHUB_SYMBOL_MAP[s] === sym);
   if (!finnhubSym) {
-    return callback(null);
+    return done(null);
   }
 
   const options = {
@@ -760,18 +764,18 @@ function fetchFinnhubSeed(sym, callback) {
         if (price && typeof price === 'number') {
           applyRealPrice(sym, price);
           console.log(`[Finnhub seed] ${sym}: $${currentPrices[sym]}`);
-          return callback(price);
+          return done(price);
         }
       } catch (e) {
         console.error(`[Finnhub seed] Parse error ${sym}:`, e.message);
       }
-      callback(null);
+      done(null);
     });
   });
 
   req.on('error', (err) => {
     console.error(`[Finnhub seed] Request error ${sym}:`, err.message);
-    callback(null);
+    done(null);
   });
   req.setTimeout(5000, () => req.destroy());
   req.end();
