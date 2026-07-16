@@ -1,5 +1,4 @@
 import React, { useEffect, useRef, useMemo, useState } from 'react';
-import { useShallow } from 'zustand/react/shallow';
 import { io } from 'socket.io-client';
 import { createChart, ColorType, LineStyle } from 'lightweight-charts';
 import {
@@ -36,16 +35,8 @@ import {
   calculateUTBotSignals,
   calculateChandelierExit,
   calculateTrendlinesWithBreaks,
-  getCurrentSignal,
-  getIndicatorSignalEvents,
-  getMultiTimeframeConfluence
+  getCurrentSignal
 } from '../utils/indicators';
-import {
-  getSignalIdentity,
-  mapLedgerSignalForDisplay,
-  selectDisplayedSignal
-} from '../utils/signalLifecycle';
-import { buildDisplayCandles, updateDisplayCandle } from '../utils/displayCandles';
 
 const SYMBOLS = ['XAUUSD', 'WTIUSD', 'XAGUSD', 'BTCUSD', 'ETHUSD'];
 const SYMBOLS_DISPLAY = {
@@ -56,40 +47,12 @@ const SYMBOLS_DISPLAY = {
   'ETHUSD': 'Ethereum (ETHUSD)'
 };
 
-function buildConfirmedSignalMarkers(history, selectedIndicatorSystem, settings) {
-  const { events } = getIndicatorSignalEvents({
-    history,
-    selectedIndicatorSystem,
-    ...settings
-  });
-  const candleByTime = new Map((history || []).map((candle) => [candle.time, candle]));
-  return events.map((event) => {
-    const triggerClose = Number(candleByTime.get(event.time)?.close);
-    const entryLabel = Number.isFinite(triggerClose) ? ` @ ${triggerClose.toFixed(2)}` : '';
-    return {
-      time: event.time,
-      position: event.action === 'buy' ? 'belowBar' : 'aboveBar',
-      color: event.action === 'buy' ? '#10b981' : '#ef4444',
-      shape: event.action === 'buy' ? 'arrowUp' : 'arrowDown',
-      text: `${event.action.toUpperCase()}${entryLabel}`,
-      size: 1
-    };
-  });
-}
-
 // ── Live signal status: compares the latest live price against SL/TP ──
 function computeSignalStatus(signal, livePrice) {
   if (!signal || signal.action === 'stale' || !signal.entry) return 'none';
-  if (signal.status === 'pending') return 'pending';
-  if (signal.status === 'missed') return 'missed';
-  if (signal.status === 'expired') return 'expired';
   
   // If the signal has already been permanently flagged as finished or sl by indicators.js, return it immediately
-  if (signal.status === 'finished') {
-    if (signal.result === 'SL_HIT') return 'sl';
-    if (signal.result === 'TP2_HIT') return 'tp';
-    return 'none';
-  }
+  if (signal.status === 'finished') return 'tp';
   if (signal.status === 'sl') return 'sl';
   if (signal.status === 'closed') return 'none'; // Optional legacy
 
@@ -114,12 +77,7 @@ function computeSignalStatus(signal, livePrice) {
 }
 
 const STATUS_META = {
-  pending: {
-    vn: 'CHỜ ENTRY',
-    en: 'WAITING ENTRY',
-    cls: 'text-amber-400 bg-amber-950/40 border-amber-500/40 shadow-[0_0_15px_rgba(245,158,11,0.2)] font-black uppercase tracking-wider',
-  },
-  running: {
+  running: { 
     vn: 'ĐANG CHẠY', 
     en: 'ACTIVE', 
     cls: 'text-emerald-400 bg-emerald-950/40 border-emerald-500/40 shadow-[0_0_15px_rgba(16,185,129,0.25),inset_0_1px_1px_rgba(255,255,255,0.05)] font-black uppercase tracking-wider', 
@@ -130,24 +88,14 @@ const STATUS_META = {
     cls: 'text-blue-400 bg-blue-950/45 backdrop-blur-md border-blue-500/30 shadow-[0_0_15px_rgba(59,130,246,0.2),inset_0_1px_1px_rgba(255,255,255,0.05)] font-extrabold tracking-wider', 
   },
   tp: { 
-    vn: 'FINISHED · TP2',
-    en: 'FINISHED · TP2',
+    vn: 'ĐÃ CHẠM TP2', 
+    en: 'TP2 HIT', 
     cls: 'text-amber-400 bg-amber-950/45 backdrop-blur-md border-amber-500/30 shadow-[0_0_15px_rgba(245,158,11,0.2),inset_0_1px_1px_rgba(255,255,255,0.05)] font-extrabold', 
   },
-  sl: {
-    vn: 'FINISHED · SL',
-    en: 'FINISHED · SL',
-    cls: 'text-red-400 bg-red-950/45 backdrop-blur-md border-red-500/30 shadow-[0_0_15px_rgba(239,68,68,0.2),inset_0_1px_1px_rgba(255,255,255,0.05)] font-extrabold',
-  },
-  missed: {
-    vn: 'BỎ LỠ ENTRY',
-    en: 'ENTRY MISSED',
-    cls: 'text-orange-400 bg-orange-950/35 border-orange-500/30 font-extrabold tracking-wider',
-  },
-  expired: {
-    vn: 'HẾT HẠN ENTRY',
-    en: 'ENTRY EXPIRED',
-    cls: 'text-slate-400 bg-slate-950/30 border-slate-600/40 font-extrabold tracking-wider',
+  sl: { 
+    vn: 'ĐÃ CHẠM SL', 
+    en: 'SL HIT', 
+    cls: 'text-red-400 bg-red-950/45 backdrop-blur-md border-red-500/30 shadow-[0_0_15px_rgba(239,68,68,0.2),inset_0_1px_1px_rgba(255,255,255,0.05)] font-extrabold', 
   },
   none: { 
     vn: 'HẾT HIỆU LỰC', 
@@ -194,7 +142,7 @@ function isSignalLocked() {
   const status = computeSignalStatus(sig, livePrice);
   // 'running' = price has not yet reached SL, TP1, or TP2
   // 'tp1'     = TP1 touched but TP2 (full finish) not yet reached — still locked
-  return status === 'pending' || status === 'running' || status === 'tp1';
+  return status === 'running' || status === 'tp1';
 }
 
 function ToastContainer() {
@@ -270,7 +218,7 @@ function SignalProgressBar({ signal, symbol }) {
   if (!signal || signal.action === 'stale' || !signal.entry || !signal.sl || !tp2Value) return null;
 
   const status = computeSignalStatus(signal, livePrice);
-  const isFinished = ['tp', 'sl', 'missed', 'expired'].includes(status) || signal.status === 'finished';
+  const isFinished = status === 'tp' || status === 'sl';
 
   const dec = symbol === 'XAGUSD' ? 4 : 2;
   const lo = Math.min(signal.sl, tp2Value);
@@ -324,83 +272,11 @@ function SignalProgressBar({ signal, symbol }) {
   );
 }
 
-function ConfluencePanel({ confluence }) {
-  const rows = [
-    { label: 'H1 BIAS', value: confluence?.h1 },
-    { label: 'M15 SETUP', value: confluence?.m15 },
-    { label: 'M5 TRIGGER', value: confluence?.m5 }
-  ];
-  const decision = confluence?.decision || 'wait';
-  const decisionClass = decision === 'buy'
-    ? 'text-emerald-400 border-emerald-500/30 bg-emerald-500/10'
-    : decision === 'sell'
-      ? 'text-red-400 border-red-500/30 bg-red-500/10'
-      : 'text-amber-400 border-amber-500/30 bg-amber-500/10';
-  return (
-    <div className="panel-primary rounded-2xl overflow-hidden text-left">
-      <div className="flex items-center justify-between px-4 py-3 border-b border-white/[0.06] bg-white/[0.03]">
-        <div className="flex items-center gap-2">
-          <Shield className="h-4 w-4 text-sky-400" />
-          <span className="text-[11px] font-black text-white tracking-widest font-mono">CONFLUENCE</span>
-        </div>
-        <span className={`px-2 py-0.5 rounded border text-[10px] font-black tracking-wider ${decisionClass}`}>
-          {decision.toUpperCase()}
-        </span>
-      </div>
-      <div className="divide-y divide-white/[0.05]">
-        {rows.map(({ label, value }) => {
-          const direction = value?.direction || 'neutral';
-          const quality = value?.dataQuality?.recentGapFill
-            ? 'RECENT GAP'
-            : value?.dataQuality?.latestReal === false
-              ? 'NO REAL CLOSE'
-              : value?.dataQuality?.trigger === 'real'
-                ? 'REAL TRIGGER'
-                : value?.dataQuality?.latestReal
-                  ? 'REAL CLOSE'
-                : 'WAIT';
-          const color = direction === 'bullish'
-            ? 'text-emerald-400'
-            : direction === 'bearish'
-              ? 'text-red-400'
-              : 'text-amber-400';
-          return (
-            <div key={label} className="px-4 py-3">
-              <div className="flex items-center justify-between gap-3">
-                <span className="text-[10px] font-black text-slate-500 tracking-widest">{label}</span>
-                <div className="flex items-center gap-2">
-                  <span className="text-[8px] font-black text-slate-600">{quality}</span>
-                  <span className={`text-[10px] font-black uppercase ${color}`}>{direction}</span>
-                </div>
-              </div>
-              <div className="mt-1 text-[10px] leading-relaxed text-slate-400 break-words">
-                {value?.evidence || 'Đang chờ dữ liệu'}
-              </div>
-            </div>
-          );
-        })}
-      </div>
-      <div className="px-4 py-3 border-t border-white/[0.06] bg-black/10">
-        <div className="text-[10px] text-slate-400 leading-relaxed">{confluence?.reason || 'Đang tính confluence'}</div>
-        {confluence?.signal?.riskReward && (
-          <div className="mt-2 flex items-center justify-between text-[10px] font-black">
-            <span className="text-slate-500">RISK / REWARD</span>
-            <span className="text-emerald-400">TP1 1:{confluence.signal.riskReward.tp1} · TP2 1:{confluence.signal.riskReward.tp2}</span>
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
-
 function HeroActionDisplay({ currentSignal }) {
   const livePrice = useTradeStore(s => s.livePrice);
   const { t } = useTranslation();
   const status = computeSignalStatus(currentSignal, livePrice);
-  const isFinished = ['tp', 'sl', 'missed', 'expired'].includes(status) ||
-    currentSignal.status === 'finished' || currentSignal.status === 'closed';
-  const direction = currentSignal.action === 'buy' ? 'BUY' : currentSignal.action === 'sell' ? 'SELL' : null;
-  const actionText = isFinished ? 'FINISHED' : direction || t('waiting');
+  const isFinished = status === 'tp' || status === 'sl' || currentSignal.status === 'closed';
 
   return (
     <div className={`relative h-14 rounded-xl flex items-center justify-center overflow-hidden transition-all duration-500 ${
@@ -441,14 +317,14 @@ function HeroActionDisplay({ currentSignal }) {
           ? 'text-red-300 glow-neon-sell'
           : 'text-slate-300'
       }`}
-      data-text={actionText}
+      data-text={isFinished ? 'FINISHED' : currentSignal.action === 'buy' ? 'BUY NOW' : currentSignal.action === 'sell' ? 'SELL NOW' : 'WAITING'}
       >
-        {actionText}
+        {isFinished ? 'FINISHED' : currentSignal.action === 'buy' ? 'BUY NOW' : currentSignal.action === 'sell' ? 'SELL NOW' : t('waiting')}
       </h2>
     </div>
   );
 }
-function TimeAgoDisplay({ timestamp, restoredFromHistory = false }) {
+function TimeAgoDisplay({ timestamp }) {
   const [mins, setMins] = useState(0);
   const { language } = useTranslation();
 
@@ -462,9 +338,7 @@ function TimeAgoDisplay({ timestamp, restoredFromHistory = false }) {
 
   if (!timestamp) return null;
   
-  const label = restoredFromHistory
-    ? language === 'en' ? 'RESTORED:' : 'KHÔI PHỤC:'
-    : language === 'en' ? 'REPORTED:' : 'ĐÃ BÁO:';
+  const label = language === 'en' ? 'REPORTED:' : 'ĐÃ BÁO:';
   const justNow = language === 'en' ? 'JUST NOW' : 'VỪA XONG';
   const minsAgo = language === 'en' ? `${mins} MINS AGO` : `${mins} PHÚT TRƯỚC`;
 
@@ -478,7 +352,7 @@ function TimeAgoDisplay({ timestamp, restoredFromHistory = false }) {
 }
 
 export function TradingChart({ mobileTab }) {
-  const { t, language } = useTranslation();
+  const { t } = useTranslation();
   const {
     isLoggedIn,
     selectedSymbol,
@@ -522,9 +396,7 @@ export function TradingChart({ mobileTab }) {
     smcChochColor,
     showSmc,
     setSignals,
-    setTrackedSignal,
     setHistoryCount,
-    marketDataStatus,
     logout,
     setLoginError,
     candleColorTheme,
@@ -532,7 +404,7 @@ export function TradingChart({ mobileTab }) {
     riskCalculator,
     updateRiskCalculator,
     showConfigPanel
-  } = useTradeStore(useShallow(({ livePrice, utcTime, ...state }) => state));
+  } = useTradeStore();
 
   // DOM refs for live price and clock — bypass React re-render completely
   const livePriceDomRef = React.useRef(null);
@@ -554,7 +426,6 @@ export function TradingChart({ mobileTab }) {
 
   // Keyboard shortcut toast hint
   const [keyHint, setKeyHint] = React.useState(null);
-  const [confluenceVersion, setConfluenceVersion] = React.useState(0);
   const keyHintTimerRef = React.useRef(null);
   const drawingsSyncDebounceRef = React.useRef(null);
   const pageLoadTimeRef = React.useRef(Date.now());
@@ -564,8 +435,9 @@ export function TradingChart({ mobileTab }) {
     'M15': [],
     'H1': []
   });
+  const lastSignalsRef = React.useRef({});
 
-  // Pre-fetch every timeframe required by the H1 -> M15 -> M5 decision chain.
+  // Background Multi-Indicator Signal Scanner Pre-fetch
   useEffect(() => {
     if (!isLoggedIn) return;
     const token = localStorage.getItem('auth_token');
@@ -588,9 +460,28 @@ export function TradingChart({ mobileTab }) {
             }
           }
           allCandlesHistoryRef.current[tf] = history;
-          setConfluenceVersion((version) => version + 1);
+
+          // Initialize background signals
+          const state = useTradeStore.getState();
+          const systems = ['utbot', 'chandelier', 'trendline'];
+          systems.forEach(sys => {
+            const sig = getCurrentSignal({
+              history,
+              selectedSymbol: 'XAUUSD',
+              selectedIndicatorSystem: sys,
+              zenFastPeriod: state.zenFastPeriod,
+              zenSlowPeriod: state.zenSlowPeriod,
+              utBotKeyValue: state.utBotKeyValue,
+              utBotAtrPeriod: state.utBotAtrPeriod,
+              chandelierAtrPeriod: state.chandelierAtrPeriod,
+              chandelierAtrMultiplier: state.chandelierAtrMultiplier,
+              trendlineLength: state.trendlineLength,
+              trendlineSlopeMult: state.trendlineSlopeMult,
+            });
+            lastSignalsRef.current[`${tf}:${sys}`] = sig;
+          });
         })
-        .catch(err => console.error('Failed to pre-fetch confluence history:', tf, err));
+        .catch(err => console.error('Failed to pre-fetch history for scanner:', tf, err));
     });
   }, [isLoggedIn]);
 
@@ -992,7 +883,6 @@ export function TradingChart({ mobileTab }) {
   const trendlineLowerSeriesRef = useRef(null);
 
   const candlesHistoryRef = useRef([]);
-  const displayCandlesRef = useRef([]);
   const socketRef = useRef(null);
   // Throttle indicator recalculation — max once per 500ms regardless of tick rate
   const lastIndicatorUpdateRef = useRef(0);
@@ -1186,27 +1076,6 @@ export function TradingChart({ mobileTab }) {
       setSignals(initialSignalsData);
     });
 
-    socket.on('scalping_signals_snapshot', (payload) => {
-      Object.entries(payload?.timeframes || {}).forEach(([timeframe, snapshot]) => {
-        const ledgerSignal = snapshot?.activeSignal || snapshot?.history?.[0];
-        const displaySignal = mapLedgerSignalForDisplay(ledgerSignal, { restoredFromHistory: true });
-        if (displaySignal) {
-          const indicator = displaySignal.indicator || displaySignal.indicatorSystem || 'core';
-          useTradeStore.getState().setTrackedSignal('XAUUSD', timeframe, indicator, displaySignal);
-        }
-      });
-    });
-
-    socket.on('scalping_signal_update', (payload) => {
-      const displaySignal = mapLedgerSignalForDisplay(payload?.signal);
-      if (displaySignal) {
-        const indicator = displaySignal.indicator || displaySignal.indicatorSystem || 'core';
-        useTradeStore.getState().setTrackedSignal(
-          displaySignal.symbol, displaySignal.timeframe, indicator, displaySignal
-        );
-      }
-    });
-
     socket.on('signal_update', (updatedSignal) => {
       setSignals(prev => {
         const oldSignal = prev[updatedSignal.ticker]?.[updatedSignal.interval];
@@ -1237,17 +1106,8 @@ export function TradingChart({ mobileTab }) {
       const state = useTradeStore.getState();
       const currentSelectedSymbol = state.selectedSymbol;
       if (data.ticker === currentSelectedSymbol) {
-        if (data.marketData) {
-          const previous = state.marketDataStatus;
-          const changed = !previous ||
-            previous.source !== data.marketData.source ||
-            previous.stale !== data.marketData.stale ||
-            previous.historyReady !== data.marketData.historyReady ||
-            previous.historyCandles !== data.marketData.historyCandles;
-          if (changed) useTradeStore.setState({ marketDataStatus: data.marketData });
-        }
-        // Advance every tracked timeframe lifecycle without re-rendering the chart on ordinary ticks.
-        state.setLivePrice(data.currentPrice);
+        // Write to store for any other consumers (e.g. signal calc)
+        useTradeStore.setState({ livePrice: data.currentPrice });
         // Update price DOM directly — NO React re-render
         if (livePriceDomRef.current) {
           livePriceDomRef.current.textContent = `$${data.currentPrice.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 3 })}`;
@@ -1261,7 +1121,7 @@ export function TradingChart({ mobileTab }) {
       const tf = data.interval;
       const candle = data.candle;
 
-      // Update the multi-timeframe histories only when a new candle opens.
+      // Update background candles history for XAUUSD multi-indicator scanner
       if (sym === 'XAUUSD' && allCandlesHistoryRef.current[tf]) {
         const history = allCandlesHistoryRef.current[tf];
         if (history.length > 0) {
@@ -1270,7 +1130,45 @@ export function TradingChart({ mobileTab }) {
           if (isNew) {
             history.push(candle);
             if (history.length > 200) history.shift();
-            setConfluenceVersion((version) => version + 1);
+
+            // Run calculations for all indicators
+            const state = useTradeStore.getState();
+            const systems = ['utbot', 'chandelier', 'trendline'];
+            systems.forEach(sys => {
+              const sig = getCurrentSignal({
+                history,
+                selectedSymbol: 'XAUUSD',
+                selectedIndicatorSystem: sys,
+                zenFastPeriod: state.zenFastPeriod,
+                zenSlowPeriod: state.zenSlowPeriod,
+                utBotKeyValue: state.utBotKeyValue,
+                utBotAtrPeriod: state.utBotAtrPeriod,
+                chandelierAtrPeriod: state.chandelierAtrPeriod,
+                chandelierAtrMultiplier: state.chandelierAtrMultiplier,
+                trendlineLength: state.trendlineLength,
+                trendlineSlopeMult: state.trendlineSlopeMult,
+              });
+
+              const key = `${tf}:${sys}`;
+              const lastSig = lastSignalsRef.current[key];
+              const isInitialLoad = (Date.now() - pageLoadTimeRef.current) < 5000;
+
+              if (!isInitialLoad && lastSig && sig && sig.action !== 'stale' && (lastSig.action !== sig.action || lastSig.timestamp !== sig.timestamp) && !isSignalLocked()) {
+                playNotificationSound();
+                useTradeStore.getState().addToast({
+                  ticker: 'XAUUSD',
+                  system: sys.toUpperCase(),
+                  interval: tf,
+                  action: sig.action,
+                  entry: sig.entry,
+                  sl: sig.sl,
+                  tp: sig.tp,
+                  confidence: sig.confidence || 100,
+                  timestamp: sig.timestamp || Date.now()
+                });
+              }
+              lastSignalsRef.current[key] = sig;
+            });
           } else {
             history[history.length - 1] = candle;
           }
@@ -1307,32 +1205,7 @@ export function TradingChart({ mobileTab }) {
               // Only bump historyCount on actual new candle (triggers signal recalc)
               setHistoryCount(prev => prev + 1);
             }
-
-            // Render a continuity-only copy. Indicators, signals and persistence continue
-            // to consume `history`, which contains provider candles exclusively.
-            if (isNewCandle) {
-              const displayTail = buildDisplayCandles(history.slice(-52), {
-                symbol: currentSelectedSymbol,
-                timeframe: currentSelectedTimeframe
-              });
-              const lastDisplayTime = displayCandlesRef.current.at(-1)?.time ?? -Infinity;
-              const displayUpdates = displayTail.filter((item) => item.time > lastDisplayTime);
-              for (const displayCandle of displayUpdates) {
-                candlestickSeriesRef.current.update(displayCandle);
-              }
-              displayCandlesRef.current.push(...displayUpdates);
-              if (displayCandlesRef.current.length > 5000) {
-                displayCandlesRef.current = displayCandlesRef.current.slice(-5000);
-              }
-            } else {
-              const displayIndex = displayCandlesRef.current.length - 1;
-              const existingDisplay = displayCandlesRef.current[displayIndex];
-              const displayCandle = updateDisplayCandle(existingDisplay, data.candle);
-              if (displayCandle) {
-                displayCandlesRef.current[displayIndex] = displayCandle;
-                candlestickSeriesRef.current.update(displayCandle);
-              }
-            }
+            candlestickSeriesRef.current.update(data.candle);
             if (!isHoveringRef.current) {
               showLatestCandleHUD();
             }
@@ -1407,9 +1280,28 @@ export function TradingChart({ mobileTab }) {
                     utBotTrailingStopSeriesRef.current.update({ time: last.time, value: last.trailingStop });
                   }
 
-                  const markers = buildConfirmedSignalMarkers(history, 'utbot', {
-                    utBotKeyValue,
-                    utBotAtrPeriod
+                  // Re-apply markers
+                  const markers = [];
+                  utBotData.forEach(d => {
+                    if (d.buy) {
+                      markers.push({
+                        time: d.time,
+                        position: 'belowBar',
+                        color: '#10b981',
+                        shape: 'arrowUp',
+                        text: 'BUY',
+                        size: 1
+                      });
+                    } else if (d.sell) {
+                      markers.push({
+                        time: d.time,
+                        position: 'aboveBar',
+                        color: '#ef4444',
+                        shape: 'arrowDown',
+                        text: 'SELL',
+                        size: 1
+                      });
+                    }
                   });
                   candlestickSeriesRef.current.setMarkers(markers);
                 }
@@ -1426,9 +1318,28 @@ export function TradingChart({ mobileTab }) {
                     chandelierShortStopSeriesRef.current.update({ time: last.time, value: last.shortStop });
                   }
 
-                  const markers = buildConfirmedSignalMarkers(history, 'chandelier', {
-                    chandelierAtrPeriod,
-                    chandelierAtrMultiplier
+                  // Re-apply markers
+                  const markers = [];
+                  chandelierData.forEach(d => {
+                    if (d.buy) {
+                      markers.push({
+                        time: d.time,
+                        position: 'belowBar',
+                        color: '#10b981',
+                        shape: 'arrowUp',
+                        text: 'BUY',
+                        size: 1
+                      });
+                    } else if (d.sell) {
+                      markers.push({
+                        time: d.time,
+                        position: 'aboveBar',
+                        color: '#ef4444',
+                        shape: 'arrowDown',
+                        text: 'SELL',
+                        size: 1
+                      });
+                    }
                   });
                   candlestickSeriesRef.current.setMarkers(markers);
                 }
@@ -1441,9 +1352,28 @@ export function TradingChart({ mobileTab }) {
                   trendlineUpperSeriesRef.current.update({ time: last.time, value: last.upper });
                   trendlineLowerSeriesRef.current.update({ time: last.time, value: last.lower });
 
-                  const markers = buildConfirmedSignalMarkers(history, 'trendline', {
-                    trendlineLength,
-                    trendlineSlopeMult
+                  // Re-apply markers
+                  const markers = [];
+                  trendlineData.forEach(d => {
+                    if (d.buyAtBreakout && d.breakoutTime) {
+                      markers.push({
+                        time: d.breakoutTime,
+                        position: 'belowBar',
+                        color: '#26a69a',
+                        shape: 'labelUp',
+                        text: 'B',
+                        size: 1
+                      });
+                    } else if (d.sellAtBreakout && d.breakoutTime) {
+                      markers.push({
+                        time: d.breakoutTime,
+                        position: 'aboveBar',
+                        color: '#ef5350',
+                        shape: 'labelDown',
+                        text: 'B',
+                        size: 1
+                      });
+                    }
                   });
                   candlestickSeriesRef.current.setMarkers(markers);
                 }
@@ -1468,7 +1398,6 @@ export function TradingChart({ mobileTab }) {
     if (!isLoggedIn || !chartContainerRef.current) return;
 
     candlesHistoryRef.current = [];
-    displayCandlesRef.current = [];
     useTradeStore.getState().setCandlesHistory([]);
 
     const chartTopColor = selectedIndicatorSystem === 'zen'
@@ -1860,7 +1789,6 @@ export function TradingChart({ mobileTab }) {
         return res.json();
       })
       .then(data => {
-        useTradeStore.setState({ marketDataStatus: data.marketData || null });
         const rawHistory = data.history || [];
         if (data.active) rawHistory.push(data.active);
 
@@ -1875,12 +1803,7 @@ export function TradingChart({ mobileTab }) {
           }
         }
 
-        const displayHistory = buildDisplayCandles(history, {
-          symbol: selectedSymbol,
-          timeframe: selectedTimeframe
-        });
-        candlestickSeries.setData(displayHistory);
-        displayCandlesRef.current = displayHistory;
+        candlestickSeries.setData(history);
         candlesHistoryRef.current = history;
         useTradeStore.getState().setCandlesHistory(history);
         setHistoryCount(prev => prev + 1);
@@ -1901,9 +1824,27 @@ export function TradingChart({ mobileTab }) {
           const utBotData = calculateUTBotSignals(history, utBotKeyValue, utBotAtrPeriod);
           utBotTrailingStopSeries.setData(utBotData.filter(d => d.trailingStop !== null).map(d => ({ time: d.time, value: d.trailingStop })));
 
-          const markers = buildConfirmedSignalMarkers(history, 'utbot', {
-            utBotKeyValue,
-            utBotAtrPeriod
+          const markers = [];
+          utBotData.forEach(d => {
+            if (d.buy) {
+              markers.push({
+                time: d.time,
+                position: 'belowBar',
+                color: '#10b981',
+                shape: 'arrowUp',
+                text: 'BUY',
+                size: 1
+              });
+            } else if (d.sell) {
+              markers.push({
+                time: d.time,
+                position: 'aboveBar',
+                color: '#ef4444',
+                shape: 'arrowDown',
+                text: 'SELL',
+                size: 1
+              });
+            }
           });
           candlestickSeries.setMarkers(markers);
         } else if (selectedIndicatorSystem === 'chandelier') {
@@ -1911,9 +1852,27 @@ export function TradingChart({ mobileTab }) {
           chandelierLongStopSeries.setData(chandelierData.filter(d => d.longStop !== null).map(d => ({ time: d.time, value: d.longStop })));
           chandelierShortStopSeries.setData(chandelierData.filter(d => d.shortStop !== null).map(d => ({ time: d.time, value: d.shortStop })));
 
-          const markers = buildConfirmedSignalMarkers(history, 'chandelier', {
-            chandelierAtrPeriod,
-            chandelierAtrMultiplier
+          const markers = [];
+          chandelierData.forEach(d => {
+            if (d.buy) {
+              markers.push({
+                time: d.time,
+                position: 'belowBar',
+                color: '#10b981',
+                shape: 'arrowUp',
+                text: 'BUY',
+                size: 1
+              });
+            } else if (d.sell) {
+              markers.push({
+                time: d.time,
+                position: 'aboveBar',
+                color: '#ef4444',
+                shape: 'arrowDown',
+                text: 'SELL',
+                size: 1
+              });
+            }
           });
           candlestickSeries.setMarkers(markers);
         } else if (selectedIndicatorSystem === 'trendline') {
@@ -1921,9 +1880,27 @@ export function TradingChart({ mobileTab }) {
           trendlineUpperSeries.setData(trendlineData.filter(d => d.upper !== null).map(d => ({ time: d.time, value: d.upper })));
           trendlineLowerSeries.setData(trendlineData.filter(d => d.lower !== null).map(d => ({ time: d.time, value: d.lower })));
 
-          const markers = buildConfirmedSignalMarkers(history, 'trendline', {
-            trendlineLength,
-            trendlineSlopeMult
+          const markers = [];
+          trendlineData.forEach(d => {
+            if (d.buyAtBreakout && d.breakoutTime) {
+              markers.push({
+                time: d.breakoutTime,
+                position: 'belowBar',
+                color: '#26a69a',
+                shape: 'labelUp',
+                text: 'B',
+                size: 1
+              });
+            } else if (d.sellAtBreakout && d.breakoutTime) {
+              markers.push({
+                time: d.breakoutTime,
+                position: 'aboveBar',
+                color: '#ef5350',
+                shape: 'labelDown',
+                text: 'B',
+                size: 1
+              });
+            }
           });
           candlestickSeries.setMarkers(markers);
         }
@@ -1999,46 +1976,14 @@ export function TradingChart({ mobileTab }) {
   // Sync latest signal with Zustand store so that App.jsx can read it
   // NOTE: livePrice intentionally excluded from deps — signal should only update
   // when a new candle CLOSES (historyCount changes), not on every live tick.
-  const storedCurrentSignal = useTradeStore(state => state.currentSignal) || { action: 'stale', entry: 0, sl: 0, tp: 0, signalStrength: 0 };
+  const currentSignal = useTradeStore(state => state.currentSignal) || { action: 'stale', entry: 0, sl: 0, tp: 0, confidence: 0 };
   const historyCount = useTradeStore(state => state.historyCount);
-  const confluence = useMemo(() => getMultiTimeframeConfluence({
-    histories: allCandlesHistoryRef.current,
-    selectedIndicatorSystem,
-    zenFastPeriod,
-    zenSlowPeriod,
-    utBotKeyValue,
-    utBotAtrPeriod,
-    chandelierAtrPeriod,
-    chandelierAtrMultiplier,
-    trendlineLength,
-    trendlineSlopeMult,
-    dataReady: marketDataStatus?.historyReady === true,
-    feedStale: marketDataStatus?.stale === true
-  }), [
-    confluenceVersion,
-    selectedIndicatorSystem,
-    zenFastPeriod,
-    zenSlowPeriod,
-    utBotKeyValue,
-    utBotAtrPeriod,
-    chandelierAtrPeriod,
-    chandelierAtrMultiplier,
-    trendlineLength,
-    trendlineSlopeMult,
-    marketDataStatus?.historyReady,
-    marketDataStatus?.stale
-  ]);
-  const currentSignal = storedCurrentSignal || {
-    action: 'stale', entry: 0, sl: 0, tp: 0, tps: [], signalStrength: 0,
-    symbol: selectedSymbol, timeframe: selectedTimeframe, timestamp: Date.now()
-  };
 
   useEffect(() => {
     const history = candlesHistoryRef.current || [];
     const sig = getCurrentSignal({
       history,
       selectedSymbol,
-      selectedTimeframe,
       selectedIndicatorSystem,
       zenFastPeriod,
       zenSlowPeriod,
@@ -2048,44 +1993,43 @@ export function TradingChart({ mobileTab }) {
       chandelierAtrMultiplier,
       trendlineLength,
       trendlineSlopeMult,
-      dataReady: true,
-      sessionStartedAt: pageLoadTimeRef.current,
     });
-    const state = useTradeStore.getState();
-    const existing = state.trackedSignals?.[selectedSymbol]?.[selectedTimeframe]?.[selectedIndicatorSystem] || null;
-    const candidate = sig && sig.action !== 'stale' ? {
-      ...sig,
-      symbol: selectedSymbol,
-      timeframe: selectedTimeframe,
-      indicatorSystem: selectedIndicatorSystem,
-      confluence: selectedSymbol === 'XAUUSD'
-        ? { h1: confluence.h1, m15: confluence.m15, m5: confluence.m5 }
-        : null,
-      status: sig.status || 'running',
-      result: sig.status === 'finished' ? 'TP2_HIT' : sig.status === 'sl' ? 'SL_HIT' : sig.result,
-      finishedAt: (sig.status === 'finished' || sig.status === 'sl')
-        ? (sig.finishedAt || Date.now())
-        : sig.finishedAt
-    } : sig;
-    const next = selectDisplayedSignal(existing, candidate);
-    if (next && next !== existing) {
-      setTrackedSignal(selectedSymbol, selectedTimeframe, selectedIndicatorSystem, next);
-      const isNewIdentity = getSignalIdentity(next) !== getSignalIdentity(existing);
-      const isInitialLoad = (Date.now() - pageLoadTimeRef.current) < 5000;
-      if (isNewIdentity && !isInitialLoad && !next.restoredFromHistory && next.action !== 'stale') {
-        playNotificationSound();
-        state.addToast({
-          ticker: selectedSymbol,
-          system: selectedIndicatorSystem.toUpperCase(),
-          interval: selectedTimeframe,
-          action: next.action,
-          entry: next.entry,
-          sl: next.sl,
-          tp: next.tp,
-          signalStrength: next.signalStrength || 0,
-          timestamp: next.timestamp
+    // ── Signal Lock Guard ──────────────────────────────────────────────────
+    // If a signal is currently RUNNING (not yet hit SL or full TP2), do NOT
+    // overwrite it with a new signal. This prevents the signal panel from
+    // jumping to a different signal when the user switches indicators or
+    // timeframes, or when a new candle closes with a different signal.
+    const existing = useTradeStore.getState().currentSignal;
+    const isSameSystem = existing
+      && existing.symbol === selectedSymbol
+      && existing.timeframe === selectedTimeframe
+      && existing.indicatorSystem === selectedIndicatorSystem;
+
+    const isExistingActive = isSameSystem
+      && existing.action !== 'stale'
+      && existing.status !== 'closed'
+      && existing.status !== 'finished'
+      && existing.status !== 'sl';
+
+    if (isExistingActive) {
+      // Same signal (same entry + timestamp) — update hitTps & status only
+      // so the progress bar still reflects TP1 hits in real-time
+      if (sig && sig.entry === existing.entry && sig.timestamp === existing.timestamp) {
+        useTradeStore.setState({
+          currentSignal: { ...existing, hitTps: sig.hitTps, status: sig.status }
         });
       }
+      // Different signal entirely — ignore it, keep the running signal
+    } else {
+      // No active signal or signal is finished or user changed indicator/timeframe/symbol — allow normal overwrite
+      useTradeStore.setState({
+        currentSignal: sig ? {
+          ...sig,
+          symbol: selectedSymbol,
+          timeframe: selectedTimeframe,
+          indicatorSystem: selectedIndicatorSystem
+        } : null
+      });
     }
   }, [
     selectedSymbol,
@@ -2099,10 +2043,7 @@ export function TradingChart({ mobileTab }) {
     chandelierAtrMultiplier,
     trendlineLength,
     trendlineSlopeMult,
-    marketDataStatus?.historyReady,
-    historyCount,
-    confluence,
-    setTrackedSignal
+    historyCount
   ]);
 
   const psychologyScore = useMemo(() => {
@@ -2119,8 +2060,8 @@ export function TradingChart({ mobileTab }) {
       };
     }
 
-    // 1. Discipline: based on deterministic technical signal strength.
-    const discipline = currentSignal.signalStrength || 75;
+    // 1. Kỷ luật (Discipline): based on signal confidence
+    const discipline = currentSignal.confidence || 75;
 
     // 2. Kiên nhẫn (Patience): based on how long since the signal was generated (age).
     const ageMs = Date.now() - (currentSignal.timestamp || Date.now());
@@ -2246,7 +2187,7 @@ export function TradingChart({ mobileTab }) {
           <div className="flex justify-between items-center px-3 lg:px-5 py-3 lg:py-4 border-b border-white/[0.06] bg-white/[0.03]">
             <div className="flex items-center gap-2">
               <span className="text-xs font-black text-white tracking-widest font-mono">{selectedSymbol}</span>
-              <span className="px-2 py-0.5 bg-amber-500/10 border border-amber-500/20 text-amber-500 rounded text-[11px] font-mono font-black tracking-widest">{currentSignal.timeframe || selectedTimeframe}</span>
+              <span className="px-2 py-0.5 bg-amber-500/10 border border-amber-500/20 text-amber-500 rounded text-[11px] font-mono font-black tracking-widest">{selectedTimeframe}</span>
             </div>
 
             <SignalStatusBadge signal={currentSignal} />
@@ -2271,9 +2212,7 @@ export function TradingChart({ mobileTab }) {
               )}
             </div>
             <div className="text-center flex-1 flex flex-col justify-end">
-              <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest block mb-1.5">
-                {t('latestDetails')}
-              </span>
+              <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest block mb-1.5">{t('latestDetails')}</span>
               
               <HeroActionDisplay currentSignal={currentSignal} />
             </div>
@@ -2282,27 +2221,16 @@ export function TradingChart({ mobileTab }) {
           {/* ── PARAMETERS & METRIC AREA ── */}
           <div className="px-3 lg:px-5 pb-4 lg:pb-5 flex flex-col gap-4 lg:gap-5">
             {currentSignal && currentSignal.action !== 'stale' && (
-              <TimeAgoDisplay
-                timestamp={currentSignal.triggerAvailableAt || currentSignal.timestamp}
-                restoredFromHistory={currentSignal.restoredFromHistory}
-              />
+              <TimeAgoDisplay timestamp={currentSignal.timestamp} />
             )}
             <div className="divide-y divide-white/[0.05] panel-surface rounded-2xl overflow-hidden">
               {/* Entry Price */}
               <div className="flex items-center justify-between px-4 py-3 hover:bg-slate-900/20 transition-all duration-300">
                 <div className="flex items-center gap-2">
                   <div className="w-1.5 h-1.5 rounded-full bg-amber-500" />
-                  <span className="text-[11px] font-black text-slate-400 uppercase tracking-wider">
-                    {Number.isFinite(currentSignal.entryLow) && Number.isFinite(currentSignal.entryHigh)
-                      ? language === 'en' ? 'ENTRY ZONE' : 'VÙNG ENTRY'
-                      : t('entryPrice')}
-                  </span>
+                  <span className="text-[11px] font-black text-slate-400 uppercase tracking-wider">{t('entryPrice')}</span>
                 </div>
-                <span className="text-base font-sans font-black text-white tracking-tighter">
-                  {Number.isFinite(currentSignal.entryLow) && Number.isFinite(currentSignal.entryHigh)
-                    ? `${formatPrice(currentSignal.entryLow)} – ${formatPrice(currentSignal.entryHigh)}`
-                    : formatPrice(currentSignal.entry)}
-                </span>
+                <span className="text-base font-sans font-black text-white tracking-tighter">{formatPrice(currentSignal.entry)}</span>
               </div>
 
               {/* Stop Loss (SL) */}
@@ -2362,10 +2290,10 @@ export function TradingChart({ mobileTab }) {
             {/* ── CONFIDENCE PROGRESS METER (Glow Led Indicator) ── */}
             <div className="space-y-2 text-left panel-surface p-3 rounded-2xl">
               <div className="flex justify-between items-center text-[11px] font-black text-slate-400 uppercase tracking-wider">
-                <span>{t('signalStrength')}</span>
+                <span>{t('confidence')}</span>
                 <span className={`font-mono font-black ${
                   currentSignal.action === 'sell' ? 'text-red-400' : 'text-amber-400'
-                }`}>{currentSignal.signalStrength}%</span>
+                }`}>{currentSignal.confidence}%</span>
               </div>
               <div className="w-full bg-slate-900/50 h-1.5 rounded-full relative overflow-visible">
                 <div
@@ -2374,15 +2302,15 @@ export function TradingChart({ mobileTab }) {
                       ? 'bg-gradient-to-r from-red-600 to-red-400'
                       : 'bg-gradient-to-r from-amber-500 to-amber-300'
                   }`}
-                  style={{ width: `${currentSignal.signalStrength}%` }}
+                  style={{ width: `${currentSignal.confidence}%` }}
                 >
                   {/* Glow pulsing light at the edge of the bar */}
-                  {currentSignal.signalStrength > 0 && (
+                  {currentSignal.confidence > 0 && (
                     <span className={`absolute right-0 top-1/2 -translate-y-1/2 w-2.5 h-2.5 rounded-full filter blur-[1px] animate-ping ${
                       currentSignal.action === 'sell' ? 'bg-red-400' : 'bg-amber-400'
                     }`} />
                   )}
-                  {currentSignal.signalStrength > 0 && (
+                  {currentSignal.confidence > 0 && (
                     <span className={`absolute right-0 top-1/2 -translate-y-1/2 w-1.5 h-1.5 rounded-full ${
                       currentSignal.action === 'sell' ? 'bg-red-400 shadow-[0_0_8px_#ef4444]' : 'bg-amber-400 shadow-[0_0_8px_#ea580c]'
                     }`} />
@@ -2398,7 +2326,7 @@ export function TradingChart({ mobileTab }) {
                 <span className="text-xs text-slate-500 font-extrabold uppercase tracking-widest">STRENGTH INDEX</span>
                 <div className="flex items-center gap-0.5">
                   {Array.from({ length: 5 }).map((_, idx) => {
-                    const active = currentSignal.signalStrength >= (idx + 1) * 20;
+                    const active = currentSignal.confidence >= (idx + 1) * 20;
                     return (
                       <Star
                         key={idx}
@@ -2414,6 +2342,8 @@ export function TradingChart({ mobileTab }) {
             </div>
           </div>
         </div>
+
+
 
         {/* 3. TRADER PSYCHOLOGY CARD */}
         <div className="panel-primary rounded-2xl flex flex-col relative overflow-hidden transition-all duration-500">

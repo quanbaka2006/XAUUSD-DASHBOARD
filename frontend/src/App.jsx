@@ -47,12 +47,16 @@ function App() {
     currentView,
     selectedSymbol,
     selectedIndicatorSystem,
+    marketSpread,
+    marketVolume,
     isSidebarHovered,
     isMobileMenuOpen,
     setIsRegistering,
     setLoginError,
     setRegisterSuccessMsg,
     setCurrentView,
+    setMarketSpread,
+    setMarketVolume,
     setIsMobileMenuOpen,
     login,
     register,
@@ -158,10 +162,16 @@ function App() {
     updateClock();
     const clockTimer = setInterval(updateClock, 1000);
 
+    const statsTimer = setInterval(() => {
+      setMarketSpread(parseFloat((0.10 + Math.random() * 0.12).toFixed(2)));
+      setMarketVolume(useTradeStore.getState().marketVolume + Math.floor(Math.random() * 15) + 3);
+    }, 4000);
+
     return () => {
       clearInterval(clockTimer);
+      clearInterval(statsTimer);
     };
-  }, [isLoggedIn]);
+  }, [isLoggedIn, setMarketSpread, setMarketVolume]);
 
   // Auth Form Handlers
   const handleLoginSubmit = async (e) => {
@@ -192,7 +202,7 @@ function App() {
     entry: 0,
     sl: 0,
     tp: 0,
-    signalStrength: 0,
+    confidence: 0,
     timestamp: Date.now()
   };
 

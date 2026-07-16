@@ -289,6 +289,7 @@ export function CapitalManagement() {
                   disabled={isSimulating}
                   className="w-full bg-white/[0.04] border border-white/[0.08] hover:border-white/[0.14] focus:border-amber-500/50 rounded-xl px-4 py-2.5 text-xs text-white font-bold focus:outline-none transition-colors disabled:opacity-50 cursor-pointer"
                 >
+                  <option value="zen">Zen Trend Ribbon</option>
                   <option value="utbot">UT Bot Alerts</option>
                   <option value="chandelier">Chandelier Exit</option>
                   <option value="trendline">Trendlines with Breaks</option>

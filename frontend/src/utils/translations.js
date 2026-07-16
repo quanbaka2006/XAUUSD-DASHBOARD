@@ -80,11 +80,12 @@ export const translations = {
     recommendedSize: "Khối lượng khuyên dùng:",
 
     // Signal details
+    buyNow: "BUY NOW",
+    sellNow: "SELL NOW",
     expired: "EXPIRED",
     vipSignal: "GOLD VIP SIGNAL",
     waiting: "CHỜ TÍN HIỆU",
     confidence: "Độ Tin Cậy",
-    signalStrength: "Độ mạnh kỹ thuật",
     entryPrice: "Giá Entry",
     stopLoss: "Dừng Lỗ (SL)",
     takeProfit: "Chốt Lời (TP)",
@@ -316,11 +317,12 @@ export const translations = {
     recommendedSize: "Recommended Size:",
 
     // Signal details
+    buyNow: "BUY NOW",
+    sellNow: "SELL NOW",
     expired: "EXPIRED",
     vipSignal: "GOLD VIP SIGNAL",
     waiting: "WAITING FOR SIGNAL",
     confidence: "Confidence",
-    signalStrength: "Technical Strength",
     entryPrice: "Entry Price",
     stopLoss: "Stop Loss (SL)",
     takeProfit: "Take Profit (TP)",
