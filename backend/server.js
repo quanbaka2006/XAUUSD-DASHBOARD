@@ -92,7 +92,7 @@ if (!process.env.JWT_SECRET) {
 
 // Allowed browser origins for CORS (comma-separated env override supported)
 const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS ||
-  'https://alphagoldhub.com,https://www.alphagoldhub.com,https://xauusd-dashboard-izrr.onrender.com,http://localhost:5173,http://localhost:3000,http://localhost:3001')
+  'https://alphagoldhub.com,https://www.alphagoldhub.com,https://xauusd-dashboard-izrr.onrender.com,http://localhost:5173,http://127.0.0.1:5173,http://localhost:3000,http://localhost:3001')
   .split(',').map(o => o.trim()).filter(Boolean);
 
 // Allow same-origin / server-to-server (no Origin header) + whitelisted origins
@@ -305,6 +305,13 @@ const YAHOO_TICKERS = {
   'XAGUSD': 'SI=F',
   'BTCUSD': 'BTC-USD',
   'ETHUSD': 'ETH-USD'
+};
+
+// Keyless spot-metal fallback. Unlike Yahoo's GC=F/SI=F contracts, these are
+// spot XAU/XAG quotes, so they do not introduce a futures-basis price gap.
+const GOLD_API_SYMBOLS = {
+  'XAUUSD': 'XAU',
+  'XAGUSD': 'XAG'
 };
 
 // Binance stream symbols (true 1s real-time)
@@ -825,6 +832,57 @@ function fetchBinanceSeed(sym, callback) {
 // ==========================================
 // Yahoo Finance — used ONLY as fallback seed
 // ==========================================
+// Real-time spot metals, no API key required: https://gold-api.com/docs
+const goldApiRequestsInFlight = new Set();
+
+function fetchGoldApiSpot(sym, callback) {
+  const done = typeof callback === 'function' ? callback : () => {};
+  const apiSymbol = GOLD_API_SYMBOLS[sym];
+  if (!apiSymbol || goldApiRequestsInFlight.has(sym)) return done(null);
+
+  goldApiRequestsInFlight.add(sym);
+  const options = {
+    hostname: 'api.gold-api.com',
+    path: `/price/${apiSymbol}`,
+    method: 'GET',
+    headers: {
+      'Accept': 'application/json',
+      'User-Agent': 'AlphaGoldDashboard/1.0'
+    }
+  };
+
+  const req = https.request(options, (res) => {
+    let data = '';
+    res.on('data', chunk => data += chunk);
+    res.on('end', () => {
+      goldApiRequestsInFlight.delete(sym);
+      try {
+        if (res.statusCode < 200 || res.statusCode >= 300) {
+          console.warn(`[Gold API] ${sym} returned HTTP ${res.statusCode}`);
+          return done(null);
+        }
+
+        const price = Number(JSON.parse(data).price);
+        if (Number.isFinite(price) && price > 0) {
+          applyRealPrice(sym, price);
+          return done(price);
+        }
+      } catch (e) {
+        console.warn(`[Gold API] Invalid response for ${sym}:`, e.message);
+      }
+      done(null);
+    });
+  });
+
+  req.on('error', (err) => {
+    goldApiRequestsInFlight.delete(sym);
+    console.warn(`[Gold API] Request error ${sym}:`, err.message);
+    done(null);
+  });
+  req.setTimeout(5000, () => req.destroy(new Error('Gold API timeout')));
+  req.end();
+}
+
 function fetchYahooSeed(sym, callback, apply = true) {
   const ticker = YAHOO_TICKERS[sym];
   const options = {
@@ -1045,10 +1103,19 @@ SYMBOLS.forEach(sym => {
       }
     });
   } else {
-    // Fetch last closing price from Finnhub / Yahoo even if market is closed
+    // Prefer OANDA/Finnhub. If unavailable, use another spot feed before
+    // falling all the way back to Yahoo futures (GC=F / SI=F).
     fetchFinnhubSeed(sym, (price) => {
       if (price) {
         onSeedReceived(sym);
+      } else if (GOLD_API_SYMBOLS[sym]) {
+        fetchGoldApiSpot(sym, (spotPrice) => {
+          if (spotPrice) {
+            onSeedReceived(sym);
+          } else {
+            fetchYahooSeed(sym, () => onSeedReceived(sym));
+          }
+        });
       } else {
         fetchYahooSeed(sym, () => onSeedReceived(sym));
       }
@@ -1069,7 +1136,7 @@ setTimeout(() => {
 let yahooFallbackInterval = null;
 function startYahooFallback() {
   if (yahooFallbackInterval) return;
-  console.log('[Yahoo/Kraken] Fallback activated — polling every 5s when clients are active...');
+  console.log('[Spot/Yahoo/Kraken] Fallback activated — polling every 3s when clients are active...');
   yahooFallbackInterval = setInterval(() => {
     if (isMarketClosed()) return;
     
@@ -1097,7 +1164,16 @@ function startYahooFallback() {
     setTimeout(() => fetchYahooSeed('WTIUSD'), 0);
     
     const now = Date.now();
-    // Fallback if no ticks received in the last 15 seconds (catches invalid Finnhub token or dropped WS)
+
+    // Keep XAU/XAG on a spot feed. Gold API is used when Finnhub/OANDA is
+    // unavailable or has connected but stopped delivering trades.
+    ['XAUUSD', 'XAGUSD'].forEach(sym => {
+      const finnhubIsFresh = finnhubConnected && (now - (lastFinnhubTickAt[sym] || 0) < 7000);
+      if (!finnhubIsFresh) fetchGoldApiSpot(sym);
+    });
+
+    // Yahoo is the final fallback only: GC=F/SI=F are futures contracts and
+    // can legitimately differ from the XAUUSD/XAGUSD spot price.
     if (!FINNHUB_TOKEN) {
       if (now - (lastTickTimestamp['XAUUSD'] || 0) > 15000) setTimeout(() => fetchYahooSeed('XAUUSD'), 1500);
       if (now - (lastTickTimestamp['XAGUSD'] || 0) > 15000) setTimeout(() => fetchYahooSeed('XAGUSD'), 3000);
@@ -1117,7 +1193,7 @@ function startYahooFallback() {
         setTimeout(() => fetchFinnhubSeed('XAGUSD'), 3000);
       }
     }
-  }, 5000);
+  }, 3000);
 }
 
 function stopYahooFallback() {
@@ -1140,6 +1216,7 @@ function stopYahooFallback() {
 let finnhubWs = null;
 let finnhubConnected = false;
 let finnhubRetryDelay = 5000;
+const lastFinnhubTickAt = { XAUUSD: 0, XAGUSD: 0 };
 
 let spreadTrackerInterval = null;
 function startSpreadTracker() {
@@ -1199,6 +1276,7 @@ function connectFinnhub() {
           }
           const price = parseFloat(trade.p);
           if (price) {
+            lastFinnhubTickAt[symbol] = Date.now();
             applyRealPrice(symbol, price);
             lastTickTimestamp[symbol] = Date.now();
             
