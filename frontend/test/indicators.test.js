@@ -152,8 +152,8 @@ test('signal display strength stays stable between 90 and 98 for the same signal
   assert.equal(signal.sourceCandleTime, signal.timestamp / 1000);
   assert.equal(signal.riskModel, 'fixed-xau-scalp-v1');
   assert.equal(signal.entryModel, 'fixed-zone-v1');
-  assert.equal(signal.riskReward.tp1, 1);
-  assert.equal(signal.riskReward.tp2, 1.6);
+  assert.equal(signal.riskReward.tp1, 0.5);
+  assert.equal(signal.riskReward.tp2, 0.75);
   assert.equal(signal.entryHigh - signal.entry, 0.5);
   assert.equal(signal.entry - signal.entryLow, 0.5);
   assert.equal(Object.hasOwn(signal, 'confidence'), false);
@@ -260,7 +260,7 @@ test('restores the latest older event and replays later candles to its lifecycle
 
 test('fixed XAUUSD scalp presets produce predictable price levels for every timeframe', () => {
   const expected = {
-    M1: { sl: 95, tp1: 105, tp2: 108, zone: 0.5, validity: 180 },
+    M1: { sl: 90, tp1: 105, tp2: 107.5, zone: 0.5, validity: 180 },
     M5: { sl: 92, tp1: 110, tp2: 116, zone: 0.75, validity: 600 },
     M15: { sl: 88, tp1: 118, tp2: 124, zone: 1, validity: 1800 },
     H1: { sl: 80, tp1: 130, tp2: 140, zone: 2, validity: 7200 }
@@ -277,8 +277,34 @@ test('fixed XAUUSD scalp presets produce predictable price levels for every time
   const sell = calculateFixedScalpRisk({ action: 'sell', entry: 100, timeframe: 'M1' });
   assert.deepEqual(
     { sl: sell.sl, tp1: sell.tp1, tp2: sell.tp2, maxChasePrice: sell.maxChasePrice },
-    { sl: 105, tp1: 95, tp2: 92, maxChasePrice: 98.5 }
+    { sl: 110, tp1: 95, tp2: 92.5, maxChasePrice: 98.5 }
   );
+});
+
+test('freezes entry at the trigger candle close even when live price has moved', () => {
+  const closed = closes([...Array(30).fill(2000), 1990, 2010]);
+  const active = {
+    ...closed.at(-1),
+    time: closed.at(-1).time + 60,
+    open: 2013,
+    high: 2013,
+    low: 2013,
+    close: 2013
+  };
+  const signal = getCurrentSignal({
+    history: [...closed, active],
+    selectedSymbol: 'XAUUSD', selectedTimeframe: 'M1', selectedIndicatorSystem: 'chandelier',
+    zenFastPeriod: 2, zenSlowPeriod: 5, utBotKeyValue: 2, utBotAtrPeriod: 10,
+    chandelierAtrPeriod: 10, chandelierAtrMultiplier: 2,
+    trendlineLength: 5, trendlineSlopeMult: 1,
+    livePrice: 2013
+  });
+
+  assert.equal(signal.action, 'buy');
+  assert.equal(signal.entry, 2010);
+  assert.equal(signal.sl, 2000);
+  assert.equal(signal.tp, 2015);
+  assert.deepEqual(signal.tps, [2015, 2017.5]);
 });
 
 test('restores an older native event independently for all enabled indicator systems', () => {

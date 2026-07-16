@@ -62,14 +62,19 @@ function buildConfirmedSignalMarkers(history, selectedIndicatorSystem, settings)
     selectedIndicatorSystem,
     ...settings
   });
-  return events.map((event) => ({
-    time: event.time,
-    position: event.action === 'buy' ? 'belowBar' : 'aboveBar',
-    color: event.action === 'buy' ? '#10b981' : '#ef4444',
-    shape: event.action === 'buy' ? 'arrowUp' : 'arrowDown',
-    text: event.action.toUpperCase(),
-    size: 1
-  }));
+  const candleByTime = new Map((history || []).map((candle) => [candle.time, candle]));
+  return events.map((event) => {
+    const triggerClose = Number(candleByTime.get(event.time)?.close);
+    const entryLabel = Number.isFinite(triggerClose) ? ` @ ${triggerClose.toFixed(2)}` : '';
+    return {
+      time: event.time,
+      position: event.action === 'buy' ? 'belowBar' : 'aboveBar',
+      color: event.action === 'buy' ? '#10b981' : '#ef4444',
+      shape: event.action === 'buy' ? 'arrowUp' : 'arrowDown',
+      text: `${event.action.toUpperCase()}${entryLabel}`,
+      size: 1
+    };
+  });
 }
 
 // ── Live signal status: compares the latest live price against SL/TP ──

@@ -446,7 +446,7 @@ export const TIMEFRAME_RISK_REWARD = Object.freeze({
 
 export const FIXED_XAUUSD_SCALP_PRESETS = Object.freeze({
   M1: Object.freeze({
-    slDistance: 5, tp1Distance: 5, tp2Distance: 8,
+    slDistance: 10, tp1Distance: 5, tp2Distance: 7.5,
     entryZone: 0.5, entryValiditySeconds: 180, maxChaseFraction: 0.3
   }),
   M5: Object.freeze({
