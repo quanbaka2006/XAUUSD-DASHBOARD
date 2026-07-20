@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useMemo, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { io } from 'socket.io-client';
 import { createChart, ColorType, LineStyle } from 'lightweight-charts';
 import {
@@ -20,9 +20,7 @@ import {
   Square,
   Grid,
   Trash2,
-  Undo,
-  Brain,
-  Shield
+  Undo
 } from 'lucide-react';
 import { useTradeStore, SOCKET_URL } from '../store/useTradeStore';
 import { useTranslation } from '../utils/translations';
@@ -2071,100 +2069,6 @@ export function TradingChart({ mobileTab }) {
     historyCount
   ]);
 
-  const psychologyScore = useMemo(() => {
-    if (!currentSignal || currentSignal.action === 'stale') {
-      return {
-        discipline: 50,
-        patience: 50,
-        emotionalControl: 50,
-        focus: 50,
-        total: 50,
-        label: 'Bình thường',
-        color: 'text-slate-400',
-        strokeColor: '#64748b'
-      };
-    }
-
-    // 1. Kỷ luật (Discipline): based on signal confidence
-    const discipline = currentSignal.confidence || 75;
-
-    // 2. Kiên nhẫn (Patience): based on how long since the signal was generated (age).
-    const ageMs = Date.now() - (currentSignal.timestamp || Date.now());
-    const ageMins = Math.max(0, ageMs / 60000);
-    let patience = Math.max(50, Math.min(95, Math.round(95 - (ageMins / 2))));
-    if (isNaN(patience)) patience = 75;
-
-    // 3. Kiểm soát cảm xúc (Emotional Control): based on R:R ratio (Reward-to-Risk ratio)
-    const risk = Math.abs(currentSignal.entry - currentSignal.sl);
-    const reward = Math.abs(currentSignal.tp - currentSignal.entry);
-    const rr = risk > 0 ? (reward / risk) : 2.0;
-    
-    let emotionalControl = 90;
-    if (rr >= 1.8 && rr <= 2.2) {
-      emotionalControl = 95;
-    } else if (rr < 1.0) {
-      emotionalControl = Math.max(40, Math.round(40 + rr * 30));
-    } else if (rr > 3.0) {
-      emotionalControl = Math.max(50, Math.round(95 - (rr - 2.0) * 15));
-    } else {
-      emotionalControl = Math.round(90 - Math.abs(rr - 2.0) * 20);
-    }
-    if (isNaN(emotionalControl)) emotionalControl = 80;
-
-    // 4. Tập trung (Focus): based on trend strength and timeframe noise level
-    let focus = 80;
-    if (selectedTimeframe === 'M1') focus = 70;
-    else if (selectedTimeframe === 'M5') focus = 75;
-    else if (selectedTimeframe === 'M15') focus = 82;
-    else if (selectedTimeframe === 'H1') focus = 90;
-    else if (selectedTimeframe === 'H4') focus = 96;
-
-    if (selectedIndicatorSystem === 'zen') focus += 3;
-    if (selectedIndicatorSystem === 'trendline') focus -= 2;
-    
-    focus = Math.max(40, Math.min(98, focus));
-
-    // Weighted average:
-    const total = Math.round(
-      discipline * 0.35 +
-      patience * 0.25 +
-      emotionalControl * 0.25 +
-      focus * 0.15
-    );
-
-    let label = 'Tốt';
-    let color = 'text-amber-400';
-    let strokeColor = '#fbbf24'; // amber-400
-    if (total >= 85) {
-      label = 'Tuyệt vời';
-      color = 'text-emerald-400';
-      strokeColor = '#34d399'; // emerald-400
-    } else if (total >= 70) {
-      label = 'Tốt';
-      color = 'text-amber-400';
-      strokeColor = '#fbbf24'; // amber-400
-    } else if (total >= 50) {
-      label = 'Trung bình';
-      color = 'text-sky-400';
-      strokeColor = '#38bdf8'; // sky-400
-    } else {
-      label = 'Cảnh báo';
-      color = 'text-red-400';
-      strokeColor = '#f87171'; // text-red-400
-    }
-
-    return {
-      discipline,
-      patience,
-      emotionalControl,
-      focus,
-      total,
-      label,
-      color,
-      strokeColor
-    };
-  }, [currentSignal, selectedTimeframe, selectedIndicatorSystem]);
-
   const getCardColorClass = (action) => {
     if (action === 'buy') return 'glow-amber border-amber-500/35 bg-gradient-to-b from-[#1c1408] to-[#0c0905] shadow-[0_0_30px_rgba(234,179,8,0.06)]';
     if (action === 'sell') return 'glow-amber border-red-900/35 bg-gradient-to-b from-[#1c0a0a] to-[#0c0505] shadow-[0_0_30px_rgba(239,68,68,0.04)]';
@@ -2367,132 +2271,6 @@ export function TradingChart({ mobileTab }) {
             </div>
           </div>
         </div>
-
-
-
-        {/* 3. TRADER PSYCHOLOGY CARD */}
-        <div className="panel-primary rounded-2xl flex flex-col relative overflow-hidden transition-all duration-500">
-          
-          {/* Subtle neon glowing aura */}
-          <div className="absolute -top-16 -left-16 w-56 h-56 rounded-full bg-purple-500/10 filter blur-[80px] pointer-events-none" />
-
-          {/* Header */}
-          <div className="flex justify-between items-center px-4 py-2.5 border-b border-white/[0.06] bg-white/[0.03]">
-            <div className="flex items-center gap-2">
-              <Brain className="h-4 w-4 text-purple-400 animate-pulse" />
-              <span className="text-[11px] font-black text-white tracking-widest font-mono uppercase">
-                {t('traderPsychology')}
-              </span>
-            </div>
-          </div>
-
-          {/* Semi-circular gauge */}
-          <div className="flex flex-col items-center justify-center pt-3 pb-0.5 px-4">
-            <div className="relative w-32 h-16 flex items-center justify-center overflow-hidden">
-              <svg className="w-full h-full" viewBox="0 0 100 55">
-                {/* Track */}
-                <path
-                  d="M 15 48 A 32 32 0 0 1 85 48"
-                  fill="none"
-                  stroke="rgba(255,255,255,0.06)"
-                  strokeWidth="8"
-                  strokeLinecap="round"
-                />
-                {/* Progress */}
-                <path
-                  d="M 15 48 A 32 32 0 0 1 85 48"
-                  fill="none"
-                  stroke={psychologyScore.strokeColor}
-                  strokeWidth="8"
-                  strokeLinecap="round"
-                  strokeDasharray="100"
-                  strokeDashoffset={100 - (100 * psychologyScore.total) / 100}
-                  className="transition-all duration-1000 ease-out"
-                />
-              </svg>
-              <div className="absolute bottom-0 flex flex-col items-center">
-                <span className="text-xl font-black font-mono text-white leading-none">
-                  {psychologyScore.total}
-                </span>
-                <span className={`text-[9px] font-black tracking-wider uppercase mt-0.5 ${psychologyScore.color}`}>
-                  {psychologyScore.label}
-                </span>
-              </div>
-            </div>
-          </div>
-
-          {/* Sub metrics list - 2x2 grid to save space */}
-          <div className="px-4 pb-4 grid grid-cols-2 gap-2 mt-2">
-            {/* Discipline */}
-            <div className="panel-surface p-2 rounded-xl space-y-1 hover:border-purple-500/20 transition-all text-left">
-              <div className="flex justify-between items-center text-[9px] font-black text-slate-400 uppercase tracking-wider">
-                <div className="flex items-center gap-1">
-                  <Shield className="h-2.5 w-2.5 text-emerald-400" />
-                  <span>{t('discipline')}</span>
-                </div>
-                <span className="font-mono text-emerald-400">{psychologyScore.discipline}%</span>
-              </div>
-              <div className="w-full bg-slate-950 h-1 rounded-full overflow-hidden">
-                <div 
-                  className="h-full bg-gradient-to-r from-emerald-500 to-emerald-400 rounded-full transition-all duration-700"
-                  style={{ width: `${psychologyScore.discipline}%` }}
-                />
-              </div>
-            </div>
-
-            {/* Patience */}
-            <div className="panel-surface p-2 rounded-xl space-y-1 hover:border-purple-500/20 transition-all text-left">
-              <div className="flex justify-between items-center text-[9px] font-black text-slate-400 uppercase tracking-wider">
-                <div className="flex items-center gap-1">
-                  <Clock className="h-2.5 w-2.5 text-sky-400" />
-                  <span>{t('patience')}</span>
-                </div>
-                <span className="font-mono text-sky-400">{psychologyScore.patience}%</span>
-              </div>
-              <div className="w-full bg-slate-950 h-1 rounded-full overflow-hidden">
-                <div 
-                  className="h-full bg-gradient-to-r from-sky-500 to-sky-400 rounded-full transition-all duration-700"
-                  style={{ width: `${psychologyScore.patience}%` }}
-                />
-              </div>
-            </div>
-
-            {/* Emotional Control */}
-            <div className="panel-surface p-2 rounded-xl space-y-1 hover:border-purple-500/20 transition-all text-left">
-              <div className="flex justify-between items-center text-[9px] font-black text-slate-400 uppercase tracking-wider">
-                <div className="flex items-center gap-1">
-                  <Activity className="h-2.5 w-2.5 text-amber-400" />
-                  <span>{t('emotionalControl')}</span>
-                </div>
-                <span className="font-mono text-amber-400">{psychologyScore.emotionalControl}%</span>
-              </div>
-              <div className="w-full bg-slate-950 h-1 rounded-full overflow-hidden">
-                <div 
-                  className="h-full bg-gradient-to-r from-amber-500 to-amber-400 rounded-full transition-all duration-700"
-                  style={{ width: `${psychologyScore.emotionalControl}%` }}
-                />
-              </div>
-            </div>
-
-            {/* Focus */}
-            <div className="panel-surface p-2 rounded-xl space-y-1 hover:border-purple-500/20 transition-all text-left">
-              <div className="flex justify-between items-center text-[9px] font-black text-slate-400 uppercase tracking-wider">
-                <div className="flex items-center gap-1">
-                  <Zap className="h-2.5 w-2.5 text-purple-400" />
-                  <span>{t('focus')}</span>
-                </div>
-                <span className="font-mono text-purple-400">{psychologyScore.focus}%</span>
-              </div>
-              <div className="w-full bg-slate-950 h-1 rounded-full overflow-hidden">
-                <div 
-                  className="h-full bg-gradient-to-r from-purple-500 to-purple-400 rounded-full transition-all duration-700"
-                  style={{ width: `${psychologyScore.focus}%` }}
-                />
-              </div>
-            </div>
-          </div>
-        </div>
-
       </div>
 
       {/* CENTER COLUMN: CHARTS FEED */}
