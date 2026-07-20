@@ -26,8 +26,11 @@ import { useTradeStore, SOCKET_URL } from '../store/useTradeStore';
 import { useTranslation } from '../utils/translations';
 import { SignalHistoryPanel } from './SignalHistoryPanel';
 import {
+  readSignalHistory,
   reconcileIndicatorSignalsWithCandles,
   recordM1IndicatorSignal,
+  replaceSignalHistory,
+  subscribeSignalHistory,
   updateRunningIndicatorSignals,
   updateRunningIndicatorSignalsByPrice
 } from '../utils/signalHistory';
@@ -458,6 +461,70 @@ export function TradingChart({ mobileTab }) {
     'M1': []
   });
   const m1SignalBaselinesRef = React.useRef({});
+  const globalHistoryApplyingRef = React.useRef(false);
+  const globalHistoryReadyRef = React.useRef(false);
+
+  // The server owns one website-wide history document. Local storage is only
+  // an offline cache and is merged into that document after authentication.
+  useEffect(() => {
+    if (!isLoggedIn) return;
+    let cancelled = false;
+    let syncTimer = null;
+    const token = localStorage.getItem('auth_token');
+
+    const requestGlobalHistory = async (records) => {
+      const hasRecords = Array.isArray(records) && records.length > 0;
+      const response = await fetch(`${SOCKET_URL}/api/global-signal-history`, {
+        method: hasRecords ? 'PUT' : 'GET',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          ...(hasRecords ? { 'Content-Type': 'application/json' } : {})
+        },
+        ...(hasRecords ? { body: JSON.stringify({ records }) } : {})
+      });
+      if (!response.ok) throw new Error(`Global signal history request failed (${response.status})`);
+      const data = await response.json();
+      return Array.isArray(data.records) ? data.records : [];
+    };
+
+    const applyGlobalRecords = (records) => {
+      globalHistoryApplyingRef.current = true;
+      replaceSignalHistory(records);
+      globalHistoryApplyingRef.current = false;
+    };
+
+    const unsubscribe = subscribeSignalHistory((records) => {
+      if (!globalHistoryReadyRef.current || globalHistoryApplyingRef.current || cancelled) return;
+      if (syncTimer) clearTimeout(syncTimer);
+      syncTimer = setTimeout(async () => {
+        try {
+          const globalRecords = await requestGlobalHistory(records);
+          if (!cancelled) applyGlobalRecords(globalRecords);
+        } catch (error) {
+          console.error('Failed to push website signal history:', error);
+        }
+      }, 250);
+    });
+
+    (async () => {
+      try {
+        const localRecords = readSignalHistory();
+        const globalRecords = await requestGlobalHistory(localRecords);
+        if (cancelled) return;
+        applyGlobalRecords(globalRecords);
+        globalHistoryReadyRef.current = true;
+      } catch (error) {
+        console.error('Failed to initialize website signal history:', error);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+      globalHistoryReadyRef.current = false;
+      if (syncTimer) clearTimeout(syncTimer);
+      unsubscribe();
+    };
+  }, [isLoggedIn]);
 
   // Establish a clean M1 baseline. Existing historical signals are observed,
   // but only signals generated after this point are published to history.
@@ -1119,6 +1186,13 @@ export function TradingChart({ mobileTab }) {
 
     socket.on('initial_signals', (initialSignalsData) => {
       setSignals(initialSignalsData);
+    });
+
+    socket.on('global_signal_history_updated', (payload) => {
+      if (!Array.isArray(payload?.records)) return;
+      globalHistoryApplyingRef.current = true;
+      replaceSignalHistory(payload.records);
+      globalHistoryApplyingRef.current = false;
     });
 
     socket.on('signal_update', (updatedSignal) => {

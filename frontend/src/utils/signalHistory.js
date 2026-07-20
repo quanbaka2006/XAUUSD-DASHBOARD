@@ -45,6 +45,10 @@ export function readSignalHistory() {
   }
 }
 
+export function replaceSignalHistory(records) {
+  return writeSignalHistory(Array.isArray(records) ? records : []);
+}
+
 function writeSignalHistory(records, notify = true) {
   const normalized = [...records]
     .sort((a, b) => Number(b.signalTime) - Number(a.signalTime) || Number(b.recordedAt) - Number(a.recordedAt))

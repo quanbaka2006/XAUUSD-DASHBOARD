@@ -107,7 +107,7 @@ export function SignalHistoryPanel() {
           </div>
         </div>
         <div className="flex items-center gap-1.5 text-[9px] font-black uppercase tracking-wider text-slate-500">
-          <CircleDot className="h-3 w-3 text-emerald-400" /> Không phụ thuộc chỉ báo đang xem
+          <CircleDot className="h-3 w-3 text-emerald-400" /> Lịch sử chung toàn website
         </div>
       </div>
 

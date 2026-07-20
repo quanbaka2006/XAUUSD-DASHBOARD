@@ -196,8 +196,8 @@ app.use(cors({
   methods: ['GET', 'POST', 'PUT', 'DELETE']
 }));
 
-// Limit request payloads to 10KB to prevent memory/denial of service attacks
-app.use(express.json({ limit: '10kb' }));
+// 50KB accommodates the bounded 50-record website signal history payload.
+app.use(express.json({ limit: '50kb' }));
 
 // ==========================================
 // Rate Limiters Configuration
@@ -1416,6 +1416,151 @@ const usersFilePath = path.join(__dirname, 'users.json');
 const MONGODB_URI = process.env.MONGODB_URI;
 let db = null;
 let useMongoDB = false;
+const globalSignalHistoryFilePath = path.join(__dirname, 'global_signal_history.json');
+const GLOBAL_SIGNAL_HISTORY_LIMIT = 50;
+const GLOBAL_SIGNAL_SYSTEMS = new Set(['zen', 'utbot', 'chandelier', 'trendline']);
+const GLOBAL_SIGNAL_OUTCOMES = new Set(['running', 'win', 'loss', 'breakeven', 'expired']);
+const GLOBAL_SIGNAL_TERMINAL_OUTCOMES = new Set(['win', 'loss', 'breakeven']);
+let globalSignalHistoryWriteQueue = Promise.resolve();
+
+function optionalFiniteNumber(value) {
+  if (value === null || value === undefined || value === '') return null;
+  const number = Number(value);
+  return Number.isFinite(number) ? number : null;
+}
+
+function sanitizeGlobalSignalRecord(raw) {
+  if (!raw || typeof raw !== 'object') return null;
+  const id = typeof raw.id === 'string' ? raw.id.slice(0, 180) : '';
+  const indicatorSystem = String(raw.indicatorSystem || '').toLowerCase();
+  const action = String(raw.action || '').toLowerCase();
+  const signalTime = optionalFiniteNumber(raw.signalTime);
+  const entry = optionalFiniteNumber(raw.entry);
+  const sl = optionalFiniteNumber(raw.sl);
+  const outcome = GLOBAL_SIGNAL_OUTCOMES.has(raw.outcome) ? raw.outcome : 'running';
+  const tps = Array.isArray(raw.tps)
+    ? raw.tps.slice(0, 2).map(optionalFiniteNumber).filter(value => value !== null)
+    : [];
+
+  if (!id || raw.symbol !== 'XAUUSD' || raw.timeframe !== 'M1') return null;
+  if (!GLOBAL_SIGNAL_SYSTEMS.has(indicatorSystem) || !['buy', 'sell'].includes(action)) return null;
+  if (!signalTime || !entry || !sl || tps.length === 0) return null;
+
+  return {
+    id,
+    symbol: 'XAUUSD',
+    timeframe: 'M1',
+    indicatorSystem,
+    indicatorLabel: String(raw.indicatorLabel || indicatorSystem).slice(0, 40),
+    action,
+    entry,
+    sl,
+    tps,
+    confidence: optionalFiniteNumber(raw.confidence) || 0,
+    sourceTimestamp: optionalFiniteNumber(raw.sourceTimestamp) || signalTime,
+    signalTime,
+    expiresAt: optionalFiniteNumber(raw.expiresAt),
+    recordedAt: optionalFiniteNumber(raw.recordedAt) || signalTime,
+    outcome,
+    status: String(raw.status || (outcome === 'running' ? 'running' : outcome)).slice(0, 30),
+    hitTp1: Boolean(raw.hitTp1),
+    closeTime: optionalFiniteNumber(raw.closeTime),
+    exitPrice: optionalFiniteNumber(raw.exitPrice),
+    closeReason: raw.closeReason ? String(raw.closeReason).slice(0, 30) : null,
+    expiryReason: raw.expiryReason ? String(raw.expiryReason).slice(0, 30) : null
+  };
+}
+
+function loadGlobalSignalHistoryFromFile() {
+  try {
+    if (!fs.existsSync(globalSignalHistoryFilePath)) return [];
+    const records = JSON.parse(fs.readFileSync(globalSignalHistoryFilePath, 'utf8'));
+    return Array.isArray(records) ? records.map(sanitizeGlobalSignalRecord).filter(Boolean) : [];
+  } catch (error) {
+    console.error('[Global Signal History] Local load failed:', error.message);
+    return [];
+  }
+}
+
+function saveGlobalSignalHistoryToFile(records) {
+  try {
+    fs.writeFileSync(globalSignalHistoryFilePath, JSON.stringify(records, null, 2), 'utf8');
+  } catch (error) {
+    console.error('[Global Signal History] Local save failed:', error.message);
+  }
+}
+
+async function loadGlobalSignalHistory() {
+  await dbReadyPromise;
+  if (useMongoDB) {
+    try {
+      const document = await db.collection('global_signal_history').findOne({ _id: 'website' });
+      return Array.isArray(document?.records)
+        ? document.records.map(sanitizeGlobalSignalRecord).filter(Boolean)
+        : [];
+    } catch (error) {
+      console.error('[Global Signal History] MongoDB load failed:', error.message);
+    }
+  }
+  return loadGlobalSignalHistoryFromFile();
+}
+
+async function saveGlobalSignalHistory(records) {
+  await dbReadyPromise;
+  const normalized = records
+    .map(sanitizeGlobalSignalRecord)
+    .filter(Boolean)
+    .sort((a, b) => Number(b.signalTime) - Number(a.signalTime) || Number(b.recordedAt) - Number(a.recordedAt))
+    .slice(0, GLOBAL_SIGNAL_HISTORY_LIMIT);
+
+  if (useMongoDB) {
+    try {
+      await db.collection('global_signal_history').updateOne(
+        { _id: 'website' },
+        { $set: { records: normalized, updatedAt: new Date() } },
+        { upsert: true }
+      );
+      return normalized;
+    } catch (error) {
+      console.error('[Global Signal History] MongoDB save failed:', error.message);
+    }
+  }
+
+  saveGlobalSignalHistoryToFile(normalized);
+  return normalized;
+}
+
+function selectGlobalSignalVersion(existing, incoming) {
+  if (!existing) return incoming;
+  const existingTerminal = GLOBAL_SIGNAL_TERMINAL_OUTCOMES.has(existing.outcome);
+  const incomingTerminal = GLOBAL_SIGNAL_TERMINAL_OUTCOMES.has(incoming.outcome);
+  if (existingTerminal && !incomingTerminal) return existing;
+  if (existing.outcome === 'expired' && incomingTerminal) return incoming;
+  if (incoming.outcome === 'expired' && existingTerminal) return existing;
+  if (existingTerminal && incomingTerminal) {
+    const existingClose = Number(existing.closeTime) || Number.MAX_SAFE_INTEGER;
+    const incomingClose = Number(incoming.closeTime) || Number.MAX_SAFE_INTEGER;
+    return incomingClose <= existingClose ? incoming : existing;
+  }
+  return {
+    ...existing,
+    ...incoming,
+    hitTp1: Boolean(existing.hitTp1 || incoming.hitTp1)
+  };
+}
+
+function mergeGlobalSignalHistory(incomingRecords) {
+  const sanitizedIncoming = incomingRecords.map(sanitizeGlobalSignalRecord).filter(Boolean);
+  globalSignalHistoryWriteQueue = globalSignalHistoryWriteQueue.catch(() => []).then(async () => {
+    const current = await loadGlobalSignalHistory();
+    const recordsById = new Map(current.map(record => [record.id, record]));
+    sanitizedIncoming.forEach((record) => {
+      recordsById.set(record.id, selectGlobalSignalVersion(recordsById.get(record.id), record));
+    });
+    return saveGlobalSignalHistory([...recordsById.values()]);
+  });
+  return globalSignalHistoryWriteQueue;
+}
 
 // Synchronous helper for local file load (used as fallback or for migration seed)
 function loadUsersFromFile() {
@@ -1485,7 +1630,7 @@ async function connectDB() {
     console.error('[MongoDB] Connection failed on startup. Falling back to local file. Error:', err.message);
   }
 }
-connectDB();
+const dbReadyPromise = connectDB();
 
 async function loadUsers() {
   if (useMongoDB) {
@@ -2018,6 +2163,33 @@ app.get('/api/history/:symbol/:interval', requireAuth, (req, res) => {
   if (!candleHistory[sym] || !candleHistory[sym][tf])
     return res.status(400).json({ error: 'Invalid symbol or interval' });
   res.json({ history: candleHistory[sym][tf], active: activeCandles[sym][tf] });
+});
+
+// Website-wide signal history. Authentication controls access only; records
+// intentionally have no username/userId and are shared by every account.
+app.get('/api/global-signal-history', requireAuth, async (req, res) => {
+  try {
+    const records = await loadGlobalSignalHistory();
+    res.json({ success: true, scope: 'website', records });
+  } catch (error) {
+    console.error('[Global Signal History] GET failed:', error.message);
+    res.status(500).json({ success: false, error: 'Không thể tải lịch sử tín hiệu chung.' });
+  }
+});
+
+app.put('/api/global-signal-history', requireAuth, async (req, res) => {
+  try {
+    const incoming = Array.isArray(req.body?.records) ? req.body.records.slice(0, GLOBAL_SIGNAL_HISTORY_LIMIT) : null;
+    if (!incoming) {
+      return res.status(400).json({ success: false, error: 'records must be an array' });
+    }
+    const records = await mergeGlobalSignalHistory(incoming);
+    io.emit('global_signal_history_updated', { scope: 'website', records });
+    res.json({ success: true, scope: 'website', records });
+  } catch (error) {
+    console.error('[Global Signal History] PUT failed:', error.message);
+    res.status(500).json({ success: false, error: 'Không thể đồng bộ lịch sử tín hiệu chung.' });
+  }
 });
 
 app.get('/api/debug-ws', (req, res) => {
