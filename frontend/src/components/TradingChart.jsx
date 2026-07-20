@@ -2502,7 +2502,7 @@ export function TradingChart({ mobileTab }) {
       }`}>
 
         {/* Chart Wrapper — Aurora Nebula panel */}
-        <div className="space-panel-heavy rounded-2xl lg:rounded-3xl px-2 lg:px-5 py-3 lg:py-4 flex flex-col justify-start gap-2 lg:gap-3 relative h-full overflow-hidden"
+        <div className="space-panel-heavy rounded-2xl lg:rounded-3xl px-2 lg:px-5 py-3 lg:py-4 flex flex-col justify-start gap-2 lg:gap-3 relative overflow-hidden"
           style={{ border: '1px solid rgba(202, 138, 4, 0.18)' }}>
 
           {/* Chart Title Overlay */}
