@@ -26,6 +26,8 @@ import {
 } from 'lucide-react';
 import { useTradeStore, SOCKET_URL } from '../store/useTradeStore';
 import { useTranslation } from '../utils/translations';
+import { SignalHistoryPanel } from './SignalHistoryPanel';
+import { upsertIndicatorSignal } from '../utils/signalHistory';
 import {
   calculateIndicatorData,
   calculateRSI,
@@ -463,7 +465,7 @@ export function TradingChart({ mobileTab }) {
 
           // Initialize background signals
           const state = useTradeStore.getState();
-          const systems = ['utbot', 'chandelier', 'trendline'];
+          const systems = ['zen', 'utbot', 'chandelier', 'trendline'];
           systems.forEach(sys => {
             const sig = getCurrentSignal({
               history,
@@ -477,6 +479,13 @@ export function TradingChart({ mobileTab }) {
               chandelierAtrMultiplier: state.chandelierAtrMultiplier,
               trendlineLength: state.trendlineLength,
               trendlineSlopeMult: state.trendlineSlopeMult,
+            });
+            upsertIndicatorSignal({
+              signal: sig,
+              symbol: 'XAUUSD',
+              timeframe: tf,
+              indicatorSystem: sys,
+              candles: history
             });
             lastSignalsRef.current[`${tf}:${sys}`] = sig;
           });
@@ -1133,7 +1142,7 @@ export function TradingChart({ mobileTab }) {
 
             // Run calculations for all indicators
             const state = useTradeStore.getState();
-            const systems = ['utbot', 'chandelier', 'trendline'];
+            const systems = ['zen', 'utbot', 'chandelier', 'trendline'];
             systems.forEach(sys => {
               const sig = getCurrentSignal({
                 history,
@@ -1149,11 +1158,19 @@ export function TradingChart({ mobileTab }) {
                 trendlineSlopeMult: state.trendlineSlopeMult,
               });
 
+              upsertIndicatorSignal({
+                signal: sig,
+                symbol: 'XAUUSD',
+                timeframe: tf,
+                indicatorSystem: sys,
+                candles: history
+              });
+
               const key = `${tf}:${sys}`;
               const lastSig = lastSignalsRef.current[key];
               const isInitialLoad = (Date.now() - pageLoadTimeRef.current) < 5000;
 
-              if (!isInitialLoad && lastSig && sig && sig.action !== 'stale' && (lastSig.action !== sig.action || lastSig.timestamp !== sig.timestamp) && !isSignalLocked()) {
+              if (sys !== 'zen' && !isInitialLoad && lastSig && sig && sig.action !== 'stale' && (lastSig.action !== sig.action || lastSig.timestamp !== sig.timestamp) && !isSignalLocked()) {
                 playNotificationSound();
                 useTradeStore.getState().addToast({
                   ticker: 'XAUUSD',
@@ -1993,6 +2010,14 @@ export function TradingChart({ mobileTab }) {
       chandelierAtrMultiplier,
       trendlineLength,
       trendlineSlopeMult,
+    });
+
+    upsertIndicatorSignal({
+      signal: sig,
+      symbol: selectedSymbol,
+      timeframe: selectedTimeframe,
+      indicatorSystem: selectedIndicatorSystem,
+      candles: history
     });
     // ── Signal Lock Guard ──────────────────────────────────────────────────
     // If a signal is currently RUNNING (not yet hit SL or full TP2), do NOT
@@ -2846,6 +2871,8 @@ export function TradingChart({ mobileTab }) {
 
           </div>
         </div>
+
+        <SignalHistoryPanel />
       </div>
     </>
   );
