@@ -26,6 +26,7 @@ import { useTradeStore, SOCKET_URL } from '../store/useTradeStore';
 import { useTranslation } from '../utils/translations';
 import { SignalHistoryPanel } from './SignalHistoryPanel';
 import {
+  reconcileIndicatorSignalsWithCandles,
   recordM1IndicatorSignal,
   updateRunningIndicatorSignals,
   updateRunningIndicatorSignalsByPrice
@@ -485,6 +486,11 @@ export function TradingChart({ mobileTab }) {
             }
           }
           allCandlesHistoryRef.current.M1 = history;
+          reconcileIndicatorSignalsWithCandles({
+            symbol: 'XAUUSD',
+            timeframe: 'M1',
+            candles: history
+          });
 
           const state = useTradeStore.getState();
           M1_INDICATOR_SYSTEMS.forEach((system) => {

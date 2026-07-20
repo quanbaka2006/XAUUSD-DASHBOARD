@@ -14,8 +14,8 @@ const TIMEFRAME_MS = {
   H1: 60 * 60 * 1000
 };
 
-// A signal cannot remain live forever. These limits are deliberately generous;
-// in normal operation a newer signal from the same system expires it first.
+// A signal cannot remain live forever. At this deadline it is closed at the
+// current market price and classified as win, loss, or breakeven.
 const MAX_AGE_BARS = { M1: 60, M5: 36, M15: 24, H1: 24 };
 
 export const INDICATOR_LABELS = {
@@ -25,7 +25,7 @@ export const INDICATOR_LABELS = {
   trendline: 'Trendlines'
 };
 
-const isTerminal = (record) => ['win', 'loss', 'expired'].includes(record?.outcome);
+const isTerminal = (record) => ['win', 'loss', 'breakeven', 'expired'].includes(record?.outcome);
 
 const getExpiryTime = (signalTime, timeframe) => {
   const interval = TIMEFRAME_MS[timeframe] || TIMEFRAME_MS.M15;
@@ -65,6 +65,29 @@ function expireRecord(record, closeTime, reason) {
   };
 }
 
+function settleRecordAtPrice(record, exitPrice, closeTime, reason) {
+  const entry = Number(record.entry);
+  const exit = Number(exitPrice);
+  if (!Number.isFinite(entry) || !Number.isFinite(exit)) {
+    return expireRecord(record, closeTime, reason);
+  }
+
+  const pnlDirection = record.action === 'sell' ? entry - exit : exit - entry;
+  const outcome = Math.abs(pnlDirection) < 0.005
+    ? 'breakeven'
+    : pnlDirection > 0 ? 'win' : 'loss';
+
+  return {
+    ...record,
+    outcome,
+    status: 'market_close',
+    closeTime: Number(closeTime) || Date.now(),
+    exitPrice: exit,
+    closeReason: reason,
+    expiryReason: null
+  };
+}
+
 function evaluateCandle(record, candle) {
   if (!candle || isTerminal(record)) return record;
   const candleTime = Number(candle.time) * 1000;
@@ -93,10 +116,13 @@ function evaluateCandle(record, candle) {
   return record;
 }
 
-function resolveOutcome(record, signal, candles) {
+function resolveThroughCandles(record, candles, cutoffExclusive = Number.POSITIVE_INFINITY) {
   let resolved = record;
   const relevantCandles = (Array.isArray(candles) ? candles : [])
-    .filter((candle) => Number(candle.time) * 1000 >= Number(record.signalTime))
+    .filter((candle) => {
+      const candleTime = Number(candle.time) * 1000;
+      return candleTime >= Number(record.signalTime) && candleTime < cutoffExclusive;
+    })
     .sort((a, b) => Number(a.time) - Number(b.time));
 
   for (const candle of relevantCandles) {
@@ -104,17 +130,23 @@ function resolveOutcome(record, signal, candles) {
     if (isTerminal(resolved)) return resolved;
   }
 
+  return resolved;
+}
+
+function resolveOutcome(record, signal, candles) {
+  const resolved = resolveThroughCandles(record, candles);
+  if (isTerminal(resolved)) return resolved;
+
   if (signal.status === 'finished') {
     return { ...resolved, outcome: 'win', status: 'finished', hitTp1: true, closeTime: Date.now(), exitPrice: Number(record.tps?.[1] ?? record.tps?.[0]) };
   }
   if (signal.status === 'sl') {
     return { ...resolved, outcome: 'loss', status: 'sl', closeTime: Date.now(), exitPrice: Number(record.sl) };
   }
-  if (Date.now() >= record.expiresAt) return expireRecord(resolved, record.expiresAt, 'max_age');
   return resolved;
 }
 
-export function reconcileStaleIndicatorSignals(now = Date.now()) {
+export function reconcileStaleIndicatorSignals() {
   const records = readSignalHistory();
   if (!records.length) return records;
   let changed = false;
@@ -128,10 +160,7 @@ export function reconcileStaleIndicatorSignals(now = Date.now()) {
     running.forEach(({ record, index }, position) => {
       const expiresAt = Number(record.expiresAt) || getExpiryTime(record.signalTime, record.timeframe);
       if (position > 0) {
-        records[index] = expireRecord(record, running[0].record.recordedAt, 'replaced');
-        changed = true;
-      } else if (now >= expiresAt) {
-        records[index] = expireRecord({ ...record, expiresAt }, expiresAt, 'max_age');
+        records[index] = settleRecordAtPrice(record, running[0].record.entry, running[0].record.signalTime, 'replaced');
         changed = true;
       } else if (!record.expiresAt) {
         records[index] = { ...record, expiresAt };
@@ -159,7 +188,10 @@ export function recordM1IndicatorSignal({ signal, symbol, indicatorSystem, candl
   // the dashboard to another indicator must not close the previous slot.
   records.forEach((record, index) => {
     if (record.id !== id && record.outcome === 'running' && record.indicatorSystem === indicatorSystem) {
-      records[index] = expireRecord(record, Date.now(), 'replaced');
+      const resolved = resolveThroughCandles(record, candles, signalTime);
+      records[index] = isTerminal(resolved)
+        ? resolved
+        : settleRecordAtPrice(resolved, signal.entry, signalTime, 'replaced');
     }
   });
 
@@ -203,7 +235,9 @@ export function updateRunningIndicatorSignals({ symbol, timeframe, candle }) {
     if (record.outcome !== 'running' || record.symbol !== symbol || record.timeframe !== timeframe) return;
     let nextRecord = evaluateCandle(record, candle);
     const expiresAt = Number(nextRecord.expiresAt) || getExpiryTime(nextRecord.signalTime, nextRecord.timeframe);
-    if (!isTerminal(nextRecord) && now >= expiresAt) nextRecord = expireRecord({ ...nextRecord, expiresAt }, expiresAt, 'max_age');
+    if (!isTerminal(nextRecord) && now >= expiresAt) {
+      nextRecord = settleRecordAtPrice({ ...nextRecord, expiresAt }, candle.close, now, 'max_age');
+    }
 
     if (JSON.stringify(nextRecord) !== JSON.stringify(record)) {
       records[index] = nextRecord;
@@ -231,7 +265,7 @@ export function updateRunningIndicatorSignalsByPrice({ symbol, price, timestamp 
     let nextRecord = evaluateCandle(record, tickCandle);
     const expiresAt = Number(nextRecord.expiresAt) || getExpiryTime(nextRecord.signalTime, nextRecord.timeframe);
     if (!isTerminal(nextRecord) && Number(timestamp) >= expiresAt) {
-      nextRecord = expireRecord({ ...nextRecord, expiresAt }, expiresAt, 'max_age');
+      nextRecord = settleRecordAtPrice({ ...nextRecord, expiresAt }, numericPrice, timestamp, 'max_age');
     }
 
     if (JSON.stringify(nextRecord) !== JSON.stringify(record)) {
@@ -241,6 +275,68 @@ export function updateRunningIndicatorSignalsByPrice({ symbol, price, timestamp 
   });
 
   if (changed) writeSignalHistory(records);
+}
+
+export function reconcileIndicatorSignalsWithCandles({ symbol, timeframe = 'M1', candles }) {
+  if (!Array.isArray(candles) || candles.length === 0) return readSignalHistory();
+  const records = readSignalHistory();
+  let changed = false;
+  const now = Date.now();
+
+  records.forEach((record, index) => {
+    if (record.symbol !== symbol || record.timeframe !== timeframe) return;
+    const isLegacyExpired = record.outcome === 'expired';
+    const expiresAt = Number(record.expiresAt) || getExpiryTime(record.signalTime, record.timeframe);
+    const isOverdueRunning = record.outcome === 'running' && now >= expiresAt;
+    if (!isLegacyExpired && !isOverdueRunning) return;
+
+    const recordedCloseTime = isLegacyExpired
+      ? Number(record.closeTime) || expiresAt
+      : expiresAt;
+    const successor = records
+      .filter((candidate) => (
+        candidate.indicatorSystem === record.indicatorSystem
+        && candidate.id !== record.id
+        && Number(candidate.signalTime) > Number(record.signalTime)
+        && (
+          Number(candidate.signalTime) >= recordedCloseTime - TIMEFRAME_MS.M1 * 2
+          || Number(candidate.recordedAt) >= recordedCloseTime - 5000
+        )
+      ))
+      .sort((a, b) => Number(a.signalTime) - Number(b.signalTime))[0];
+    const closeTime = Number(successor?.signalTime) || recordedCloseTime;
+    const reopened = {
+      ...record,
+      outcome: 'running',
+      status: record.hitTp1 ? 'tp1' : 'running',
+      closeTime: null,
+      exitPrice: null
+    };
+    const resolved = resolveThroughCandles(reopened, candles, closeTime);
+
+    if (['win', 'loss'].includes(resolved.outcome)) {
+      records[index] = resolved;
+      changed = true;
+      return;
+    }
+
+    const fallbackCandle = [...candles]
+      .filter((candle) => Number(candle.time) * 1000 < closeTime && Number.isFinite(Number(candle.close)))
+      .sort((a, b) => Number(b.time) - Number(a.time))[0];
+    const exitPrice = successor?.entry ?? fallbackCandle?.close;
+
+    if (Number.isFinite(Number(exitPrice))) {
+      records[index] = settleRecordAtPrice(
+        resolved,
+        exitPrice,
+        closeTime,
+        isLegacyExpired ? record.expiryReason || 'legacy_reconciled' : 'max_age'
+      );
+      changed = true;
+    }
+  });
+
+  return changed ? writeSignalHistory(records) : records;
 }
 
 export function subscribeSignalHistory(callback) {

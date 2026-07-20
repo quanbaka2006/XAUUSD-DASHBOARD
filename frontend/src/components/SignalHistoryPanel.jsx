@@ -16,6 +16,7 @@ import {
 } from '../utils/signalHistory';
 
 const formatPrice = (value, symbol = '') => {
+  if (value === null || value === undefined || value === '') return '—';
   const number = Number(value);
   if (!Number.isFinite(number)) return '—';
   return number.toLocaleString('en-US', {
@@ -35,8 +36,17 @@ const formatTime = (value) => {
 const OUTCOME_META = {
   win: { label: 'THẮNG', detail: 'TP2', className: 'border-emerald-500/25 bg-emerald-500/10 text-emerald-400' },
   loss: { label: 'THUA', detail: 'SL', className: 'border-red-500/25 bg-red-500/10 text-red-400' },
-  expired: { label: 'HẾT HẠN', detail: 'CLOSED', className: 'border-slate-500/25 bg-slate-500/10 text-slate-400' },
+  breakeven: { label: 'HÒA', detail: 'ĐÓNG GIÁ VỐN', className: 'border-amber-500/25 bg-amber-500/10 text-amber-400' },
+  expired: { label: 'CHƯA RÕ', detail: 'DỮ LIỆU CŨ', className: 'border-slate-500/25 bg-slate-500/10 text-slate-400' },
   running: { label: 'ĐANG CHẠY', detail: 'LIVE', className: 'border-sky-500/25 bg-sky-500/10 text-sky-400' }
+};
+
+const getOutcomeMeta = (record) => {
+  const meta = OUTCOME_META[record.outcome] || OUTCOME_META.running;
+  if (record.status !== 'market_close') return meta;
+  if (record.outcome === 'win') return { ...meta, detail: 'ĐÓNG LỜI' };
+  if (record.outcome === 'loss') return { ...meta, detail: 'ĐÓNG LỖ' };
+  return meta;
 };
 
 function MiniStat({ label, value, note, icon: Icon, tone = 'text-white' }) {
@@ -70,10 +80,12 @@ export function SignalHistoryPanel() {
     const losses = settled.filter((record) => record.outcome === 'loss').length;
     const running = filtered.filter((record) => record.outcome === 'running').length;
     const expired = filtered.filter((record) => record.outcome === 'expired').length;
+    const breakeven = filtered.filter((record) => record.outcome === 'breakeven').length;
     return {
       total: filtered.length,
       running,
       expired,
+      breakeven,
       wins,
       losses,
       winRate: settled.length ? (wins / settled.length) * 100 : 0
@@ -100,10 +112,10 @@ export function SignalHistoryPanel() {
       </div>
 
       <div className="mt-4 grid grid-cols-2 gap-2 lg:grid-cols-4">
-        <MiniStat label="Tổng tín hiệu" value={stats.total} note={`${stats.running}/4 đang chạy · ${stats.expired} hết hạn`} icon={Activity} />
-        <MiniStat label="Tín hiệu thắng" value={stats.wins} note="Đã chạm TP2" icon={Trophy} tone="text-emerald-400" />
-        <MiniStat label="Tín hiệu thua" value={stats.losses} note="Đã chạm SL" icon={ShieldCheck} tone="text-red-400" />
-        <MiniStat label="Tỷ lệ thắng" value={`${stats.winRate.toFixed(1)}%`} note="Chỉ tính tín hiệu đã đóng" icon={Target} tone="text-amber-400" />
+        <MiniStat label="Tổng tín hiệu" value={stats.total} note={`${stats.running}/4 đang chạy · ${stats.breakeven} hòa · ${stats.expired} chưa rõ`} icon={Activity} />
+        <MiniStat label="Tín hiệu thắng" value={stats.wins} note="TP2 hoặc đóng có lời" icon={Trophy} tone="text-emerald-400" />
+        <MiniStat label="Tín hiệu thua" value={stats.losses} note="SL hoặc đóng bị lỗ" icon={ShieldCheck} tone="text-red-400" />
+        <MiniStat label="Tỷ lệ thắng" value={`${stats.winRate.toFixed(1)}%`} note="Chỉ tính thắng và thua" icon={Target} tone="text-amber-400" />
       </div>
 
       <div className="mt-3 grid grid-cols-2 gap-2 rounded-xl border border-white/[0.05] bg-black/15 p-2 sm:flex sm:flex-wrap">
@@ -114,7 +126,7 @@ export function SignalHistoryPanel() {
           ['all', 'Cả 4 chỉ báo'], ...Object.entries(INDICATOR_LABELS)
         ]} />
         <FilterSelect value={outcome} onChange={setOutcome} options={[
-          ['all', 'Mọi kết quả'], ['win', 'Thắng'], ['loss', 'Thua'], ['running', 'Đang chạy'], ['expired', 'Hết hạn']
+          ['all', 'Mọi kết quả'], ['win', 'Thắng'], ['loss', 'Thua'], ['breakeven', 'Hòa'], ['running', 'Đang chạy'], ['expired', 'Chưa rõ (cũ)']
         ]} />
       </div>
 
@@ -128,16 +140,16 @@ export function SignalHistoryPanel() {
         <>
           <div className="mt-3 hidden overflow-hidden rounded-xl border border-white/[0.06] md:block">
             <div className="max-h-[390px] overflow-auto">
-              <table className="w-full min-w-[760px] border-collapse text-left">
+              <table className="w-full min-w-[850px] border-collapse text-left">
                 <thead className="sticky top-0 z-10 bg-[#080b12]">
                   <tr className="border-b border-white/[0.07] text-[9px] font-black uppercase tracking-[0.11em] text-slate-600">
-                    <th className="px-3 py-3">Thời gian</th><th className="px-3">Chỉ báo</th><th className="px-3">Khung</th><th className="px-3">Tín hiệu</th><th className="px-3">Entry</th><th className="px-3">SL</th><th className="px-3">TP1 / TP2</th><th className="px-3 text-center">Kết quả</th>
+                    <th className="px-3 py-3">Thời gian</th><th className="px-3">Chỉ báo</th><th className="px-3">Khung</th><th className="px-3">Tín hiệu</th><th className="px-3">Entry</th><th className="px-3">SL</th><th className="px-3">TP1 / TP2</th><th className="px-3">Giá đóng</th><th className="px-3 text-center">Kết quả</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-white/[0.045]">
                   {filtered.map((record) => {
                     const timestamp = formatTime(record.signalTime);
-                    const meta = OUTCOME_META[record.outcome] || OUTCOME_META.running;
+                    const meta = getOutcomeMeta(record);
                     return (
                       <tr key={record.id} className="text-[10px] transition hover:bg-white/[0.025]">
                         <td className="px-3 py-3"><div className="font-mono font-bold text-slate-300">{timestamp.time}</div><div className="mt-0.5 text-[9px] text-slate-600">{timestamp.date}</div></td>
@@ -147,6 +159,7 @@ export function SignalHistoryPanel() {
                         <td className="px-3 font-mono font-bold text-slate-200">{formatPrice(record.entry, record.symbol)}</td>
                         <td className="px-3 font-mono font-bold text-red-400/80">{formatPrice(record.sl, record.symbol)}</td>
                         <td className="px-3 font-mono"><span className="text-sky-400">{formatPrice(record.tps?.[0], record.symbol)}</span><span className="mx-1 text-slate-700">/</span><span className="text-emerald-400">{formatPrice(record.tps?.[1], record.symbol)}</span></td>
+                        <td className={`px-3 font-mono font-bold ${record.outcome === 'win' ? 'text-emerald-400' : record.outcome === 'loss' ? 'text-red-400' : record.outcome === 'breakeven' ? 'text-amber-400' : 'text-slate-600'}`}>{formatPrice(record.exitPrice, record.symbol)}</td>
                         <td className="px-3 text-center"><span className={`inline-flex min-w-[70px] items-center justify-center gap-1 rounded-md border px-2 py-1 text-[8px] font-black tracking-wider ${meta.className}`}>{meta.label}<span className="opacity-60">· {meta.detail}</span></span></td>
                       </tr>
                     );
@@ -159,18 +172,19 @@ export function SignalHistoryPanel() {
           <div className="mt-3 space-y-2 md:hidden">
             {filtered.map((record) => {
               const timestamp = formatTime(record.signalTime);
-              const meta = OUTCOME_META[record.outcome] || OUTCOME_META.running;
+              const meta = getOutcomeMeta(record);
               return (
                 <div key={record.id} className="rounded-xl border border-white/[0.06] bg-white/[0.02] p-3">
                   <div className="flex items-start justify-between gap-3">
                     <div><div className="text-[11px] font-black text-white">{record.indicatorLabel} <span className="ml-1 text-amber-500">{record.timeframe}</span></div><div className="mt-1 text-[9px] font-bold text-slate-600">{record.symbol} · {timestamp.time} {timestamp.date}</div></div>
-                    <span className={`rounded-md border px-2 py-1 text-[8px] font-black ${meta.className}`}>{meta.label}</span>
+                    <span className={`rounded-md border px-2 py-1 text-[8px] font-black ${meta.className}`}>{meta.label} · {meta.detail}</span>
                   </div>
-                  <div className="mt-3 grid grid-cols-4 gap-2 border-t border-white/[0.05] pt-2.5 text-left">
+                  <div className="mt-3 grid grid-cols-5 gap-2 border-t border-white/[0.05] pt-2.5 text-left">
                     <MobileValue label="Loại" value={record.action.toUpperCase()} tone={record.action === 'buy' ? 'text-emerald-400' : 'text-red-400'} />
                     <MobileValue label="Entry" value={formatPrice(record.entry, record.symbol)} />
                     <MobileValue label="SL" value={formatPrice(record.sl, record.symbol)} tone="text-red-400" />
                     <MobileValue label="TP2" value={formatPrice(record.tps?.[1], record.symbol)} tone="text-emerald-400" />
+                    <MobileValue label="Đóng" value={formatPrice(record.exitPrice, record.symbol)} tone={record.outcome === 'win' ? 'text-emerald-400' : record.outcome === 'loss' ? 'text-red-400' : 'text-slate-400'} />
                   </div>
                 </div>
               );
