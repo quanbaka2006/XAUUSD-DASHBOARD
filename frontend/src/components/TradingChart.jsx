@@ -26,7 +26,7 @@ import { useTradeStore, SOCKET_URL } from '../store/useTradeStore';
 import { useTranslation } from '../utils/translations';
 import { SignalHistoryPanel } from './SignalHistoryPanel';
 import {
-  upsertIndicatorSignal,
+  recordDisplayedIndicatorSignal,
   updateRunningIndicatorSignals,
   updateRunningIndicatorSignalsByPrice
 } from '../utils/signalHistory';
@@ -481,13 +481,6 @@ export function TradingChart({ mobileTab }) {
               chandelierAtrMultiplier: state.chandelierAtrMultiplier,
               trendlineLength: state.trendlineLength,
               trendlineSlopeMult: state.trendlineSlopeMult,
-            });
-            upsertIndicatorSignal({
-              signal: sig,
-              symbol: 'XAUUSD',
-              timeframe: tf,
-              indicatorSystem: sys,
-              candles: history
             });
             lastSignalsRef.current[`${tf}:${sys}`] = sig;
           });
@@ -1123,8 +1116,9 @@ export function TradingChart({ mobileTab }) {
       const state = useTradeStore.getState();
       const currentSelectedSymbol = state.selectedSymbol;
       if (data.ticker === currentSelectedSymbol) {
-        // Write to store for any other consumers (e.g. signal calc)
-        useTradeStore.setState({ livePrice: data.currentPrice });
+        // Use the store action so the exact signal shown on the dashboard also
+        // receives its SL/TP lifecycle transition before the next signal.
+        state.setLivePrice(data.currentPrice);
         // Update price DOM directly — NO React re-render
         if (livePriceDomRef.current) {
           livePriceDomRef.current.textContent = `$${data.currentPrice.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 3 })}`;
@@ -1168,14 +1162,6 @@ export function TradingChart({ mobileTab }) {
                 chandelierAtrMultiplier: state.chandelierAtrMultiplier,
                 trendlineLength: state.trendlineLength,
                 trendlineSlopeMult: state.trendlineSlopeMult,
-              });
-
-              upsertIndicatorSignal({
-                signal: sig,
-                symbol: 'XAUUSD',
-                timeframe: tf,
-                indicatorSystem: sys,
-                candles: history
               });
 
               const key = `${tf}:${sys}`;
@@ -2024,13 +2010,6 @@ export function TradingChart({ mobileTab }) {
       trendlineSlopeMult,
     });
 
-    upsertIndicatorSignal({
-      signal: sig,
-      symbol: selectedSymbol,
-      timeframe: selectedTimeframe,
-      indicatorSystem: selectedIndicatorSystem,
-      candles: history
-    });
     // ── Signal Lock Guard ──────────────────────────────────────────────────
     // If a signal is currently RUNNING (not yet hit SL or full TP2), do NOT
     // overwrite it with a new signal. This prevents the signal panel from
@@ -2052,20 +2031,34 @@ export function TradingChart({ mobileTab }) {
       // Same signal (same entry + timestamp) — update hitTps & status only
       // so the progress bar still reflects TP1 hits in real-time
       if (sig && sig.entry === existing.entry && sig.timestamp === existing.timestamp) {
+        const displayedSignal = { ...existing, hitTps: sig.hitTps, status: sig.status };
         useTradeStore.setState({
-          currentSignal: { ...existing, hitTps: sig.hitTps, status: sig.status }
+          currentSignal: displayedSignal
+        });
+        recordDisplayedIndicatorSignal({
+          signal: displayedSignal,
+          symbol: existing.symbol,
+          timeframe: existing.timeframe,
+          indicatorSystem: existing.indicatorSystem,
+          candles: history
         });
       }
       // Different signal entirely — ignore it, keep the running signal
     } else {
       // No active signal or signal is finished or user changed indicator/timeframe/symbol — allow normal overwrite
-      useTradeStore.setState({
-        currentSignal: sig ? {
-          ...sig,
-          symbol: selectedSymbol,
-          timeframe: selectedTimeframe,
-          indicatorSystem: selectedIndicatorSystem
-        } : null
+      const displayedSignal = sig ? {
+        ...sig,
+        symbol: selectedSymbol,
+        timeframe: selectedTimeframe,
+        indicatorSystem: selectedIndicatorSystem
+      } : null;
+      useTradeStore.setState({ currentSignal: displayedSignal });
+      recordDisplayedIndicatorSignal({
+        signal: displayedSignal,
+        symbol: selectedSymbol,
+        timeframe: selectedTimeframe,
+        indicatorSystem: selectedIndicatorSystem,
+        candles: history
       });
     }
   }, [
