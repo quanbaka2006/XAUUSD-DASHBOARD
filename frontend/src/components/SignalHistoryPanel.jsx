@@ -91,11 +91,11 @@ export function SignalHistoryPanel() {
           </div>
           <div className="text-left">
             <h2 className="text-xs font-black uppercase tracking-[0.14em] text-white">Lịch sử tín hiệu</h2>
-            <p className="mt-1 text-[9px] font-bold uppercase tracking-wider text-slate-600">50 tín hiệu M1 gần nhất · tối đa 4 tín hiệu chạy song song</p>
+            <p className="mt-1 text-[9px] font-bold uppercase tracking-wider text-slate-600">Engine realtime M1 · 4 chỉ báo chạy song song · 50 lệnh gần nhất</p>
           </div>
         </div>
         <div className="flex items-center gap-1.5 text-[9px] font-black uppercase tracking-wider text-slate-500">
-          <CircleDot className="h-3 w-3 text-emerald-400" /> Đồng bộ card tín hiệu
+          <CircleDot className="h-3 w-3 text-emerald-400" /> Không phụ thuộc chỉ báo đang xem
         </div>
       </div>
 
@@ -122,7 +122,7 @@ export function SignalHistoryPanel() {
         <div className="mt-3 flex min-h-40 flex-col items-center justify-center rounded-xl border border-dashed border-white/[0.07] bg-white/[0.012] px-5 text-center">
           <History className="h-6 w-6 text-slate-700" />
           <div className="mt-3 text-[11px] font-black uppercase tracking-wider text-slate-400">Chưa có tín hiệu phù hợp</div>
-          <p className="mt-1 max-w-md text-[10px] leading-5 text-slate-600">Tín hiệu sẽ xuất hiện tại đây sau khi Entry, SL và TP được công bố trên card dashboard.</p>
+          <p className="mt-1 max-w-md text-[10px] leading-5 text-slate-600">Engine đang theo dõi đồng thời MTF Trend PA, UT Bot, Chandelier và Trendlines trên khung M1.</p>
         </div>
       ) : (
         <>

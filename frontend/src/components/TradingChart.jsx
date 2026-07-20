@@ -26,10 +26,16 @@ import { useTradeStore, SOCKET_URL } from '../store/useTradeStore';
 import { useTranslation } from '../utils/translations';
 import { SignalHistoryPanel } from './SignalHistoryPanel';
 import {
-  recordDisplayedIndicatorSignal,
+  recordM1IndicatorSignal,
   updateRunningIndicatorSignals,
   updateRunningIndicatorSignalsByPrice
 } from '../utils/signalHistory';
+import {
+  M1_INDICATOR_SYSTEMS,
+  advanceM1SignalBaseline,
+  createM1PublishedSignal,
+  getM1IndicatorConfigSignature
+} from '../utils/m1SignalEngine';
 import {
   calculateIndicatorData,
   calculateRSI,
@@ -50,6 +56,20 @@ const SYMBOLS_DISPLAY = {
   'BTCUSD': 'Bitcoin (BTCUSD)',
   'ETHUSD': 'Ethereum (ETHUSD)'
 };
+
+const calculateM1IndicatorSignal = (indicatorSystem, history, state) => getCurrentSignal({
+  history,
+  selectedSymbol: 'XAUUSD',
+  selectedIndicatorSystem: indicatorSystem,
+  zenFastPeriod: state.zenFastPeriod,
+  zenSlowPeriod: state.zenSlowPeriod,
+  utBotKeyValue: state.utBotKeyValue,
+  utBotAtrPeriod: state.utBotAtrPeriod,
+  chandelierAtrPeriod: state.chandelierAtrPeriod,
+  chandelierAtrMultiplier: state.chandelierAtrMultiplier,
+  trendlineLength: state.trendlineLength,
+  trendlineSlopeMult: state.trendlineSlopeMult
+});
 
 // ── Live signal status: compares the latest live price against SL/TP ──
 function computeSignalStatus(signal, livePrice) {
@@ -434,24 +454,25 @@ export function TradingChart({ mobileTab }) {
   const drawingsSyncDebounceRef = React.useRef(null);
   const pageLoadTimeRef = React.useRef(Date.now());
   const allCandlesHistoryRef = React.useRef({
-    'M1': [],
-    'M5': [],
-    'M15': [],
-    'H1': []
+    'M1': []
   });
-  const lastSignalsRef = React.useRef({});
+  const m1SignalBaselinesRef = React.useRef({});
 
-  // Background Multi-Indicator Signal Scanner Pre-fetch
+  // Establish a clean M1 baseline. Existing historical signals are observed,
+  // but only signals generated after this point are published to history.
   useEffect(() => {
     if (!isLoggedIn) return;
+    let cancelled = false;
     const token = localStorage.getItem('auth_token');
-    const timeframes = ['M1', 'M5', 'M15', 'H1'];
-    timeframes.forEach(tf => {
-      fetch(`${SOCKET_URL}/api/history/XAUUSD/${tf}`, {
-        headers: { 'Authorization': `Bearer ${token}` }
-      })
-        .then(res => res.json())
+    fetch(`${SOCKET_URL}/api/history/XAUUSD/M1`, {
+      headers: { 'Authorization': `Bearer ${token}` }
+    })
+        .then((res) => {
+          if (!res.ok) throw new Error(`M1 history request failed (${res.status})`);
+          return res.json();
+        })
         .then(data => {
+          if (cancelled) return;
           const rawHistory = data.history || [];
           if (data.active) rawHistory.push(data.active);
           rawHistory.sort((a, b) => a.time - b.time);
@@ -463,31 +484,45 @@ export function TradingChart({ mobileTab }) {
               history[history.length - 1] = item;
             }
           }
-          allCandlesHistoryRef.current[tf] = history;
+          allCandlesHistoryRef.current.M1 = history;
 
-          // Initialize background signals
           const state = useTradeStore.getState();
-          const systems = ['zen', 'utbot', 'chandelier', 'trendline'];
-          systems.forEach(sys => {
-            const sig = getCurrentSignal({
-              history,
-              selectedSymbol: 'XAUUSD',
-              selectedIndicatorSystem: sys,
-              zenFastPeriod: state.zenFastPeriod,
-              zenSlowPeriod: state.zenSlowPeriod,
-              utBotKeyValue: state.utBotKeyValue,
-              utBotAtrPeriod: state.utBotAtrPeriod,
-              chandelierAtrPeriod: state.chandelierAtrPeriod,
-              chandelierAtrMultiplier: state.chandelierAtrMultiplier,
-              trendlineLength: state.trendlineLength,
-              trendlineSlopeMult: state.trendlineSlopeMult,
-            });
-            lastSignalsRef.current[`${tf}:${sys}`] = sig;
+          M1_INDICATOR_SYSTEMS.forEach((system) => {
+            const signal = calculateM1IndicatorSignal(system, history, state);
+            const configSignature = getM1IndicatorConfigSignature(system, state);
+            m1SignalBaselinesRef.current[system] = advanceM1SignalBaseline(null, signal, configSignature).next;
           });
         })
-        .catch(err => console.error('Failed to pre-fetch history for scanner:', tf, err));
-    });
+        .catch(err => console.error('Failed to initialize parallel M1 scanner:', err));
+
+    return () => {
+      cancelled = true;
+    };
   }, [isLoggedIn]);
+
+  // Parameter changes recalculate the current state as a baseline instead of
+  // turning historical differences into fake realtime publications.
+  useEffect(() => {
+    const history = allCandlesHistoryRef.current.M1;
+    if (!isLoggedIn || history.length < 21) return;
+    const state = useTradeStore.getState();
+
+    M1_INDICATOR_SYSTEMS.forEach((system) => {
+      const signal = calculateM1IndicatorSignal(system, history, state);
+      const configSignature = getM1IndicatorConfigSignature(system, state);
+      m1SignalBaselinesRef.current[system] = advanceM1SignalBaseline(null, signal, configSignature).next;
+    });
+  }, [
+    isLoggedIn,
+    zenFastPeriod,
+    zenSlowPeriod,
+    utBotKeyValue,
+    utBotAtrPeriod,
+    chandelierAtrPeriod,
+    chandelierAtrMultiplier,
+    trendlineLength,
+    trendlineSlopeMult
+  ]);
 
   const showKeyHint = (text) => {
     setKeyHint(text);
@@ -1136,9 +1171,10 @@ export function TradingChart({ mobileTab }) {
       // including signals that are no longer the latest one.
       updateRunningIndicatorSignals({ symbol: sym, timeframe: tf, candle });
 
-      // Update background candles history for XAUUSD multi-indicator scanner
-      if (sym === 'XAUUSD' && allCandlesHistoryRef.current[tf]) {
-        const history = allCandlesHistoryRef.current[tf];
+      // The publication engine is intentionally fixed to XAUUSD M1 and runs
+      // all four systems independently from the chart/dropdown selection.
+      if (sym === 'XAUUSD' && tf === 'M1') {
+        const history = allCandlesHistoryRef.current.M1;
         if (history.length > 0) {
           const last = history[history.length - 1];
           const isNew = candle.time > last.time;
@@ -1146,44 +1182,38 @@ export function TradingChart({ mobileTab }) {
             history.push(candle);
             if (history.length > 200) history.shift();
 
-            // Run calculations for all indicators
             const state = useTradeStore.getState();
-            const systems = ['zen', 'utbot', 'chandelier', 'trendline'];
-            systems.forEach(sys => {
-              const sig = getCurrentSignal({
-                history,
-                selectedSymbol: 'XAUUSD',
-                selectedIndicatorSystem: sys,
-                zenFastPeriod: state.zenFastPeriod,
-                zenSlowPeriod: state.zenSlowPeriod,
-                utBotKeyValue: state.utBotKeyValue,
-                utBotAtrPeriod: state.utBotAtrPeriod,
-                chandelierAtrPeriod: state.chandelierAtrPeriod,
-                chandelierAtrMultiplier: state.chandelierAtrMultiplier,
-                trendlineLength: state.trendlineLength,
-                trendlineSlopeMult: state.trendlineSlopeMult,
-              });
+            let publishedCount = 0;
 
-              const key = `${tf}:${sys}`;
-              const lastSig = lastSignalsRef.current[key];
-              const isInitialLoad = (Date.now() - pageLoadTimeRef.current) < 5000;
+            M1_INDICATOR_SYSTEMS.forEach((system) => {
+              const signal = calculateM1IndicatorSignal(system, history, state);
+              const configSignature = getM1IndicatorConfigSignature(system, state);
+              const transition = advanceM1SignalBaseline(
+                m1SignalBaselinesRef.current[system],
+                signal,
+                configSignature
+              );
+              m1SignalBaselinesRef.current[system] = transition.next;
 
-              if (sys !== 'zen' && !isInitialLoad && lastSig && sig && sig.action !== 'stale' && (lastSig.action !== sig.action || lastSig.timestamp !== sig.timestamp) && !isSignalLocked()) {
-                playNotificationSound();
-                useTradeStore.getState().addToast({
+              if (transition.shouldPublish) {
+                const publishedSignal = createM1PublishedSignal(signal, history);
+                recordM1IndicatorSignal({
+                  signal: publishedSignal,
+                  symbol: 'XAUUSD',
+                  indicatorSystem: system,
+                  candles: history
+                });
+                publishedCount += 1;
+                state.addToast({
                   ticker: 'XAUUSD',
-                  system: sys.toUpperCase(),
-                  interval: tf,
-                  action: sig.action,
-                  entry: sig.entry,
-                  sl: sig.sl,
-                  tp: sig.tp,
-                  confidence: sig.confidence || 100,
-                  timestamp: sig.timestamp || Date.now()
+                  system: system.toUpperCase(),
+                  interval: 'M1',
+                  ...publishedSignal
                 });
               }
-              lastSignalsRef.current[key] = sig;
             });
+
+            if (publishedCount > 0) playNotificationSound();
           } else {
             history[history.length - 1] = candle;
           }
@@ -2035,13 +2065,6 @@ export function TradingChart({ mobileTab }) {
         useTradeStore.setState({
           currentSignal: displayedSignal
         });
-        recordDisplayedIndicatorSignal({
-          signal: displayedSignal,
-          symbol: existing.symbol,
-          timeframe: existing.timeframe,
-          indicatorSystem: existing.indicatorSystem,
-          candles: history
-        });
       }
       // Different signal entirely — ignore it, keep the running signal
     } else {
@@ -2053,13 +2076,6 @@ export function TradingChart({ mobileTab }) {
         indicatorSystem: selectedIndicatorSystem
       } : null;
       useTradeStore.setState({ currentSignal: displayedSignal });
-      recordDisplayedIndicatorSignal({
-        signal: displayedSignal,
-        symbol: selectedSymbol,
-        timeframe: selectedTimeframe,
-        indicatorSystem: selectedIndicatorSystem,
-        candles: history
-      });
     }
   }, [
     selectedSymbol,

@@ -488,7 +488,8 @@ export function getCurrentSignal({
       action,
       entry,
       confidence,
-      timestamp: zenData[crossoverIdx].time * 1000
+      timestamp: zenData[crossoverIdx].time * 1000,
+      triggered: true
     };
   }
 
@@ -513,7 +514,8 @@ export function getCurrentSignal({
         action,
         entry,
         confidence: 70,
-        timestamp: last.time * 1000
+        timestamp: last.time * 1000,
+        triggered: false
       };
     } else {
       const trigger = utData[triggerIdx];
@@ -526,7 +528,8 @@ export function getCurrentSignal({
         action,
         entry,
         confidence,
-        timestamp: trigger.time * 1000
+        timestamp: trigger.time * 1000,
+        triggered: true
       };
     }
   }
@@ -552,7 +555,8 @@ export function getCurrentSignal({
         action,
         entry,
         confidence: 72,
-        timestamp: last.time * 1000
+        timestamp: last.time * 1000,
+        triggered: false
       };
     } else {
       const trigger = chData[triggerIdx];
@@ -565,7 +569,8 @@ export function getCurrentSignal({
         action,
         entry,
         confidence,
-        timestamp: trigger.time * 1000
+        timestamp: trigger.time * 1000,
+        triggered: true
       };
     }
   }
@@ -591,7 +596,8 @@ export function getCurrentSignal({
         action,
         entry,
         confidence: 67,
-        timestamp: last.time * 1000
+        timestamp: last.time * 1000,
+        triggered: false
       };
     } else {
       const trigger = tlData[triggerIdx];
@@ -604,7 +610,8 @@ export function getCurrentSignal({
         action,
         entry,
         confidence,
-        timestamp: trigger.time * 1000
+        timestamp: trigger.time * 1000,
+        triggered: true
       };
     }
   }

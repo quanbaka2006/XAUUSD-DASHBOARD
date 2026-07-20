@@ -1,7 +1,8 @@
-const STORAGE_KEY = 'alpha_gold_m1_displayed_signal_history_v3';
+const STORAGE_KEY = 'alpha_gold_parallel_m1_signal_history_v4';
 const LEGACY_STORAGE_KEYS = [
   'alpha_gold_indicator_signal_history_v1',
-  'alpha_gold_displayed_signal_history_v2'
+  'alpha_gold_displayed_signal_history_v2',
+  'alpha_gold_m1_displayed_signal_history_v3'
 ];
 const UPDATE_EVENT = 'alpha-gold-signal-history-updated';
 const MAX_RECORDS = 50;
@@ -34,8 +35,8 @@ const getExpiryTime = (signalTime, timeframe) => {
 
 export function readSignalHistory() {
   try {
-    // v1 contained background-scanner results, so it cannot be safely mixed
-    // with the new audit log of signals that were actually displayed.
+    // v4 is a clean starting point for the realtime parallel M1 engine.
+    // Older models mixed card selection with publication state.
     LEGACY_STORAGE_KEYS.forEach((key) => localStorage.removeItem(key));
     const parsed = JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]');
     return Array.isArray(parsed) ? parsed : [];
@@ -142,8 +143,9 @@ export function reconcileStaleIndicatorSignals(now = Date.now()) {
   return changed ? writeSignalHistory(records) : records;
 }
 
-export function recordDisplayedIndicatorSignal({ signal, symbol, timeframe, indicatorSystem, candles }) {
-  if (timeframe !== 'M1') return;
+export function recordM1IndicatorSignal({ signal, symbol, indicatorSystem, candles }) {
+  const timeframe = 'M1';
+  if (signal?.triggered === false) return;
   if (!signal || !['buy', 'sell'].includes(signal.action)) return;
   if (!INDICATOR_LABELS[indicatorSystem] || !signal.timestamp || !signal.entry) return;
 
@@ -172,6 +174,7 @@ export function recordDisplayedIndicatorSignal({ signal, symbol, timeframe, indi
     sl: Number(signal.sl),
     tps: Array.isArray(signal.tps) ? signal.tps.map(Number) : [Number(signal.tp)].filter(Boolean),
     confidence: Number(signal.confidence) || 0,
+    sourceTimestamp: Number(signal.sourceTimestamp) || signalTime,
     signalTime,
     expiresAt: existing?.expiresAt || getExpiryTime(signalTime, timeframe),
     recordedAt: existing?.recordedAt || Date.now(),
