@@ -54,17 +54,15 @@ function MiniStat({ label, value, note, icon: Icon, tone = 'text-white' }) {
 export function SignalHistoryPanel() {
   const [records, setRecords] = useState(() => reconcileStaleIndicatorSignals());
   const [system, setSystem] = useState('all');
-  const [timeframe, setTimeframe] = useState('all');
   const [outcome, setOutcome] = useState('all');
 
   useEffect(() => subscribeSignalHistory(setRecords), []);
 
   const filtered = useMemo(() => records.filter((record) => {
     if (system !== 'all' && record.indicatorSystem !== system) return false;
-    if (timeframe !== 'all' && record.timeframe !== timeframe) return false;
     if (outcome !== 'all' && record.outcome !== outcome) return false;
     return true;
-  }), [records, system, timeframe, outcome]);
+  }), [records, system, outcome]);
 
   const stats = useMemo(() => {
     const settled = filtered.filter((record) => ['win', 'loss'].includes(record.outcome));
@@ -93,7 +91,7 @@ export function SignalHistoryPanel() {
           </div>
           <div className="text-left">
             <h2 className="text-xs font-black uppercase tracking-[0.14em] text-white">Lịch sử tín hiệu</h2>
-            <p className="mt-1 text-[9px] font-bold uppercase tracking-wider text-slate-600">50 tín hiệu gần nhất đã hiển thị trên dashboard</p>
+            <p className="mt-1 text-[9px] font-bold uppercase tracking-wider text-slate-600">50 tín hiệu M1 gần nhất · tối đa 4 tín hiệu chạy song song</p>
           </div>
         </div>
         <div className="flex items-center gap-1.5 text-[9px] font-black uppercase tracking-wider text-slate-500">
@@ -102,7 +100,7 @@ export function SignalHistoryPanel() {
       </div>
 
       <div className="mt-4 grid grid-cols-2 gap-2 lg:grid-cols-4">
-        <MiniStat label="Tổng tín hiệu" value={stats.total} note={`${stats.running} đang chạy · ${stats.expired} hết hạn`} icon={Activity} />
+        <MiniStat label="Tổng tín hiệu" value={stats.total} note={`${stats.running}/4 đang chạy · ${stats.expired} hết hạn`} icon={Activity} />
         <MiniStat label="Tín hiệu thắng" value={stats.wins} note="Đã chạm TP2" icon={Trophy} tone="text-emerald-400" />
         <MiniStat label="Tín hiệu thua" value={stats.losses} note="Đã chạm SL" icon={ShieldCheck} tone="text-red-400" />
         <MiniStat label="Tỷ lệ thắng" value={`${stats.winRate.toFixed(1)}%`} note="Chỉ tính tín hiệu đã đóng" icon={Target} tone="text-amber-400" />
@@ -114,9 +112,6 @@ export function SignalHistoryPanel() {
         </div>
         <FilterSelect value={system} onChange={setSystem} options={[
           ['all', 'Cả 4 chỉ báo'], ...Object.entries(INDICATOR_LABELS)
-        ]} />
-        <FilterSelect value={timeframe} onChange={setTimeframe} options={[
-          ['all', 'Mọi khung'], ['M1', 'M1'], ['M5', 'M5'], ['M15', 'M15'], ['H1', 'H1']
         ]} />
         <FilterSelect value={outcome} onChange={setOutcome} options={[
           ['all', 'Mọi kết quả'], ['win', 'Thắng'], ['loss', 'Thua'], ['running', 'Đang chạy'], ['expired', 'Hết hạn']

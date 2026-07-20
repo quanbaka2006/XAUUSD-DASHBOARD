@@ -1,5 +1,8 @@
-const STORAGE_KEY = 'alpha_gold_displayed_signal_history_v2';
-const LEGACY_STORAGE_KEY = 'alpha_gold_indicator_signal_history_v1';
+const STORAGE_KEY = 'alpha_gold_m1_displayed_signal_history_v3';
+const LEGACY_STORAGE_KEYS = [
+  'alpha_gold_indicator_signal_history_v1',
+  'alpha_gold_displayed_signal_history_v2'
+];
 const UPDATE_EVENT = 'alpha-gold-signal-history-updated';
 const MAX_RECORDS = 50;
 
@@ -33,7 +36,7 @@ export function readSignalHistory() {
   try {
     // v1 contained background-scanner results, so it cannot be safely mixed
     // with the new audit log of signals that were actually displayed.
-    localStorage.removeItem(LEGACY_STORAGE_KEY);
+    LEGACY_STORAGE_KEYS.forEach((key) => localStorage.removeItem(key));
     const parsed = JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]');
     return Array.isArray(parsed) ? parsed : [];
   } catch {
@@ -115,29 +118,32 @@ export function reconcileStaleIndicatorSignals(now = Date.now()) {
   if (!records.length) return records;
   let changed = false;
 
-  const running = records
-    .map((record, index) => ({ record, index }))
-    .filter(({ record }) => record.outcome === 'running')
-    .sort((a, b) => Number(b.record.recordedAt) - Number(a.record.recordedAt) || Number(b.record.signalTime) - Number(a.record.signalTime));
+  Object.keys(INDICATOR_LABELS).forEach((indicatorSystem) => {
+    const running = records
+      .map((record, index) => ({ record, index }))
+      .filter(({ record }) => record.outcome === 'running' && record.indicatorSystem === indicatorSystem)
+      .sort((a, b) => Number(b.record.recordedAt) - Number(a.record.recordedAt) || Number(b.record.signalTime) - Number(a.record.signalTime));
 
-  running.forEach(({ record, index }, position) => {
-    const expiresAt = Number(record.expiresAt) || getExpiryTime(record.signalTime, record.timeframe);
-    if (position > 0) {
-      records[index] = expireRecord(record, running[0].record.recordedAt, 'replaced');
-      changed = true;
-    } else if (now >= expiresAt) {
-      records[index] = expireRecord({ ...record, expiresAt }, expiresAt, 'max_age');
-      changed = true;
-    } else if (!record.expiresAt) {
-      records[index] = { ...record, expiresAt };
-      changed = true;
-    }
+    running.forEach(({ record, index }, position) => {
+      const expiresAt = Number(record.expiresAt) || getExpiryTime(record.signalTime, record.timeframe);
+      if (position > 0) {
+        records[index] = expireRecord(record, running[0].record.recordedAt, 'replaced');
+        changed = true;
+      } else if (now >= expiresAt) {
+        records[index] = expireRecord({ ...record, expiresAt }, expiresAt, 'max_age');
+        changed = true;
+      } else if (!record.expiresAt) {
+        records[index] = { ...record, expiresAt };
+        changed = true;
+      }
+    });
   });
 
   return changed ? writeSignalHistory(records) : records;
 }
 
 export function recordDisplayedIndicatorSignal({ signal, symbol, timeframe, indicatorSystem, candles }) {
+  if (timeframe !== 'M1') return;
   if (!signal || !['buy', 'sell'].includes(signal.action)) return;
   if (!INDICATOR_LABELS[indicatorSystem] || !signal.timestamp || !signal.entry) return;
 
@@ -147,10 +153,10 @@ export function recordDisplayedIndicatorSignal({ signal, symbol, timeframe, indi
   const existing = existingIndex >= 0 ? records[existingIndex] : null;
   const signalTime = Number(signal.timestamp);
 
-  // The dashboard publishes one signal card at a time. Once a different card
-  // is displayed, the previous live record is no longer an active publication.
+  // Each of the four M1 indicators owns an independent live slot. Switching
+  // the dashboard to another indicator must not close the previous slot.
   records.forEach((record, index) => {
-    if (record.id !== id && record.outcome === 'running') {
+    if (record.id !== id && record.outcome === 'running' && record.indicatorSystem === indicatorSystem) {
       records[index] = expireRecord(record, Date.now(), 'replaced');
     }
   });
