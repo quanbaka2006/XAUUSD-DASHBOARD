@@ -11,7 +11,7 @@ import {
 } from 'lucide-react';
 import {
   INDICATOR_LABELS,
-  readSignalHistory,
+  reconcileStaleIndicatorSignals,
   subscribeSignalHistory
 } from '../utils/signalHistory';
 
@@ -35,6 +35,7 @@ const formatTime = (value) => {
 const OUTCOME_META = {
   win: { label: 'THẮNG', detail: 'TP2', className: 'border-emerald-500/25 bg-emerald-500/10 text-emerald-400' },
   loss: { label: 'THUA', detail: 'SL', className: 'border-red-500/25 bg-red-500/10 text-red-400' },
+  expired: { label: 'HẾT HẠN', detail: 'CLOSED', className: 'border-slate-500/25 bg-slate-500/10 text-slate-400' },
   running: { label: 'ĐANG CHẠY', detail: 'LIVE', className: 'border-sky-500/25 bg-sky-500/10 text-sky-400' }
 };
 
@@ -51,7 +52,7 @@ function MiniStat({ label, value, note, icon: Icon, tone = 'text-white' }) {
 }
 
 export function SignalHistoryPanel() {
-  const [records, setRecords] = useState(() => readSignalHistory());
+  const [records, setRecords] = useState(() => reconcileStaleIndicatorSignals());
   const [system, setSystem] = useState('all');
   const [timeframe, setTimeframe] = useState('all');
   const [outcome, setOutcome] = useState('all');
@@ -66,15 +67,18 @@ export function SignalHistoryPanel() {
   }), [records, system, timeframe, outcome]);
 
   const stats = useMemo(() => {
-    const completed = filtered.filter((record) => record.outcome !== 'running');
-    const wins = completed.filter((record) => record.outcome === 'win').length;
-    const losses = completed.filter((record) => record.outcome === 'loss').length;
+    const settled = filtered.filter((record) => ['win', 'loss'].includes(record.outcome));
+    const wins = settled.filter((record) => record.outcome === 'win').length;
+    const losses = settled.filter((record) => record.outcome === 'loss').length;
+    const running = filtered.filter((record) => record.outcome === 'running').length;
+    const expired = filtered.filter((record) => record.outcome === 'expired').length;
     return {
       total: filtered.length,
-      running: filtered.length - completed.length,
+      running,
+      expired,
       wins,
       losses,
-      winRate: completed.length ? (wins / completed.length) * 100 : 0
+      winRate: settled.length ? (wins / settled.length) * 100 : 0
     };
   }, [filtered]);
 
@@ -98,7 +102,7 @@ export function SignalHistoryPanel() {
       </div>
 
       <div className="mt-4 grid grid-cols-2 gap-2 lg:grid-cols-4">
-        <MiniStat label="Tổng tín hiệu" value={stats.total} note={`${stats.running} đang chạy`} icon={Activity} />
+        <MiniStat label="Tổng tín hiệu" value={stats.total} note={`${stats.running} đang chạy · ${stats.expired} hết hạn`} icon={Activity} />
         <MiniStat label="Tín hiệu thắng" value={stats.wins} note="Đã chạm TP2" icon={Trophy} tone="text-emerald-400" />
         <MiniStat label="Tín hiệu thua" value={stats.losses} note="Đã chạm SL" icon={ShieldCheck} tone="text-red-400" />
         <MiniStat label="Tỷ lệ thắng" value={`${stats.winRate.toFixed(1)}%`} note="Chỉ tính tín hiệu đã đóng" icon={Target} tone="text-amber-400" />
@@ -115,7 +119,7 @@ export function SignalHistoryPanel() {
           ['all', 'Mọi khung'], ['M1', 'M1'], ['M5', 'M5'], ['M15', 'M15'], ['H1', 'H1']
         ]} />
         <FilterSelect value={outcome} onChange={setOutcome} options={[
-          ['all', 'Mọi kết quả'], ['win', 'Thắng'], ['loss', 'Thua'], ['running', 'Đang chạy']
+          ['all', 'Mọi kết quả'], ['win', 'Thắng'], ['loss', 'Thua'], ['running', 'Đang chạy'], ['expired', 'Hết hạn']
         ]} />
       </div>
 

@@ -25,7 +25,11 @@ import {
 import { useTradeStore, SOCKET_URL } from '../store/useTradeStore';
 import { useTranslation } from '../utils/translations';
 import { SignalHistoryPanel } from './SignalHistoryPanel';
-import { upsertIndicatorSignal } from '../utils/signalHistory';
+import {
+  upsertIndicatorSignal,
+  updateRunningIndicatorSignals,
+  updateRunningIndicatorSignalsByPrice
+} from '../utils/signalHistory';
 import {
   calculateIndicatorData,
   calculateRSI,
@@ -1110,6 +1114,12 @@ export function TradingChart({ mobileTab }) {
 
 
     socket.on('price_update', (data) => {
+      updateRunningIndicatorSignalsByPrice({
+        symbol: data.ticker,
+        price: data.currentPrice,
+        timestamp: Date.now()
+      });
+
       const state = useTradeStore.getState();
       const currentSelectedSymbol = state.selectedSymbol;
       if (data.ticker === currentSelectedSymbol) {
@@ -1127,6 +1137,10 @@ export function TradingChart({ mobileTab }) {
       const sym = data.ticker;
       const tf = data.interval;
       const candle = data.candle;
+
+      // Every live candle advances all historical signals for this stream,
+      // including signals that are no longer the latest one.
+      updateRunningIndicatorSignals({ symbol: sym, timeframe: tf, candle });
 
       // Update background candles history for XAUUSD multi-indicator scanner
       if (sym === 'XAUUSD' && allCandlesHistoryRef.current[tf]) {
