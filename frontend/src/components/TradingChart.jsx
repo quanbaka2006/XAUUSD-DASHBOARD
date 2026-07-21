@@ -25,21 +25,7 @@ import {
 import { useTradeStore, SOCKET_URL } from '../store/useTradeStore';
 import { useTranslation } from '../utils/translations';
 import { SignalHistoryPanel } from './SignalHistoryPanel';
-import {
-  readSignalHistory,
-  reconcileIndicatorSignalsWithCandles,
-  recordM1IndicatorSignal,
-  replaceSignalHistory,
-  subscribeSignalHistory,
-  updateRunningIndicatorSignals,
-  updateRunningIndicatorSignalsByPrice
-} from '../utils/signalHistory';
-import {
-  M1_INDICATOR_SYSTEMS,
-  advanceM1SignalBaseline,
-  createM1PublishedSignal,
-  getM1IndicatorConfigSignature
-} from '../utils/m1SignalEngine';
+import { readSignalHistory, replaceSignalHistory } from '../utils/signalHistory';
 import {
   calculateIndicatorData,
   calculateRSI,
@@ -60,20 +46,6 @@ const SYMBOLS_DISPLAY = {
   'BTCUSD': 'Bitcoin (BTCUSD)',
   'ETHUSD': 'Ethereum (ETHUSD)'
 };
-
-const calculateM1IndicatorSignal = (indicatorSystem, history, state) => getCurrentSignal({
-  history,
-  selectedSymbol: 'XAUUSD',
-  selectedIndicatorSystem: indicatorSystem,
-  zenFastPeriod: state.zenFastPeriod,
-  zenSlowPeriod: state.zenSlowPeriod,
-  utBotKeyValue: state.utBotKeyValue,
-  utBotAtrPeriod: state.utBotAtrPeriod,
-  chandelierAtrPeriod: state.chandelierAtrPeriod,
-  chandelierAtrMultiplier: state.chandelierAtrMultiplier,
-  trendlineLength: state.trendlineLength,
-  trendlineSlopeMult: state.trendlineSlopeMult
-});
 
 // ── Live signal status: compares the latest live price against SL/TP ──
 function computeSignalStatus(signal, livePrice) {
@@ -457,62 +429,23 @@ export function TradingChart({ mobileTab }) {
   const keyHintTimerRef = React.useRef(null);
   const drawingsSyncDebounceRef = React.useRef(null);
   const pageLoadTimeRef = React.useRef(Date.now());
-  const allCandlesHistoryRef = React.useRef({
-    'M1': []
-  });
-  const m1SignalBaselinesRef = React.useRef({});
-  const globalHistoryApplyingRef = React.useRef(false);
-  const globalHistoryReadyRef = React.useRef(false);
 
-  // The server owns one website-wide history document. Local storage is only
-  // an offline cache and is merged into that document after authentication.
+  // The backend engine is the sole writer. The browser only hydrates a local
+  // display cache and receives subsequent authoritative socket snapshots.
   useEffect(() => {
     if (!isLoggedIn) return;
     let cancelled = false;
-    let syncTimer = null;
     const token = localStorage.getItem('auth_token');
-
-    const requestGlobalHistory = async (records) => {
-      const hasRecords = Array.isArray(records) && records.length > 0;
-      const response = await fetch(`${SOCKET_URL}/api/global-signal-history`, {
-        method: hasRecords ? 'PUT' : 'GET',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          ...(hasRecords ? { 'Content-Type': 'application/json' } : {})
-        },
-        ...(hasRecords ? { body: JSON.stringify({ records }) } : {})
-      });
-      if (!response.ok) throw new Error(`Global signal history request failed (${response.status})`);
-      const data = await response.json();
-      return Array.isArray(data.records) ? data.records : [];
-    };
-
-    const applyGlobalRecords = (records) => {
-      globalHistoryApplyingRef.current = true;
-      replaceSignalHistory(records);
-      globalHistoryApplyingRef.current = false;
-    };
-
-    const unsubscribe = subscribeSignalHistory((records) => {
-      if (!globalHistoryReadyRef.current || globalHistoryApplyingRef.current || cancelled) return;
-      if (syncTimer) clearTimeout(syncTimer);
-      syncTimer = setTimeout(async () => {
-        try {
-          const globalRecords = await requestGlobalHistory(records);
-          if (!cancelled) applyGlobalRecords(globalRecords);
-        } catch (error) {
-          console.error('Failed to push website signal history:', error);
-        }
-      }, 250);
-    });
 
     (async () => {
       try {
-        const localRecords = readSignalHistory();
-        const globalRecords = await requestGlobalHistory(localRecords);
+        const response = await fetch(`${SOCKET_URL}/api/global-signal-history`, {
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+        if (!response.ok) throw new Error(`Global signal history request failed (${response.status})`);
+        const data = await response.json();
         if (cancelled) return;
-        applyGlobalRecords(globalRecords);
-        globalHistoryReadyRef.current = true;
+        replaceSignalHistory(Array.isArray(data.records) ? data.records : []);
       } catch (error) {
         console.error('Failed to initialize website signal history:', error);
       }
@@ -520,82 +453,8 @@ export function TradingChart({ mobileTab }) {
 
     return () => {
       cancelled = true;
-      globalHistoryReadyRef.current = false;
-      if (syncTimer) clearTimeout(syncTimer);
-      unsubscribe();
     };
   }, [isLoggedIn]);
-
-  // Establish a clean M1 baseline. Existing historical signals are observed,
-  // but only signals generated after this point are published to history.
-  useEffect(() => {
-    if (!isLoggedIn) return;
-    let cancelled = false;
-    const token = localStorage.getItem('auth_token');
-    fetch(`${SOCKET_URL}/api/history/XAUUSD/M1`, {
-      headers: { 'Authorization': `Bearer ${token}` }
-    })
-        .then((res) => {
-          if (!res.ok) throw new Error(`M1 history request failed (${res.status})`);
-          return res.json();
-        })
-        .then(data => {
-          if (cancelled) return;
-          const rawHistory = data.history || [];
-          if (data.active) rawHistory.push(data.active);
-          rawHistory.sort((a, b) => a.time - b.time);
-          const history = [];
-          for (const item of rawHistory) {
-            if (history.length === 0 || history[history.length - 1].time !== item.time) {
-              history.push(item);
-            } else {
-              history[history.length - 1] = item;
-            }
-          }
-          allCandlesHistoryRef.current.M1 = history;
-          reconcileIndicatorSignalsWithCandles({
-            symbol: 'XAUUSD',
-            timeframe: 'M1',
-            candles: history
-          });
-
-          const state = useTradeStore.getState();
-          M1_INDICATOR_SYSTEMS.forEach((system) => {
-            const signal = calculateM1IndicatorSignal(system, history, state);
-            const configSignature = getM1IndicatorConfigSignature(system, state);
-            m1SignalBaselinesRef.current[system] = advanceM1SignalBaseline(null, signal, configSignature).next;
-          });
-        })
-        .catch(err => console.error('Failed to initialize parallel M1 scanner:', err));
-
-    return () => {
-      cancelled = true;
-    };
-  }, [isLoggedIn]);
-
-  // Parameter changes recalculate the current state as a baseline instead of
-  // turning historical differences into fake realtime publications.
-  useEffect(() => {
-    const history = allCandlesHistoryRef.current.M1;
-    if (!isLoggedIn || history.length < 21) return;
-    const state = useTradeStore.getState();
-
-    M1_INDICATOR_SYSTEMS.forEach((system) => {
-      const signal = calculateM1IndicatorSignal(system, history, state);
-      const configSignature = getM1IndicatorConfigSignature(system, state);
-      m1SignalBaselinesRef.current[system] = advanceM1SignalBaseline(null, signal, configSignature).next;
-    });
-  }, [
-    isLoggedIn,
-    zenFastPeriod,
-    zenSlowPeriod,
-    utBotKeyValue,
-    utBotAtrPeriod,
-    chandelierAtrPeriod,
-    chandelierAtrMultiplier,
-    trendlineLength,
-    trendlineSlopeMult
-  ]);
 
   const showKeyHint = (text) => {
     setKeyHint(text);
@@ -1190,9 +1049,23 @@ export function TradingChart({ mobileTab }) {
 
     socket.on('global_signal_history_updated', (payload) => {
       if (!Array.isArray(payload?.records)) return;
-      globalHistoryApplyingRef.current = true;
+      const previousIds = new Set(readSignalHistory().map(record => record.id));
+      const newSignals = payload.records.filter(record => record.outcome === 'running' && !previousIds.has(record.id));
       replaceSignalHistory(payload.records);
-      globalHistoryApplyingRef.current = false;
+      newSignals.forEach((record) => {
+        useTradeStore.getState().addToast({
+          ticker: record.symbol,
+          system: record.indicatorLabel,
+          interval: record.timeframe,
+          action: record.action,
+          entry: record.entry,
+          sl: record.sl,
+          tps: record.tps,
+          confidence: record.confidence,
+          timestamp: record.signalTime
+        });
+      });
+      if (newSignals.length > 0) playNotificationSound();
     });
 
     socket.on('signal_update', (updatedSignal) => {
@@ -1222,12 +1095,6 @@ export function TradingChart({ mobileTab }) {
 
 
     socket.on('price_update', (data) => {
-      updateRunningIndicatorSignalsByPrice({
-        symbol: data.ticker,
-        price: data.currentPrice,
-        timestamp: Date.now()
-      });
-
       const state = useTradeStore.getState();
       const currentSelectedSymbol = state.selectedSymbol;
       if (data.ticker === currentSelectedSymbol) {
@@ -1243,63 +1110,6 @@ export function TradingChart({ mobileTab }) {
     });
 
     socket.on('candle_update', (data) => {
-      const sym = data.ticker;
-      const tf = data.interval;
-      const candle = data.candle;
-
-      // Every live candle advances all historical signals for this stream,
-      // including signals that are no longer the latest one.
-      updateRunningIndicatorSignals({ symbol: sym, timeframe: tf, candle });
-
-      // The publication engine is intentionally fixed to XAUUSD M1 and runs
-      // all four systems independently from the chart/dropdown selection.
-      if (sym === 'XAUUSD' && tf === 'M1') {
-        const history = allCandlesHistoryRef.current.M1;
-        if (history.length > 0) {
-          const last = history[history.length - 1];
-          const isNew = candle.time > last.time;
-          if (isNew) {
-            history.push(candle);
-            if (history.length > 200) history.shift();
-
-            const state = useTradeStore.getState();
-            let publishedCount = 0;
-
-            M1_INDICATOR_SYSTEMS.forEach((system) => {
-              const signal = calculateM1IndicatorSignal(system, history, state);
-              const configSignature = getM1IndicatorConfigSignature(system, state);
-              const transition = advanceM1SignalBaseline(
-                m1SignalBaselinesRef.current[system],
-                signal,
-                configSignature
-              );
-              m1SignalBaselinesRef.current[system] = transition.next;
-
-              if (transition.shouldPublish) {
-                const publishedSignal = createM1PublishedSignal(signal, history);
-                recordM1IndicatorSignal({
-                  signal: publishedSignal,
-                  symbol: 'XAUUSD',
-                  indicatorSystem: system,
-                  candles: history
-                });
-                publishedCount += 1;
-                state.addToast({
-                  ticker: 'XAUUSD',
-                  system: system.toUpperCase(),
-                  interval: 'M1',
-                  ...publishedSignal
-                });
-              }
-            });
-
-            if (publishedCount > 0) playNotificationSound();
-          } else {
-            history[history.length - 1] = candle;
-          }
-        }
-      }
-
       const state = useTradeStore.getState();
       const currentSelectedSymbol = state.selectedSymbol;
       const currentSelectedTimeframe = state.selectedTimeframe;

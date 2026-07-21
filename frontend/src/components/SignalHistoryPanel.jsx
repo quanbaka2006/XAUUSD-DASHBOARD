@@ -11,7 +11,7 @@ import {
 } from 'lucide-react';
 import {
   INDICATOR_LABELS,
-  reconcileStaleIndicatorSignals,
+  readSignalHistory,
   subscribeSignalHistory
 } from '../utils/signalHistory';
 
@@ -62,7 +62,7 @@ function MiniStat({ label, value, note, icon: Icon, tone = 'text-white' }) {
 }
 
 export function SignalHistoryPanel() {
-  const [records, setRecords] = useState(() => reconcileStaleIndicatorSignals());
+  const [records, setRecords] = useState(() => readSignalHistory());
   const [system, setSystem] = useState('all');
   const [outcome, setOutcome] = useState('all');
 
@@ -103,7 +103,7 @@ export function SignalHistoryPanel() {
           </div>
           <div className="text-left">
             <h2 className="text-xs font-black uppercase tracking-[0.14em] text-white">Lịch sử tín hiệu</h2>
-            <p className="mt-1 text-[9px] font-bold uppercase tracking-wider text-slate-600">Engine realtime M1 · 4 chỉ báo chạy song song · 50 lệnh gần nhất</p>
+            <p className="mt-1 text-[9px] font-bold uppercase tracking-wider text-slate-600">Engine backend M1 24/7 · 4 chỉ báo chạy song song · 50 lệnh gần nhất</p>
           </div>
         </div>
         <div className="flex items-center gap-1.5 text-[9px] font-black uppercase tracking-wider text-slate-500">

@@ -9,6 +9,7 @@ const WebSocket = require('ws');
 const crypto = require('crypto');
 const helmet = require('helmet');
 const hpp = require('hpp');
+const { createM1SignalEngine } = require('./m1SignalEngine');
 const { rateLimit } = require('express-rate-limit');
 const slowDown = require('express-slow-down');
 const vpsManager = require('./vpsManager');
@@ -1323,6 +1324,7 @@ SYMBOLS.forEach(s => { lastCandleBroadcast[s] = {}; });
 
 // Track last emitted price to suppress duplicate price_update events
 const lastEmittedPrice = {};
+let backendM1Engine = null;
 
 setInterval(() => {
   // Guard: candles aren't ready yet (waiting on seed prices / init timeout).
@@ -1363,7 +1365,8 @@ setInterval(() => {
 
       if (isNewCandle) {
         // New candle: archive old one
-        candleHistory[sym][tf].push({ ...active });
+        const closedCandle = { ...active };
+        candleHistory[sym][tf].push(closedCandle);
         if (candleHistory[sym][tf].length > CHART_HISTORY_LIMIT) candleHistory[sym][tf].shift();
 
         activeCandles[sym][tf] = {
@@ -1373,6 +1376,14 @@ setInterval(() => {
           low:   price,
           close: price
         };
+
+        if (sym === 'XAUUSD' && tf === 'M1' && backendM1Engine) {
+          const engineHistory = [
+            ...candleHistory.XAUUSD.M1.map(candle => ({ ...candle })),
+            { ...activeCandles.XAUUSD.M1 }
+          ];
+          backendM1Engine.onClosedCandle(engineHistory, closedCandle);
+        }
       } else {
         active.close = price;
         active.high  = Math.max(active.high, price);
@@ -1399,6 +1410,13 @@ setInterval(() => {
     // price_update: only emit when price actually changed (avoids flooding)
     if (lastEmittedPrice[sym] !== price) {
       lastEmittedPrice[sym] = price;
+      if (sym === 'XAUUSD' && backendM1Engine) {
+        const engineHistory = activeCandles.XAUUSD.M1
+          ? [...candleHistory.XAUUSD.M1.map(candle => ({ ...candle })), { ...activeCandles.XAUUSD.M1 }]
+          : [];
+        backendM1Engine.ensureBaseline(engineHistory);
+        backendM1Engine.onPrice(price, Date.now());
+      }
       io.emit('price_update', {
         ticker:       sym,
         currentPrice: price
@@ -1420,8 +1438,6 @@ const globalSignalHistoryFilePath = path.join(__dirname, 'global_signal_history.
 const GLOBAL_SIGNAL_HISTORY_LIMIT = 50;
 const GLOBAL_SIGNAL_SYSTEMS = new Set(['zen', 'utbot', 'chandelier', 'trendline']);
 const GLOBAL_SIGNAL_OUTCOMES = new Set(['running', 'win', 'loss', 'breakeven', 'expired']);
-const GLOBAL_SIGNAL_TERMINAL_OUTCOMES = new Set(['win', 'loss', 'breakeven']);
-let globalSignalHistoryWriteQueue = Promise.resolve();
 
 function optionalFiniteNumber(value) {
   if (value === null || value === undefined || value === '') return null;
@@ -1530,38 +1546,6 @@ async function saveGlobalSignalHistory(records) {
   return normalized;
 }
 
-function selectGlobalSignalVersion(existing, incoming) {
-  if (!existing) return incoming;
-  const existingTerminal = GLOBAL_SIGNAL_TERMINAL_OUTCOMES.has(existing.outcome);
-  const incomingTerminal = GLOBAL_SIGNAL_TERMINAL_OUTCOMES.has(incoming.outcome);
-  if (existingTerminal && !incomingTerminal) return existing;
-  if (existing.outcome === 'expired' && incomingTerminal) return incoming;
-  if (incoming.outcome === 'expired' && existingTerminal) return existing;
-  if (existingTerminal && incomingTerminal) {
-    const existingClose = Number(existing.closeTime) || Number.MAX_SAFE_INTEGER;
-    const incomingClose = Number(incoming.closeTime) || Number.MAX_SAFE_INTEGER;
-    return incomingClose <= existingClose ? incoming : existing;
-  }
-  return {
-    ...existing,
-    ...incoming,
-    hitTp1: Boolean(existing.hitTp1 || incoming.hitTp1)
-  };
-}
-
-function mergeGlobalSignalHistory(incomingRecords) {
-  const sanitizedIncoming = incomingRecords.map(sanitizeGlobalSignalRecord).filter(Boolean);
-  globalSignalHistoryWriteQueue = globalSignalHistoryWriteQueue.catch(() => []).then(async () => {
-    const current = await loadGlobalSignalHistory();
-    const recordsById = new Map(current.map(record => [record.id, record]));
-    sanitizedIncoming.forEach((record) => {
-      recordsById.set(record.id, selectGlobalSignalVersion(recordsById.get(record.id), record));
-    });
-    return saveGlobalSignalHistory([...recordsById.values()]);
-  });
-  return globalSignalHistoryWriteQueue;
-}
-
 // Synchronous helper for local file load (used as fallback or for migration seed)
 function loadUsersFromFile() {
   try {
@@ -1631,6 +1615,16 @@ async function connectDB() {
   }
 }
 const dbReadyPromise = connectDB();
+
+backendM1Engine = createM1SignalEngine({
+  loadRecords: loadGlobalSignalHistory,
+  saveRecords: saveGlobalSignalHistory,
+  broadcast: (records) => io.emit('global_signal_history_updated', { scope: 'website', records }),
+  logger: console
+});
+backendM1Engine.initialize().catch((error) => {
+  console.error('[M1 Engine] Initialization failed:', error.message);
+});
 
 async function loadUsers() {
   if (useMongoDB) {
@@ -2165,30 +2159,15 @@ app.get('/api/history/:symbol/:interval', requireAuth, (req, res) => {
   res.json({ history: candleHistory[sym][tf], active: activeCandles[sym][tf] });
 });
 
-// Website-wide signal history. Authentication controls access only; records
-// intentionally have no username/userId and are shared by every account.
+// Website-wide signal history is read-only for clients. The backend M1 engine
+// is the sole writer, so browser presence and account identity cannot affect it.
 app.get('/api/global-signal-history', requireAuth, async (req, res) => {
   try {
     const records = await loadGlobalSignalHistory();
-    res.json({ success: true, scope: 'website', records });
+    res.json({ success: true, scope: 'website', engine: backendM1Engine?.getStatus(), records });
   } catch (error) {
     console.error('[Global Signal History] GET failed:', error.message);
     res.status(500).json({ success: false, error: 'Không thể tải lịch sử tín hiệu chung.' });
-  }
-});
-
-app.put('/api/global-signal-history', requireAuth, async (req, res) => {
-  try {
-    const incoming = Array.isArray(req.body?.records) ? req.body.records.slice(0, GLOBAL_SIGNAL_HISTORY_LIMIT) : null;
-    if (!incoming) {
-      return res.status(400).json({ success: false, error: 'records must be an array' });
-    }
-    const records = await mergeGlobalSignalHistory(incoming);
-    io.emit('global_signal_history_updated', { scope: 'website', records });
-    res.json({ success: true, scope: 'website', records });
-  } catch (error) {
-    console.error('[Global Signal History] PUT failed:', error.message);
-    res.status(500).json({ success: false, error: 'Không thể đồng bộ lịch sử tín hiệu chung.' });
   }
 });
 
@@ -2208,6 +2187,7 @@ app.get('/api/debug-ws', (req, res) => {
         binanceApiStatus: binanceRes.statusCode,
         binanceApiData: data,
         currentPrices,
+        m1Engine: backendM1Engine?.getStatus(),
         lastTickTimestamp,
         historyInitialized,
         isMarketClosed: isMarketClosed(),
@@ -2221,6 +2201,7 @@ app.get('/api/debug-ws', (req, res) => {
       binanceApiStatus: 'ERROR',
       binanceApiError: err.message,
       currentPrices,
+      m1Engine: backendM1Engine?.getStatus(),
       lastTickTimestamp,
       historyInitialized,
       isMarketClosed: isMarketClosed(),
