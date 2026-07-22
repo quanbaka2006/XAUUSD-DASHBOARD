@@ -262,7 +262,7 @@ function SignalProgressBar({ signal, symbol }) {
         <div className="absolute top-1/2 -translate-x-1/2 -translate-y-1/2" style={{ left: `${pricePct}%` }}>
           <div className={`w-1.5 h-1.5 rounded-full bg-white shadow-[0_0_10px_white] ring-2 ring-slate-900 mb-0.5 mx-auto ${isFinished ? 'opacity-50' : ''}`} />
           {hasPrice && (
-            <div className={`px-2 py-0.5 bg-slate-800 text-white text-[10px] font-black rounded-md whitespace-nowrap shadow-lg border border-slate-700 before:content-[''] before:absolute before:-top-1 before:left-1/2 before:-translate-x-1/2 before:border-4 before:border-transparent before:border-b-slate-700 ${isFinished ? 'opacity-50' : ''}`}>
+            <div className={`signal-live-price px-2 py-0.5 bg-slate-800 text-white text-[10px] font-black rounded-md whitespace-nowrap shadow-lg border border-slate-700 before:content-[''] before:absolute before:-top-1 before:left-1/2 before:-translate-x-1/2 before:border-4 before:border-transparent before:border-b-slate-700 ${isFinished ? 'opacity-50' : ''}`}>
               {effectiveLivePrice.toFixed(dec)}
             </div>
           )}
@@ -281,6 +281,7 @@ function HeroActionDisplay({ currentSignal }) {
   return (
     <div
       data-signal-result={status === 'tp' ? 'win' : status === 'sl' ? 'loss' : isFinished ? 'finished' : 'active'}
+      data-signal-direction={currentSignal.action}
       className={`hero-action-display relative h-14 rounded-xl flex items-center justify-center overflow-hidden transition-all duration-500 ${
       currentSignal.action === 'buy' && !isFinished
         ? 'bg-amber-500/[0.02] glow-neon-border-buy'
@@ -2095,7 +2096,7 @@ export function TradingChart({ mobileTab }) {
 
           {/* ── HERO ZONE: Technical action arrow ── */}
           <div className="px-3 lg:px-5 py-4 lg:py-6 flex items-end gap-4">
-            <div className={`h-14 w-14 shrink-0 rounded-2xl flex items-center justify-center border transition-all duration-500 relative group overflow-hidden ${
+            <div data-signal-direction={currentSignal.action} className={`signal-direction-icon h-14 w-14 shrink-0 rounded-2xl flex items-center justify-center border transition-all duration-500 relative group overflow-hidden ${
               currentSignal.action === 'buy'
                 ? 'bg-gradient-to-br from-amber-500/10 to-yellow-600/5 border-amber-500/30 text-amber-400 shadow-[0_0_25px_rgba(234,179,8,0.2)]'
                 : currentSignal.action === 'sell'
