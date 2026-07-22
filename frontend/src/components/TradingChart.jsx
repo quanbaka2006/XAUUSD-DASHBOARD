@@ -201,7 +201,7 @@ function SignalStatusBadge({ signal }) {
   }
 
   return (
-    <span className={`flex items-center gap-2 px-3 py-1 rounded-full text-[10px] font-black tracking-widest uppercase border transition-all duration-300 ${m.cls}`}>
+    <span data-status={status} className={`signal-status-badge flex items-center gap-2 px-3 py-1 rounded-full text-[10px] font-black tracking-widest uppercase border transition-all duration-300 ${m.cls}`}>
       {icon}
       <span>{language === 'en' ? m.en : m.vn}</span>
     </span>
@@ -243,18 +243,18 @@ function SignalProgressBar({ signal, symbol }) {
   const leftVal = tpAtRight ? signal.sl : tp2Value;
   const rightVal = tpAtRight ? tp2Value : signal.sl;
   return (
-    <div className="px-1 pt-1 pb-3 relative">
+    <div className="signal-level-gauge px-1 pt-1 pb-3 relative">
       <div className="flex justify-between text-[10px] font-black tracking-wider mb-1.5">
-        <span className={tpAtRight ? 'text-rose-400' : 'text-emerald-400'}>{tpAtRight ? 'SL' : 'TP2'} {leftVal.toFixed(dec)}</span>
+        <span className={tpAtRight ? 'semantic-sl-text text-rose-400' : 'semantic-tp2-text text-emerald-400'}>{tpAtRight ? 'SL' : 'TP2'} {leftVal.toFixed(dec)}</span>
         <span className="opacity-0">HIDDEN</span>
-        <span className={tpAtRight ? 'text-emerald-400' : 'text-rose-400'}>{tpAtRight ? 'TP2' : 'SL'} {rightVal.toFixed(dec)}</span>
+        <span className={tpAtRight ? 'semantic-tp2-text text-emerald-400' : 'semantic-sl-text text-rose-400'}>{tpAtRight ? 'TP2' : 'SL'} {rightVal.toFixed(dec)}</span>
       </div>
       <div className="relative h-2.5 rounded-full" style={{ background: trackGradient }}>
         {/* TP1 Marker Line & Label below */}
         {tp1Value !== tp2Value && (
           <>
             <span className="absolute top-0 bottom-0 w-0.5 bg-blue-400/50 -translate-x-1/2" style={{ left: `${tp1Pct}%` }} />
-            <span className="absolute top-4 text-[9px] font-black text-blue-400/80 -translate-x-1/2 whitespace-nowrap" style={{ left: `${tp1Pct}%` }}>
+            <span className="semantic-tp1-text absolute top-4 text-[9px] font-black text-blue-400/80 -translate-x-1/2 whitespace-nowrap" style={{ left: `${tp1Pct}%` }}>
               TP1 {tp1Value.toFixed(dec)}
             </span>
           </>
@@ -346,8 +346,8 @@ function TimeAgoDisplay({ timestamp }) {
 
   return (
     <div className="flex justify-center mb-2">
-      <span className="px-3 py-1 rounded-full bg-slate-900/50 border border-white/[0.05] text-[10px] font-black tracking-widest text-slate-400 uppercase">
-        {label} <span className="text-amber-500">{mins === 0 ? justNow : minsAgo}</span>
+      <span className="signal-time-badge px-3 py-1 rounded-full bg-slate-900/50 border border-white/[0.05] text-[10px] font-black tracking-widest text-slate-400 uppercase">
+        {label} <span className="signal-time-value text-amber-500">{mins === 0 ? justNow : minsAgo}</span>
       </span>
     </div>
   );
@@ -2139,7 +2139,7 @@ export function TradingChart({ mobileTab }) {
                   <div className="w-1.5 h-1.5 rounded-full bg-red-500" />
                   <span className="text-[11px] font-black text-slate-400 uppercase tracking-wider">{t('stopLoss')}</span>
                 </div>
-                <span className="text-base font-sans font-black text-red-400 tracking-tighter">{formatPrice(currentSignal.sl)}</span>
+                <span className="semantic-sl-text text-base font-sans font-black text-red-400 tracking-tighter">{formatPrice(currentSignal.sl)}</span>
               </div>
 
               {/* Take Profit (TP) */}
@@ -2173,7 +2173,7 @@ export function TradingChart({ mobileTab }) {
                           <span className="text-[10px] font-black uppercase tracking-widest">{hitText}</span>
                         </div>
                       )}
-                      <span className={`text-base font-sans font-black tracking-tighter ${valueColorCls}`}>{formatPrice(tpVal)}</span>
+                      <span className={`${idx === 0 && arr.length > 1 ? 'semantic-tp1-text' : 'semantic-tp2-text'} text-base font-sans font-black tracking-tighter ${valueColorCls}`}>{formatPrice(tpVal)}</span>
                     </div>
                   </div>
                 );
@@ -2188,10 +2188,10 @@ export function TradingChart({ mobileTab }) {
             )}
 
             {/* ── CONFIDENCE PROGRESS METER (Glow Led Indicator) ── */}
-            <div className="space-y-2 text-left panel-surface p-3 rounded-2xl">
+            <div data-signal-direction={currentSignal.action} className="signal-confidence space-y-2 text-left panel-surface p-3 rounded-2xl">
               <div className="flex justify-between items-center text-[11px] font-black text-slate-400 uppercase tracking-wider">
                 <span>{t('confidence')}</span>
-                <span className={`font-mono font-black ${
+                <span className={`signal-confidence-value font-mono font-black ${
                   currentSignal.action === 'sell' ? 'text-red-400' : 'text-amber-400'
                 }`}>{currentSignal.confidence}%</span>
               </div>

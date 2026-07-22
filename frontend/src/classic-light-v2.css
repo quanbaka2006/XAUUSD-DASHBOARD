@@ -244,3 +244,114 @@
 .theme-light .drawing-toolbar > div {
   background: #cbd5e1 !important;
 }
+
+/* Plan 3: semantic colours for statuses, outcomes and trade levels. */
+.theme-light {
+  --status-running-text: #0369a1;
+  --status-running-bg: #e0f2fe;
+  --status-win-text: #047857;
+  --status-win-bg: #d1fae5;
+  --status-loss-text: #b91c1c;
+  --status-loss-bg: #fee2e2;
+  --status-warning-text: #9a6700;
+  --status-warning-bg: #fef3c7;
+  --status-neutral-text: #475569;
+  --status-neutral-bg: #e2e8f0;
+  --tp1-text: #1d4ed8;
+  --tp2-text: #047857;
+  --sl-text: #dc2626;
+}
+
+.theme-light .signal-status-badge {
+  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.08) !important;
+  opacity: 1 !important;
+  background-image: none !important;
+}
+.theme-light .signal-status-badge[data-status="running"] {
+  color: var(--status-running-text) !important;
+  background: var(--status-running-bg) !important;
+  border-color: rgba(3, 105, 161, 0.28) !important;
+}
+.theme-light .signal-status-badge[data-status="tp1"] {
+  color: var(--tp1-text) !important;
+  background: #dbeafe !important;
+  border-color: rgba(29, 78, 216, 0.28) !important;
+}
+.theme-light .signal-status-badge[data-status="tp"] {
+  color: var(--status-win-text) !important;
+  background: var(--status-win-bg) !important;
+  border-color: rgba(4, 120, 87, 0.28) !important;
+}
+.theme-light .signal-status-badge[data-status="sl"] {
+  color: var(--status-loss-text) !important;
+  background: var(--status-loss-bg) !important;
+  border-color: rgba(185, 28, 28, 0.26) !important;
+}
+.theme-light .signal-status-badge[data-status="none"] {
+  color: var(--status-neutral-text) !important;
+  background: var(--status-neutral-bg) !important;
+  border-color: rgba(71, 85, 105, 0.24) !important;
+}
+.theme-light .signal-status-badge svg { color: currentColor !important; }
+.theme-light .signal-status-badge[data-status="running"] [class*="bg-emerald"] {
+  background-color: #0284c7 !important;
+}
+
+.theme-light .signal-time-badge {
+  color: var(--status-neutral-text) !important;
+  background: #f1f5f9 !important;
+  border-color: #d8e0ea !important;
+}
+.theme-light .signal-time-badge .signal-time-value {
+  color: var(--status-warning-text) !important;
+}
+
+.theme-light .semantic-sl-text { color: var(--sl-text) !important; }
+.theme-light .semantic-tp1-text { color: var(--tp1-text) !important; }
+.theme-light .semantic-tp2-text { color: var(--tp2-text) !important; }
+
+.theme-light .signal-confidence[data-signal-direction="buy"] .signal-confidence-value {
+  color: var(--status-warning-text) !important;
+}
+.theme-light .signal-confidence[data-signal-direction="sell"] .signal-confidence-value {
+  color: var(--status-loss-text) !important;
+}
+
+.theme-light .signal-history-semantic .text-emerald-400 { color: var(--status-win-text) !important; }
+.theme-light .signal-history-semantic .text-red-400,
+.theme-light .signal-history-semantic [class*="text-red-400/"] { color: var(--status-loss-text) !important; }
+.theme-light .signal-history-semantic .text-amber-400,
+.theme-light .signal-history-semantic .text-amber-500 { color: var(--status-warning-text) !important; }
+.theme-light .signal-history-semantic .text-sky-400,
+.theme-light .signal-history-semantic .text-blue-400 { color: var(--tp1-text) !important; }
+
+.theme-light .outcome-badge {
+  box-shadow: none !important;
+  opacity: 1 !important;
+}
+.theme-light .outcome-badge[data-outcome="win"] {
+  color: var(--status-win-text) !important;
+  background: var(--status-win-bg) !important;
+  border-color: rgba(4, 120, 87, 0.25) !important;
+}
+.theme-light .outcome-badge[data-outcome="loss"] {
+  color: var(--status-loss-text) !important;
+  background: var(--status-loss-bg) !important;
+  border-color: rgba(185, 28, 28, 0.24) !important;
+}
+.theme-light .outcome-badge[data-outcome="breakeven"] {
+  color: var(--status-warning-text) !important;
+  background: var(--status-warning-bg) !important;
+  border-color: rgba(154, 103, 0, 0.24) !important;
+}
+.theme-light .outcome-badge[data-outcome="running"] {
+  color: var(--status-running-text) !important;
+  background: var(--status-running-bg) !important;
+  border-color: rgba(3, 105, 161, 0.24) !important;
+}
+.theme-light .outcome-badge[data-outcome="expired"] {
+  color: var(--status-neutral-text) !important;
+  background: var(--status-neutral-bg) !important;
+  border-color: rgba(71, 85, 105, 0.22) !important;
+}
+.theme-light .outcome-badge > span { opacity: 0.78 !important; }

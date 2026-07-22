@@ -93,7 +93,7 @@ export function SignalHistoryPanel() {
   }, [filtered]);
 
   return (
-    <section className="static-copy-surface space-panel-heavy relative overflow-hidden rounded-2xl border border-amber-500/15 p-3.5 lg:rounded-3xl lg:p-5">
+    <section className="signal-history-semantic static-copy-surface space-panel-heavy relative overflow-hidden rounded-2xl border border-amber-500/15 p-3.5 lg:rounded-3xl lg:p-5">
       <div className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-amber-400/50 to-transparent" />
 
       <div className="flex flex-col gap-3 border-b border-white/[0.06] pb-4 sm:flex-row sm:items-center sm:justify-between">
@@ -160,7 +160,7 @@ export function SignalHistoryPanel() {
                         <td className="px-3 font-mono font-bold text-red-400/80">{formatPrice(record.sl, record.symbol)}</td>
                         <td className="px-3 font-mono"><span className="text-sky-400">{formatPrice(record.tps?.[0], record.symbol)}</span><span className="mx-1 text-slate-700">/</span><span className="text-emerald-400">{formatPrice(record.tps?.[1], record.symbol)}</span></td>
                         <td className={`px-3 font-mono font-bold ${record.outcome === 'win' ? 'text-emerald-400' : record.outcome === 'loss' ? 'text-red-400' : record.outcome === 'breakeven' ? 'text-amber-400' : 'text-slate-600'}`}>{formatPrice(record.exitPrice, record.symbol)}</td>
-                        <td className="px-3 text-center"><span className={`inline-flex min-w-[70px] items-center justify-center gap-1 rounded-md border px-2 py-1 text-[8px] font-black tracking-wider ${meta.className}`}>{meta.label}<span className="opacity-60">· {meta.detail}</span></span></td>
+                        <td className="px-3 text-center"><span data-outcome={record.outcome} className={`outcome-badge inline-flex min-w-[70px] items-center justify-center gap-1 rounded-md border px-2 py-1 text-[8px] font-black tracking-wider ${meta.className}`}>{meta.label}<span className="opacity-60">· {meta.detail}</span></span></td>
                       </tr>
                     );
                   })}
@@ -177,7 +177,7 @@ export function SignalHistoryPanel() {
                 <div key={record.id} className="rounded-xl border border-white/[0.06] bg-white/[0.02] p-3">
                   <div className="flex items-start justify-between gap-3">
                     <div><div className="text-[11px] font-black text-white">{record.indicatorLabel} <span className="ml-1 text-amber-500">{record.timeframe}</span></div><div className="mt-1 text-[9px] font-bold text-slate-600">{record.symbol} · {timestamp.time} {timestamp.date}</div></div>
-                    <span className={`rounded-md border px-2 py-1 text-[8px] font-black ${meta.className}`}>{meta.label} · {meta.detail}</span>
+                    <span data-outcome={record.outcome} className={`outcome-badge rounded-md border px-2 py-1 text-[8px] font-black ${meta.className}`}>{meta.label} · {meta.detail}</span>
                   </div>
                   <div className="mt-3 grid grid-cols-5 gap-2 border-t border-white/[0.05] pt-2.5 text-left">
                     <MobileValue label="Loại" value={record.action.toUpperCase()} tone={record.action === 'buy' ? 'text-emerald-400' : 'text-red-400'} />
