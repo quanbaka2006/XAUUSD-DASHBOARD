@@ -2072,7 +2072,7 @@ export function TradingChart({ mobileTab }) {
         {/* 1. SELL/BUY SIGNAL DETAIL CARD - Redesigned */}
         <div
           data-signal-result={visualSignalResult}
-          className="signal-detail-card panel-primary rounded-2xl flex flex-col relative overflow-hidden transition-all duration-500"
+          className="static-copy-surface signal-detail-card panel-primary rounded-2xl flex flex-col relative overflow-hidden transition-all duration-500"
         >
 
           {/* Subtle neon direction glow aura */}

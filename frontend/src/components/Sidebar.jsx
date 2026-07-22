@@ -28,7 +28,7 @@ export function Sidebar() {
     <aside
       onMouseEnter={() => setIsSidebarHovered(true)}
       onMouseLeave={() => setIsSidebarHovered(false)}
-      className={`hidden md:flex fixed top-0 left-0 h-full z-50 flex-col justify-between py-6 transition-all duration-300 ease-in-out ${isSidebarHovered ? 'w-56 px-4' : 'w-16 px-2'} panel-surface border-r border-white/[0.06]`}
+      className={`static-copy-surface hidden md:flex fixed top-0 left-0 h-full z-50 flex-col justify-between py-6 transition-all duration-300 ease-in-out ${isSidebarHovered ? 'w-56 px-4' : 'w-16 px-2'} panel-surface border-r border-white/[0.06]`}
     >
       {/* Top: Logo & Branding */}
       <div className="flex flex-col gap-6">

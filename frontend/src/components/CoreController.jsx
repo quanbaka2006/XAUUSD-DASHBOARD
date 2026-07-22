@@ -21,7 +21,7 @@ export function CoreController() {
   } = useTradeStore();
 
   return (
-    <div className="panel-primary rounded-2xl flex flex-col relative overflow-hidden transition-all duration-500 p-4 text-left gap-4">
+    <div className="static-copy-surface panel-primary rounded-2xl flex flex-col relative overflow-hidden transition-all duration-500 p-4 text-left gap-4">
       {/* Subtle top amber glow line */}
       <div className="absolute top-0 left-0 right-0 h-[1px] bg-gradient-to-r from-transparent via-amber-400 to-transparent" />
       

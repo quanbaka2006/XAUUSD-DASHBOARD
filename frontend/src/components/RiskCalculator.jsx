@@ -55,7 +55,7 @@ export function RiskCalculator() {
   const signal = currentSignal || { action: 'stale', entry: 0, sl: 0, tp: 0 };
 
   return (
-    <div className="space-panel-heavy p-6 rounded-2xl relative flex flex-col gap-4">
+    <div className="static-copy-surface space-panel-heavy p-6 rounded-2xl relative flex flex-col gap-4">
       <div className="flex items-center gap-2.5 pb-2.5 border-b border-white/[0.06]">
         <div className="h-7 w-7 rounded-lg bg-amber-500/10 flex items-center justify-center border border-amber-500/25">
           <Sliders className="h-4 w-4 text-amber-500" />

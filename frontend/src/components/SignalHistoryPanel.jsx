@@ -93,7 +93,7 @@ export function SignalHistoryPanel() {
   }, [filtered]);
 
   return (
-    <section className="space-panel-heavy relative overflow-hidden rounded-2xl border border-amber-500/15 p-3.5 lg:rounded-3xl lg:p-5">
+    <section className="static-copy-surface space-panel-heavy relative overflow-hidden rounded-2xl border border-amber-500/15 p-3.5 lg:rounded-3xl lg:p-5">
       <div className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-amber-400/50 to-transparent" />
 
       <div className="flex flex-col gap-3 border-b border-white/[0.06] pb-4 sm:flex-row sm:items-center sm:justify-between">

@@ -118,3 +118,58 @@
 .theme-light [class*="shadow-[0_0_"] {
   --tw-shadow-color: rgba(15, 23, 42, 0.08) !important;
 }
+
+/* Plan 1: static-copy contrast. This scope deliberately excludes chart internals. */
+.theme-light {
+  --light-text-primary: #172033;
+  --light-text-secondary: #475569;
+  --light-text-muted: #64748b;
+  --light-text-subtle: #718096;
+  --light-text-disabled: #94a3b8;
+}
+
+.theme-light .static-copy-surface .text-white,
+.theme-light .static-copy-surface .text-slate-100,
+.theme-light .static-copy-surface .text-slate-200 {
+  color: var(--light-text-primary) !important;
+}
+
+.theme-light .static-copy-surface .text-slate-300 {
+  color: #334155 !important;
+}
+
+.theme-light .static-copy-surface .text-slate-400 {
+  color: var(--light-text-secondary) !important;
+}
+
+.theme-light .static-copy-surface .text-slate-500,
+.theme-light .static-copy-surface .text-slate-600 {
+  color: var(--light-text-muted) !important;
+}
+
+.theme-light .static-copy-surface .text-slate-700 {
+  color: var(--light-text-subtle) !important;
+}
+
+.theme-light .static-copy-surface [class*="text-[8px]"],
+.theme-light .static-copy-surface [class*="text-[9px]"] {
+  font-size: 10px !important;
+  line-height: 1.4 !important;
+}
+
+.theme-light .static-copy-surface [class*="text-[8px]"][class*="uppercase"],
+.theme-light .static-copy-surface [class*="text-[9px]"][class*="uppercase"],
+.theme-light .static-copy-surface [class*="text-[10px]"][class*="uppercase"] {
+  letter-spacing: 0.075em !important;
+}
+
+/* Header microcopy is outside panel components, so target only the two header rows. */
+.theme-light .dynamic-theme-bg > [class*="max-w-[1680px]"] > [class*="border-b"] .text-slate-300 {
+  color: #334155 !important;
+}
+.theme-light .dynamic-theme-bg > [class*="max-w-[1680px]"] > [class*="border-b"] .text-slate-400 {
+  color: var(--light-text-secondary) !important;
+}
+.theme-light .dynamic-theme-bg > [class*="max-w-[1680px]"] > [class*="border-b"] .text-slate-500 {
+  color: var(--light-text-muted) !important;
+}
