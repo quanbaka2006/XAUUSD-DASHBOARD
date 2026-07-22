@@ -279,7 +279,9 @@ function HeroActionDisplay({ currentSignal }) {
   const isFinished = status === 'tp' || status === 'sl' || currentSignal.status === 'closed';
 
   return (
-    <div className={`relative h-14 rounded-xl flex items-center justify-center overflow-hidden transition-all duration-500 ${
+    <div
+      data-signal-result={status === 'tp' ? 'win' : status === 'sl' ? 'loss' : isFinished ? 'finished' : 'active'}
+      className={`hero-action-display relative h-14 rounded-xl flex items-center justify-center overflow-hidden transition-all duration-500 ${
       currentSignal.action === 'buy' && !isFinished
         ? 'bg-amber-500/[0.02] glow-neon-border-buy'
         : currentSignal.action === 'sell' && !isFinished
@@ -1912,22 +1914,22 @@ export function TradingChart({ mobileTab }) {
   // Re-theme the chart instances in place so zoom, drawings and live series stay intact.
   useEffect(() => {
     const isLight = backgroundTheme === 'light';
-    const textColor = isLight ? '#526178' : (
+    const textColor = isLight ? '#475569' : (
       selectedIndicatorSystem === 'zen' ? '#6ee7b7'
         : selectedIndicatorSystem === 'utbot' ? '#d8b4fe'
           : selectedIndicatorSystem === 'chandelier' ? '#fcd34d' : '#67e8f9'
     );
-    const gridColor = isLight ? 'rgba(100, 116, 139, 0.13)' : (
+    const gridColor = isLight ? 'rgba(148, 163, 184, 0.24)' : (
       selectedIndicatorSystem === 'zen' ? 'rgba(16,185,129,0.12)'
         : selectedIndicatorSystem === 'utbot' ? 'rgba(168,85,247,0.12)'
           : selectedIndicatorSystem === 'chandelier' ? 'rgba(245,158,11,0.12)' : 'rgba(6,182,212,0.12)'
     );
-    const borderColor = isLight ? 'rgba(100, 116, 139, 0.28)' : gridColor;
-    const crosshairColor = isLight ? 'rgba(71, 85, 105, 0.48)' : textColor;
+    const borderColor = isLight ? 'rgba(100, 116, 139, 0.36)' : gridColor;
+    const crosshairColor = isLight ? 'rgba(51, 65, 85, 0.52)' : textColor;
     const labelBackground = isLight ? '#334155' : '#111827';
     const commonOptions = {
       layout: {
-        background: { type: ColorType.Solid, color: isLight ? '#ffffff' : 'transparent' },
+        background: { type: ColorType.Solid, color: isLight ? '#fcfdff' : 'transparent' },
         textColor,
       },
       grid: {
@@ -2043,6 +2045,15 @@ export function TradingChart({ mobileTab }) {
     return val.toFixed(dec);
   };
 
+  const visualSignalStatus = computeSignalStatus(currentSignal, useTradeStore.getState().livePrice);
+  const visualSignalResult = visualSignalStatus === 'tp'
+    ? 'win'
+    : visualSignalStatus === 'sl'
+      ? 'loss'
+      : ['closed', 'finished'].includes(currentSignal.status)
+        ? 'finished'
+        : 'active';
+
   return (
     <>
       <ToastContainer />
@@ -2059,10 +2070,13 @@ export function TradingChart({ mobileTab }) {
         mobileTab === 'signal' ? 'flex order-2' : mobileTab === 'chart' ? 'hidden lg:flex order-2' : 'hidden lg:flex order-2'
       }`}>
         {/* 1. SELL/BUY SIGNAL DETAIL CARD - Redesigned */}
-        <div className="panel-primary rounded-2xl flex flex-col relative overflow-hidden transition-all duration-500">
+        <div
+          data-signal-result={visualSignalResult}
+          className="signal-detail-card panel-primary rounded-2xl flex flex-col relative overflow-hidden transition-all duration-500"
+        >
 
           {/* Subtle neon direction glow aura */}
-          <div className={`absolute -top-16 -right-16 w-56 h-56 rounded-full filter blur-[80px] pointer-events-none opacity-20 transition-colors duration-700 ${
+          <div className={`signal-ambient-aura absolute -top-16 -right-16 w-56 h-56 rounded-full filter blur-[80px] pointer-events-none opacity-20 transition-colors duration-700 ${
             currentSignal.action === 'buy' ? 'bg-amber-500' :
             currentSignal.action === 'sell' ? 'bg-red-500' : 'bg-slate-500'
           }`} />
@@ -2302,7 +2316,7 @@ export function TradingChart({ mobileTab }) {
             <div className="flex flex-row flex-wrap items-center justify-between gap-3">
               {/* Drawing Toolbar — horizontal */}
               {showDrawingToolbar && (
-                <div className="hidden md:flex flex-row items-center gap-1 bg-[#060b18]/60 px-2 py-1 rounded-xl border border-slate-800/40 select-none shadow-[0_2px_16px_rgba(0,0,0,0.4)]">
+                <div className="drawing-toolbar hidden md:flex flex-row items-center gap-1 bg-[#060b18]/60 px-2 py-1 rounded-xl border border-slate-800/40 select-none shadow-[0_2px_16px_rgba(0,0,0,0.4)]">
                   <button onClick={() => setActiveTool('cursor')}
                     className={`w-7 h-7 rounded-lg border transition-all cursor-pointer flex items-center justify-center ${activeTool === 'cursor' ? 'bg-amber-500/15 border-amber-500/50 text-amber-500' : 'bg-white/[0.04] border-white/[0.08] text-slate-400 hover:text-amber-500 hover:border-amber-500/35 hover:bg-amber-500/5'}`}
                     title="Con trỏ chuột"><MousePointer className="h-3.5 w-3.5" /></button>

@@ -1,0 +1,120 @@
+/* Classic Light V2 overrides. Kept separate so the premium light palette stays maintainable. */
+.theme-light {
+  --ui-page: #f3f6fa;
+  --ui-surface: #ffffff;
+  --ui-surface-raised: #ffffff;
+  --ui-border: #dce3ec;
+  --ui-text: #172033;
+  --ui-muted: #64748b;
+  --theme-bg-gradient:
+    radial-gradient(ellipse 54% 34% at 80% 0%, rgba(245, 158, 11, 0.085), transparent 72%),
+    radial-gradient(ellipse 44% 38% at 8% 78%, rgba(14, 165, 233, 0.045), transparent 74%),
+    linear-gradient(145deg, #f7f9fc 0%, #f1f5f9 54%, #f6f8fb 100%);
+}
+
+.theme-light .dynamic-theme-bg::before { opacity: 0.08; }
+.theme-light .dynamic-theme-bg::after { opacity: 0.38; }
+.theme-light .nebula-blob-1 { opacity: 0.08; }
+.theme-light .nebula-blob-2,
+.theme-light .nebula-blob-3 { opacity: 0.035; }
+
+.theme-light .panel-primary,
+.theme-light .space-panel-heavy,
+.theme-light .space-panel,
+.theme-light .panel-surface,
+.theme-light .glass-hud {
+  border-color: #dce3ec !important;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.035), 0 10px 28px rgba(15, 23, 42, 0.075) !important;
+}
+
+.theme-light .panel-primary {
+  border-color: rgba(217, 119, 6, 0.22) !important;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.035), 0 12px 30px rgba(15, 23, 42, 0.08) !important;
+}
+
+.theme-light .panel-surface {
+  background: #f8fafc !important;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.045) !important;
+}
+
+.theme-light h1[class*="bg-gradient-to-r"][class*="from-amber-100"] {
+  background-image: linear-gradient(90deg, #172033 0%, #24324a 48%, #b87500 48%, #d99500 100%) !important;
+  filter: none !important;
+  text-shadow: none !important;
+}
+
+.theme-light .alpha-gold-mark {
+  filter: drop-shadow(0 4px 8px rgba(146, 96, 4, 0.14));
+}
+
+.theme-light aside.panel-surface {
+  background: rgba(255, 255, 255, 0.97) !important;
+  border-right-color: #d8e0ea !important;
+  box-shadow: 5px 0 22px rgba(15, 23, 42, 0.055) !important;
+}
+
+.theme-light aside nav button { color: #607089 !important; }
+.theme-light aside nav button:hover {
+  color: #172033 !important;
+  background: #f1f5f9 !important;
+}
+.theme-light aside nav button[class*="bg-amber-500/10"] {
+  color: #9a6700 !important;
+  background: #fff4d6 !important;
+  border-color: rgba(217, 119, 6, 0.22) !important;
+}
+
+.theme-light .signal-detail-card {
+  background: #ffffff !important;
+  border-color: #dce3ec !important;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.035), 0 12px 30px rgba(15, 23, 42, 0.075) !important;
+}
+.theme-light .signal-detail-card::before {
+  content: '';
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 3px;
+  z-index: 20;
+  background: #94a3b8;
+}
+.theme-light .signal-detail-card[data-signal-result="win"]::before { background: #10b981; }
+.theme-light .signal-detail-card[data-signal-result="loss"]::before { background: #ef4444; }
+.theme-light .signal-detail-card[data-signal-result="active"]::before { background: #0ea5e9; }
+.theme-light .signal-detail-card .signal-ambient-aura { opacity: 0.035 !important; }
+
+.theme-light .hero-action-display {
+  background: #f8fafc !important;
+  border: 1px solid #e2e8f0 !important;
+  box-shadow: none !important;
+}
+.theme-light .hero-action-display[data-signal-result="win"] {
+  background: rgba(16, 185, 129, 0.045) !important;
+  border-color: rgba(16, 185, 129, 0.24) !important;
+}
+.theme-light .hero-action-display[data-signal-result="loss"] {
+  background: rgba(239, 68, 68, 0.04) !important;
+  border-color: rgba(239, 68, 68, 0.22) !important;
+}
+.theme-light .hero-action-display .hud-signal-text {
+  color: #475569 !important;
+  text-shadow: none !important;
+  filter: none !important;
+}
+.theme-light .hero-action-display[data-signal-result="win"] .hud-signal-text { color: #07875f !important; }
+.theme-light .hero-action-display[data-signal-result="loss"] .hud-signal-text { color: #dc2626 !important; }
+
+.theme-light .chart-frame {
+  background: #fcfdff !important;
+  border-color: #d8e0ea !important;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.035), 0 8px 22px rgba(15, 23, 42, 0.065) !important;
+}
+
+.theme-light .drawing-toolbar {
+  background: rgba(255, 255, 255, 0.96) !important;
+  border-color: #d8e0ea !important;
+  box-shadow: 0 4px 14px rgba(15, 23, 42, 0.11) !important;
+}
+
+.theme-light [class*="shadow-[0_0_"] {
+  --tw-shadow-color: rgba(15, 23, 42, 0.08) !important;
+}
