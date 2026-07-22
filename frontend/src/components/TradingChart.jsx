@@ -1931,6 +1931,8 @@ export function TradingChart({ mobileTab }) {
       layout: {
         background: { type: ColorType.Solid, color: isLight ? '#fcfdff' : 'transparent' },
         textColor,
+        fontSize: isLight ? 12 : 11,
+        fontFamily: 'Inter, sans-serif',
       },
       grid: {
         vertLines: { color: gridColor, style: LineStyle.Solid },
@@ -2244,7 +2246,7 @@ export function TradingChart({ mobileTab }) {
 
       {/* CENTER COLUMN: CHARTS FEED */}
       {/* Desktop: always show. Mobile: only show when mobileTab === 'chart' */}
-      <div className={`lg:order-none w-full lg:flex-1 flex flex-col gap-6 ${
+      <div className={`chart-copy-surface lg:order-none w-full lg:flex-1 flex flex-col gap-6 ${
         mobileTab === 'chart' || !mobileTab ? 'flex order-1' : 'hidden lg:flex order-1'
       }`}>
 
@@ -2253,7 +2255,7 @@ export function TradingChart({ mobileTab }) {
           style={{ border: '1px solid rgba(202, 138, 4, 0.18)' }}>
 
           {/* Chart Title Overlay */}
-          <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 mb-2.5">
+          <div className="chart-header-copy flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 mb-2.5">
             {/* LEFT: Title + 3 compact dropdowns */}
             <div className="flex flex-wrap items-center gap-2">
               <span className="text-sm font-black text-white tracking-wide">TradingView Live Feed</span>
@@ -2298,8 +2300,8 @@ export function TradingChart({ mobileTab }) {
                 {['Sydney', 'Tokyo', 'London', 'New York'].map(session => {
                   const open = getSessionStatus(session);
                   return (
-                    <span key={session}
-                      className={`px-1.5 py-0.5 rounded border text-[9px] font-black tracking-wide uppercase transition-all duration-300 ${
+                    <span key={session} data-session-open={open ? 'true' : 'false'}
+                      className={`chart-session-badge px-1.5 py-0.5 rounded border text-[9px] font-black tracking-wide uppercase transition-all duration-300 ${
                         open ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400' : 'bg-slate-950/40 border-zinc-900/60 text-slate-600'
                       }`}>
                       {session.slice(0, 3)}
@@ -2337,7 +2339,7 @@ export function TradingChart({ mobileTab }) {
                     className="w-7 h-7 rounded-lg border border-white/[0.08] bg-white/[0.04] text-slate-400 hover:text-amber-500 hover:border-amber-500/35 hover:bg-amber-500/5 transition-all cursor-pointer flex items-center justify-center"
                     title="Hoàn tác (Ctrl+Z)"><Undo className="h-3.5 w-3.5" /></button>
                   <button onClick={() => { setDrawings([]); setActiveTool('cursor'); }}
-                    className="w-7 h-7 rounded-lg border border-white/[0.08] bg-white/[0.04] text-slate-500 hover:text-red-400 hover:border-red-500/35 hover:bg-red-500/10 transition-all cursor-pointer flex items-center justify-center"
+                    className="drawing-danger-tool w-7 h-7 rounded-lg border border-white/[0.08] bg-white/[0.04] text-slate-500 hover:text-red-400 hover:border-red-500/35 hover:bg-red-500/10 transition-all cursor-pointer flex items-center justify-center"
                     title="Xóa tất cả"><Trash2 className="h-3.5 w-3.5" /></button>
                 </div>
               )}
@@ -2347,8 +2349,8 @@ export function TradingChart({ mobileTab }) {
                 {['Sydney', 'Tokyo', 'London', 'New York'].map(session => {
                   const open = getSessionStatus(session);
                   return (
-                    <span key={session}
-                      className={`px-2 py-0.5 rounded border text-[11px] font-black tracking-wide uppercase transition-all duration-300 ${
+                    <span key={session} data-session-open={open ? 'true' : 'false'}
+                      className={`chart-session-badge px-2 py-0.5 rounded border text-[11px] font-black tracking-wide uppercase transition-all duration-300 ${
                         open ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400' : 'bg-slate-950/40 border-zinc-900/60 text-slate-600'
                       }`}>
                       {session.slice(0, 3)}
@@ -2439,7 +2441,7 @@ export function TradingChart({ mobileTab }) {
               )}
 
               {/* Floating HUD (Symbol, OHLC and Indicator Legend) */}
-              <div className="absolute top-2.5 left-3 z-20 flex flex-col items-start gap-1 pointer-events-none select-none text-xs text-slate-400">
+              <div className="chart-hud absolute top-2.5 left-3 z-20 flex flex-col items-start gap-1 pointer-events-none select-none text-xs text-slate-400">
                 {/* Row 1: Symbol & OHLC parameters */}
                 <div className="flex flex-wrap items-center gap-2.5">
                   <div className="flex items-center gap-1">

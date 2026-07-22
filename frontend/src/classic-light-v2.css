@@ -173,3 +173,74 @@
 .theme-light .dynamic-theme-bg > [class*="max-w-[1680px]"] > [class*="border-b"] .text-slate-500 {
   color: var(--light-text-muted) !important;
 }
+
+/* Plan 2: chart copy and controls. Semantic SL/TP series colours are untouched. */
+.theme-light .chart-header-copy > div > .text-white,
+.theme-light .chart-hud .text-white {
+  color: #172033 !important;
+}
+
+.theme-light .chart-header-copy .text-slate-300,
+.theme-light .chart-hud .text-slate-300 {
+  color: #334155 !important;
+}
+
+.theme-light .chart-header-copy .text-slate-400,
+.theme-light .chart-hud .text-slate-400 {
+  color: #526178 !important;
+}
+
+.theme-light .chart-header-copy .text-slate-500,
+.theme-light .chart-hud .text-slate-500 {
+  color: #64748b !important;
+}
+
+.theme-light .chart-hud {
+  font-weight: 600;
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.8);
+}
+
+.theme-light .chart-hud [class*="text-[11px]"] {
+  font-size: 11px !important;
+  line-height: 1.35 !important;
+}
+
+.theme-light .chart-session-badge[data-session-open="false"] {
+  color: #64748b !important;
+  background: #f1f5f9 !important;
+  border-color: #d8e0ea !important;
+}
+
+.theme-light .chart-session-badge[data-session-open="true"] {
+  color: #047857 !important;
+  background: #ecfdf5 !important;
+  border-color: rgba(5, 150, 105, 0.3) !important;
+}
+
+.theme-light .drawing-toolbar button:not([class*="bg-amber-500/15"]):not(.drawing-danger-tool) {
+  color: #526178 !important;
+  background: #f8fafc !important;
+  border-color: #d8e0ea !important;
+}
+
+.theme-light .drawing-toolbar button:not([class*="bg-amber-500/15"]):not(.drawing-danger-tool):hover {
+  color: #9a6700 !important;
+  background: #fff8e7 !important;
+  border-color: rgba(217, 119, 6, 0.32) !important;
+}
+
+.theme-light .drawing-toolbar .drawing-danger-tool {
+  color: #b91c1c !important;
+  background: #fff1f2 !important;
+  border-color: #fecaca !important;
+}
+
+.theme-light .drawing-toolbar .drawing-danger-tool:hover {
+  color: #991b1b !important;
+  background: #ffe4e6 !important;
+  border-color: #fca5a5 !important;
+}
+
+.theme-light .drawing-toolbar > div {
+  background: #cbd5e1 !important;
+}
