@@ -361,6 +361,7 @@ export function TradingChart({ mobileTab }) {
     setSelectedTimeframe,
     selectedIndicatorSystem,
     setSelectedIndicatorSystem,
+    backgroundTheme,
     zenFastPeriod,
     zenSlowPeriod,
     utBotKeyValue,
@@ -1908,6 +1909,47 @@ export function TradingChart({ mobileTab }) {
     chandelierAtrPeriod, chandelierAtrMultiplier, trendlineLength, trendlineSlopeMult
   ]);
 
+  // Re-theme the chart instances in place so zoom, drawings and live series stay intact.
+  useEffect(() => {
+    const isLight = backgroundTheme === 'light';
+    const textColor = isLight ? '#526178' : (
+      selectedIndicatorSystem === 'zen' ? '#6ee7b7'
+        : selectedIndicatorSystem === 'utbot' ? '#d8b4fe'
+          : selectedIndicatorSystem === 'chandelier' ? '#fcd34d' : '#67e8f9'
+    );
+    const gridColor = isLight ? 'rgba(100, 116, 139, 0.13)' : (
+      selectedIndicatorSystem === 'zen' ? 'rgba(16,185,129,0.12)'
+        : selectedIndicatorSystem === 'utbot' ? 'rgba(168,85,247,0.12)'
+          : selectedIndicatorSystem === 'chandelier' ? 'rgba(245,158,11,0.12)' : 'rgba(6,182,212,0.12)'
+    );
+    const borderColor = isLight ? 'rgba(100, 116, 139, 0.28)' : gridColor;
+    const crosshairColor = isLight ? 'rgba(71, 85, 105, 0.48)' : textColor;
+    const labelBackground = isLight ? '#334155' : '#111827';
+    const commonOptions = {
+      layout: {
+        background: { type: ColorType.Solid, color: isLight ? '#ffffff' : 'transparent' },
+        textColor,
+      },
+      grid: {
+        vertLines: { color: gridColor, style: LineStyle.Solid },
+        horzLines: { color: gridColor, style: LineStyle.Solid },
+      },
+      rightPriceScale: { borderColor },
+      timeScale: { borderColor },
+    };
+
+    chartInstance.current?.applyOptions({
+      ...commonOptions,
+      crosshair: {
+        mode: 1,
+        vertLine: { color: crosshairColor, labelBackgroundColor: labelBackground, width: 1, style: LineStyle.Dashed },
+        horzLine: { color: crosshairColor, labelBackgroundColor: labelBackground, width: 1, style: LineStyle.Dashed },
+      },
+    });
+    rsiChartInstance.current?.applyOptions(commonOptions);
+    macdChartInstance.current?.applyOptions(commonOptions);
+  }, [backgroundTheme, selectedIndicatorSystem, showRsi, showMacd]);
+
   // Sync latest signal with Zustand store so that App.jsx can read it
   // NOTE: livePrice intentionally excluded from deps — signal should only update
   // when a new candle CLOSES (historyCount changes), not on every live tick.
@@ -2360,7 +2402,7 @@ export function TradingChart({ mobileTab }) {
           <div className="w-full">
 
             {/* Main Candlestick Chart Container Wrapper with transparent grid and overlays */}
-            <div className="relative rounded-xl overflow-hidden w-full transition-all duration-500"
+            <div className="chart-frame relative rounded-xl overflow-hidden w-full transition-all duration-500"
               style={{
                 background: 'transparent',
                 border: '1px solid var(--theme-accent-border, rgba(168,85,247,0.18))',

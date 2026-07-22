@@ -1,7 +1,7 @@
 import React from 'react';
 import { useTradeStore } from '../store/useTradeStore';
 import { useTranslation } from '../utils/translations';
-import { Sliders } from 'lucide-react';
+import { Sliders, Sun, Sparkles } from 'lucide-react';
 import { ConfigPanel } from './ConfigPanel';
 
 const SYMBOLS = ['XAUUSD', 'WTIUSD', 'XAGUSD', 'BTCUSD', 'ETHUSD'];
@@ -15,6 +15,8 @@ export function CoreController() {
     setSelectedTimeframe,
     selectedIndicatorSystem,
     setSelectedIndicatorSystem,
+    backgroundTheme,
+    setBackgroundTheme,
     setLivePrice
   } = useTradeStore();
 
@@ -90,6 +92,53 @@ export function CoreController() {
             </select>
             <div className="absolute right-3.5 top-1/2 -translate-y-1/2 pointer-events-none text-amber-500/80 text-[10px]">▼</div>
           </div>
+        </div>
+
+        {/* Background theme is independent from indicator and candle colours. */}
+        <div className="flex flex-col gap-1.5">
+          <label className="text-[9px] font-black text-slate-500 uppercase tracking-widest">Giao Diện Nền (Background)</label>
+          <div className="theme-mode-switch grid grid-cols-2 gap-1 rounded-xl p-1" role="group" aria-label="Giao diện nền">
+            <button
+              type="button"
+              onClick={() => setBackgroundTheme('light')}
+              aria-pressed={backgroundTheme === 'light'}
+              className={`theme-mode-option flex items-center justify-center gap-1.5 rounded-lg px-2 py-2 text-[10px] font-black uppercase tracking-wide transition-all ${backgroundTheme === 'light' ? 'is-active' : ''}`}
+            >
+              <Sun className="h-3.5 w-3.5" />
+              Classic Light
+            </button>
+            <button
+              type="button"
+              onClick={() => setBackgroundTheme('indicator')}
+              aria-pressed={backgroundTheme === 'indicator'}
+              className={`theme-mode-option flex items-center justify-center gap-1.5 rounded-lg px-2 py-2 text-[10px] font-black uppercase tracking-wide transition-all ${backgroundTheme === 'indicator' ? 'is-active' : ''}`}
+            >
+              <Sparkles className="h-3.5 w-3.5" />
+              Theo chỉ báo
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <div className="lg:hidden flex flex-col gap-1.5">
+        <label className="text-[9px] font-black text-slate-500 uppercase tracking-widest">Giao Diện Nền (Background)</label>
+        <div className="theme-mode-switch grid grid-cols-2 gap-1 rounded-xl p-1" role="group" aria-label="Giao diện nền">
+          <button
+            type="button"
+            onClick={() => setBackgroundTheme('light')}
+            aria-pressed={backgroundTheme === 'light'}
+            className={`theme-mode-option flex items-center justify-center gap-1.5 rounded-lg px-2 py-2 text-[10px] font-black uppercase tracking-wide transition-all ${backgroundTheme === 'light' ? 'is-active' : ''}`}
+          >
+            <Sun className="h-3.5 w-3.5" /> Classic Light
+          </button>
+          <button
+            type="button"
+            onClick={() => setBackgroundTheme('indicator')}
+            aria-pressed={backgroundTheme === 'indicator'}
+            className={`theme-mode-option flex items-center justify-center gap-1.5 rounded-lg px-2 py-2 text-[10px] font-black uppercase tracking-wide transition-all ${backgroundTheme === 'indicator' ? 'is-active' : ''}`}
+          >
+            <Sparkles className="h-3.5 w-3.5" /> Theo chỉ báo
+          </button>
         </div>
       </div>
 

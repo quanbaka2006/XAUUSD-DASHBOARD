@@ -47,6 +47,7 @@ function App() {
     currentView,
     selectedSymbol,
     selectedIndicatorSystem,
+    backgroundTheme,
     marketSpread,
     marketVolume,
     isSidebarHovered,
@@ -305,7 +306,10 @@ function App() {
   const currentTheme = selectedIndicatorSystem;
 
   return (
-    <div className={`min-h-screen bg-[#040810] flex font-sans overflow-x-hidden relative theme-${selectedIndicatorSystem}`}>
+    <div
+      data-background-theme={backgroundTheme}
+      className={`app-theme-root min-h-screen flex font-sans overflow-x-hidden relative theme-${selectedIndicatorSystem} ${backgroundTheme === 'light' ? 'theme-light' : 'theme-indicator'}`}
+    >
       {/* Sidebar Menu - Hidden on Mobile */}
       <Sidebar />
 

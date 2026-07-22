@@ -46,6 +46,10 @@ const initialSignals = {
 };
 
 const getSavedToken = () => localStorage.getItem('auth_token') || '';
+const getSavedBackgroundTheme = () => {
+  if (typeof window === 'undefined') return 'indicator';
+  return localStorage.getItem('background_theme') === 'light' ? 'light' : 'indicator';
+};
 const getSavedUser = () => {
   const user = localStorage.getItem('auth_user');
   try {
@@ -271,6 +275,7 @@ export const useTradeStore = create((set, get) => ({
   signals: initialSignals,
 
   showConfigPanel: false,
+  backgroundTheme: getSavedBackgroundTheme(),
   candleColorTheme: 'premium',
   riskCalculator: { accountBalance: 10000, riskPercentage: 1 },
   currentSignal: null,
@@ -462,6 +467,11 @@ export const useTradeStore = create((set, get) => ({
   })),
 
   toggleConfigPanel: () => set((state) => ({ showConfigPanel: !state.showConfigPanel })),
+  setBackgroundTheme: (val) => {
+    const nextTheme = val === 'light' ? 'light' : 'indicator';
+    if (typeof window !== 'undefined') localStorage.setItem('background_theme', nextTheme);
+    set({ backgroundTheme: nextTheme });
+  },
   setCandleColorTheme: (val) => set({ candleColorTheme: val }),
   updateRiskCalculator: (balance, risk) => set({
     riskCalculator: { accountBalance: balance, riskPercentage: risk }
