@@ -394,5 +394,40 @@
   background-clip: border-box !important;
   -webkit-text-fill-color: #172033 !important;
   filter: none !important;
-  text-shadow: none !important;
+  position: relative;
+  isolation: isolate;
+  text-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.95),
+    0 7px 18px rgba(15, 23, 42, 0.12),
+    0 0 26px rgba(245, 158, 11, 0.12) !important;
+}
+
+.theme-light h1[class*="bg-gradient-to-r"][class*="from-amber-100"]::before {
+  content: '';
+  position: absolute;
+  inset: -30% -7%;
+  z-index: -1;
+  pointer-events: none;
+  border-radius: 999px;
+  background: radial-gradient(ellipse at center, rgba(245, 158, 11, 0.13), rgba(245, 158, 11, 0.035) 48%, transparent 72%);
+  filter: blur(15px);
+}
+
+.theme-light h1[class*="bg-gradient-to-r"][class*="from-amber-100"]::after {
+  content: '';
+  position: absolute;
+  left: 8%;
+  right: 8%;
+  bottom: -9px;
+  height: 2px;
+  border-radius: 999px;
+  pointer-events: none;
+  background: linear-gradient(90deg, transparent, rgba(245, 158, 11, 0.2), rgba(245, 158, 11, 0.72), rgba(245, 158, 11, 0.2), transparent);
+  box-shadow: 0 0 10px rgba(245, 158, 11, 0.34);
+}
+
+.theme-light img[alt="Alpha Gold Logo"] {
+  filter:
+    drop-shadow(0 5px 9px rgba(146, 96, 4, 0.18))
+    drop-shadow(0 0 13px rgba(245, 158, 11, 0.17)) !important;
 }
