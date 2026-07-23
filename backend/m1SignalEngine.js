@@ -19,8 +19,6 @@ const CONFIG = Object.freeze({
   trendlineSlopeMult: 1
 });
 const MAX_RECORDS = 50;
-const MAX_AGE_MS = 60 * 60 * 1000;
-const TERMINAL_OUTCOMES = new Set(['win', 'loss', 'breakeven', 'expired']);
 
 const indicatorsUrl = pathToFileURL(
   path.join(__dirname, '../frontend/src/utils/indicators.js')
@@ -79,9 +77,6 @@ function evaluatePrice(record, price, timestamp) {
     if (numericPrice <= tp1) hitTp1 = true;
   }
 
-  if (Number(timestamp) >= Number(record.expiresAt || record.signalTime + MAX_AGE_MS)) {
-    return marketSettlement(record, numericPrice, timestamp, 'max_age');
-  }
   if (hitTp1 !== record.hitTp1) return { ...record, hitTp1, status: 'tp1' };
   return record;
 }
@@ -154,7 +149,7 @@ class M1SignalEngine {
   ensureBaseline(history) {
     if (this.baselineReady || this.baselineRequested || !Array.isArray(history) || history.length < 21) return;
     this.baselineRequested = true;
-    this.enqueue(async () => {
+    return this.enqueue(async () => {
       await this.initialize();
       const { getCurrentSignal } = await this.loadIndicatorModule();
       SYSTEMS.forEach((system) => {
@@ -168,7 +163,7 @@ class M1SignalEngine {
   onClosedCandle(history, closedCandle) {
     if (!Array.isArray(history) || history.length < 21) return;
     this.ensureBaseline(history);
-    this.enqueue(async () => {
+    return this.enqueue(async () => {
       await this.initialize();
       if (!this.baselineReady) return;
       const { getCurrentSignal } = await this.loadIndicatorModule();
@@ -188,11 +183,16 @@ class M1SignalEngine {
         if (!identity || identity === previousIdentity) continue;
 
         const publicationTime = Number(history[history.length - 1]?.time) * 1000 || Date.now();
-        this.records = this.records.map((record) => {
-          if (record.indicatorSystem !== system || record.outcome !== 'running') return record;
-          changed = true;
-          return marketSettlement(record, signal.entry, publicationTime, 'replaced');
-        });
+        const activeRecord = this.records.find(record =>
+          record.indicatorSystem === system && record.outcome === 'running'
+        );
+        if (activeRecord) {
+          this.logger.log(
+            `[M1 Engine] ${LABELS[system]} ignored ${signal.action.toUpperCase()} `
+            + `because ${activeRecord.id} is still running.`
+          );
+          continue;
+        }
 
         const id = `XAUUSD:M1:${system}:${publicationTime}`;
         if (this.records.some(record => record.id === id)) continue;
@@ -209,7 +209,7 @@ class M1SignalEngine {
           confidence: Number(signal.confidence) || 0,
           sourceTimestamp: Number(signal.timestamp),
           signalTime: publicationTime,
-          expiresAt: publicationTime + MAX_AGE_MS,
+          expiresAt: null,
           recordedAt: Date.now(),
           outcome: 'running',
           status: 'running',
@@ -229,7 +229,7 @@ class M1SignalEngine {
 
   onPrice(price, timestamp = Date.now()) {
     if (!Number.isFinite(Number(price)) || Number(price) <= 0) return;
-    this.enqueue(async () => {
+    return this.enqueue(async () => {
       await this.initialize();
       let changed = false;
       this.records = this.records.map((record) => {
@@ -248,12 +248,25 @@ class M1SignalEngine {
   }
 
   getStatus() {
+    const runningBySystem = Object.fromEntries(
+      SYSTEMS.map(system => [
+        system,
+        this.records.filter(record =>
+          record.indicatorSystem === system && record.outcome === 'running'
+        ).length
+      ])
+    );
     return {
       mode: 'backend',
+      lockMode: 'one_per_indicator_until_sl_or_tp2',
       initialized: this.initialized,
       baselineReady: this.baselineReady,
       systems: [...SYSTEMS],
-      runningSignals: this.records.filter(record => record.outcome === 'running').length,
+      runningSignals: Object.values(runningBySystem).reduce((total, count) => total + count, 0),
+      runningBySystem,
+      overlappingSystems: Object.entries(runningBySystem)
+        .filter(([, count]) => count > 1)
+        .map(([system]) => system),
       storedSignals: this.records.length
     };
   }
