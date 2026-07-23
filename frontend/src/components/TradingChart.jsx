@@ -43,6 +43,7 @@ import {
   calculateChandelierExit,
   calculateTrendlinesWithBreaks
 } from '../utils/indicators';
+import { hasCandleGap } from '../utils/candleContinuity';
 
 const SYMBOLS = ['XAUUSD', 'WTIUSD', 'XAGUSD', 'BTCUSD', 'ETHUSD'];
 const SYMBOLS_DISPLAY = {
@@ -436,6 +437,8 @@ export function TradingChart({ mobileTab }) {
   const [websiteSignalRecords, setWebsiteSignalRecords] = React.useState(() => readSignalHistory());
   const signalHistoryHydratedRef = React.useRef(false);
   const knownSignalIdsRef = React.useRef(new Set());
+  const reloadHistoryRef = React.useRef(null);
+  const hasConnectedOnceRef = React.useRef(false);
 
   useEffect(() => subscribeSignalHistory(setWebsiteSignalRecords), []);
 
@@ -1034,6 +1037,10 @@ export function TradingChart({ mobileTab }) {
 
     socket.on('connect', () => {
       setConnectionStatus(true);
+      if (hasConnectedOnceRef.current) {
+        reloadHistoryRef.current?.('socket_reconnect');
+      }
+      hasConnectedOnceRef.current = true;
       console.log('Socket connected');
     });
 
@@ -1094,6 +1101,13 @@ export function TradingChart({ mobileTab }) {
       });
     });
 
+    socket.on('history_recovered', (payload) => {
+      const state = useTradeStore.getState();
+      if (payload?.ticker === state.selectedSymbol && payload?.interval === state.selectedTimeframe) {
+        reloadHistoryRef.current?.('backend_backfill');
+      }
+    });
+
 
     socket.on('price_update', (data) => {
       const state = useTradeStore.getState();
@@ -1129,6 +1143,10 @@ export function TradingChart({ mobileTab }) {
             lastCandle.low = data.candle.low;
             updated = true;
           } else if (data.candle.time > lastCandle.time) {
+            if (hasCandleGap(lastCandle.time, data.candle.time, currentSelectedTimeframe)) {
+              reloadHistoryRef.current?.('candle_gap');
+              return;
+            }
             history.push(data.candle);
             if (history.length > 200) history.shift();
             updated = true;
@@ -1321,6 +1339,7 @@ export function TradingChart({ mobileTab }) {
     });
 
     return () => {
+      hasConnectedOnceRef.current = false;
       socket.disconnect();
     };
     // selectedSymbol/selectedTimeframe intentionally excluded: every handler above reads
@@ -1711,12 +1730,18 @@ export function TradingChart({ mobileTab }) {
       }
     });
 
-    const token = localStorage.getItem('auth_token');
-    fetch(`${SOCKET_URL}/api/history/${selectedSymbol}/${selectedTimeframe}`, {
-      headers: {
-        'Authorization': `Bearer ${token}`
-      }
-    })
+    let chartDisposed = false;
+    let historyReloadPromise = null;
+    const loadHistorySnapshot = (reason = 'initial') => {
+      if (chartDisposed || historyReloadPromise) return historyReloadPromise;
+      const token = localStorage.getItem('auth_token');
+
+      const request = fetch(`${SOCKET_URL}/api/history/${selectedSymbol}/${selectedTimeframe}`, {
+        cache: 'no-store',
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      })
       .then(res => {
         if (res.status === 401) {
           logout();
@@ -1725,6 +1750,7 @@ export function TradingChart({ mobileTab }) {
         return res.json();
       })
       .then(data => {
+        if (chartDisposed) return;
         const rawHistory = data.history || [];
         if (data.active) rawHistory.push(data.active);
 
@@ -1857,7 +1883,7 @@ export function TradingChart({ mobileTab }) {
           })));
         }
 
-        if (showSmc && smcType !== 'None') {
+        if (reason === 'initial' && showSmc && smcType !== 'None') {
           const smcResult = calculateSMC(history);
           if (smcResult.bos) {
             candlestickSeries.createPriceLine({
@@ -1884,7 +1910,23 @@ export function TradingChart({ mobileTab }) {
           requestAnimationFrame(() => drawCanvasRef.current());
         }
       })
-      .catch(err => console.error('Failed loading history:', err));
+      .catch(err => {
+        if (!chartDisposed) {
+          console.error(`Failed loading history (${reason}):`, err);
+        }
+      })
+      .finally(() => {
+        if (historyReloadPromise === request) {
+          historyReloadPromise = null;
+        }
+      });
+
+      historyReloadPromise = request;
+      return request;
+    };
+
+    reloadHistoryRef.current = loadHistorySnapshot;
+    loadHistorySnapshot();
 
     const handleResize = () => {
       const w = chartContainerRef.current?.clientWidth;
@@ -1898,6 +1940,10 @@ export function TradingChart({ mobileTab }) {
     window.addEventListener('resize', handleResize);
 
     return () => {
+      chartDisposed = true;
+      if (reloadHistoryRef.current === loadHistorySnapshot) {
+        reloadHistoryRef.current = null;
+      }
       window.removeEventListener('resize', handleResize);
       chart.remove();
       if (rsiChart) rsiChart.remove();

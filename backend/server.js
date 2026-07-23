@@ -1010,6 +1010,15 @@ function requestXauM1Recovery(reason, processEngine = false) {
       }
 
       scheduleXauM1CheckpointSave();
+      if (recovered.length > 0) {
+        io.emit('history_recovered', {
+          ticker: 'XAUUSD',
+          interval: 'M1',
+          recoveredCount: recovered.length,
+          lastClosedTime: merged.at(-1)?.time || null,
+          reason
+        });
+      }
       console.log(`[Market Data] XAUUSD M1 ${reason}: recovered ${recovered.length} closed candles.`);
       return recovered.length;
     } catch (error) {
@@ -2369,6 +2378,7 @@ app.get('/api/history/:symbol/:interval', requireAuth, (req, res) => {
   const tf  = req.params.interval;
   if (!candleHistory[sym] || !candleHistory[sym][tf])
     return res.status(400).json({ error: 'Invalid symbol or interval' });
+  res.set('Cache-Control', 'no-store');
   res.json({ history: candleHistory[sym][tf], active: activeCandles[sym][tf] });
 });
 
