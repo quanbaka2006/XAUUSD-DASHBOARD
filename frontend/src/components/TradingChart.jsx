@@ -25,7 +25,14 @@ import {
 import { useTradeStore, SOCKET_URL } from '../store/useTradeStore';
 import { useTranslation } from '../utils/translations';
 import { SignalHistoryPanel } from './SignalHistoryPanel';
-import { readSignalHistory, replaceSignalHistory } from '../utils/signalHistory';
+import {
+  findNewRunningSignalRecords,
+  readSignalHistory,
+  replaceSignalHistory,
+  selectDashboardSignalRecord,
+  subscribeSignalHistory,
+  toDashboardSignal
+} from '../utils/signalHistory';
 import {
   calculateIndicatorData,
   calculateRSI,
@@ -34,8 +41,7 @@ import {
   calculateZenTrendLines,
   calculateUTBotSignals,
   calculateChandelierExit,
-  calculateTrendlinesWithBreaks,
-  getCurrentSignal
+  calculateTrendlinesWithBreaks
 } from '../utils/indicators';
 
 const SYMBOLS = ['XAUUSD', 'WTIUSD', 'XAGUSD', 'BTCUSD', 'ETHUSD'];
@@ -50,7 +56,16 @@ const SYMBOLS_DISPLAY = {
 // ── Live signal status: compares the latest live price against SL/TP ──
 function computeSignalStatus(signal, livePrice) {
   if (!signal || signal.action === 'stale' || !signal.entry) return 'none';
-  
+
+  // Website M1 records are settled only by the backend engine. The browser
+  // must not pre-emptively close or advance their lifecycle from a local tick.
+  if (signal.backendAuthoritative) {
+    if (signal.outcome === 'win') return 'tp';
+    if (signal.outcome === 'loss') return 'sl';
+    if (signal.outcome === 'running') return signal.hitTp1 ? 'tp1' : 'running';
+    return 'none';
+  }
+
   // If the signal has already been permanently flagged as finished or sl by indicators.js, return it immediately
   if (signal.status === 'finished') return 'tp';
   if (signal.status === 'sl') return 'sl';
@@ -131,20 +146,6 @@ const playNotificationSound = () => {
   }
 };
 
-// Guard: returns true if there is an active signal that has NOT yet finished (not hit SL or full TP).
-// While locked, new popup notifications are suppressed to avoid overwriting an active trade.
-function isSignalLocked() {
-  const state = useTradeStore.getState();
-  const sig = state.currentSignal;
-  const livePrice = state.livePrice;
-  if (!sig || sig.action === 'stale') return false;
-  if (sig.status === 'closed') return false;
-  const status = computeSignalStatus(sig, livePrice);
-  // 'running' = price has not yet reached SL, TP1, or TP2
-  // 'tp1'     = TP1 touched but TP2 (full finish) not yet reached — still locked
-  return status === 'running' || status === 'tp1';
-}
-
 function ToastContainer() {
   const toasts = useTradeStore(s => s.toasts);
   
@@ -159,7 +160,7 @@ function ToastContainer() {
         const tf = sig.interval || 'M5';
         
         return (
-          <div key={toast.id} className={`pointer-events-auto p-4 w-72 rounded-xl backdrop-blur-xl border shadow-2xl transition-all duration-500 animate-in fade-in slide-in-from-right-8 ${isBuy ? 'bg-emerald-950/90 border-emerald-500/50 shadow-[0_0_20px_rgba(16,185,129,0.3)]' : 'bg-red-950/90 border-red-500/50 shadow-[0_0_20px_rgba(239,68,68,0.3)]'}`}>
+          <div key={toast.id} data-signal-record-id={sig.recordId || 'none'} className={`pointer-events-auto p-4 w-72 rounded-xl backdrop-blur-xl border shadow-2xl transition-all duration-500 animate-in fade-in slide-in-from-right-8 ${isBuy ? 'bg-emerald-950/90 border-emerald-500/50 shadow-[0_0_20px_rgba(16,185,129,0.3)]' : 'bg-red-950/90 border-red-500/50 shadow-[0_0_20px_rgba(239,68,68,0.3)]'}`}>
              <div className="flex justify-between items-center mb-2">
                <span className={`text-[10px] font-black uppercase tracking-widest px-2 py-0.5 rounded ${isBuy ? 'bg-emerald-500/20 text-emerald-400' : 'bg-red-500/20 text-red-400'}`}>TÍN HIỆU {sig.ticker || sig.symbol || 'XAUUSD'}</span>
                <span className="text-[10px] text-slate-300 font-bold tracking-wider">{tf}</span>
@@ -432,12 +433,20 @@ export function TradingChart({ mobileTab }) {
   const [keyHint, setKeyHint] = React.useState(null);
   const keyHintTimerRef = React.useRef(null);
   const drawingsSyncDebounceRef = React.useRef(null);
-  const pageLoadTimeRef = React.useRef(Date.now());
+  const [websiteSignalRecords, setWebsiteSignalRecords] = React.useState(() => readSignalHistory());
+  const signalHistoryHydratedRef = React.useRef(false);
+  const knownSignalIdsRef = React.useRef(new Set());
+
+  useEffect(() => subscribeSignalHistory(setWebsiteSignalRecords), []);
 
   // The backend engine is the sole writer. The browser only hydrates a local
   // display cache and receives subsequent authoritative socket snapshots.
   useEffect(() => {
-    if (!isLoggedIn) return;
+    if (!isLoggedIn) {
+      signalHistoryHydratedRef.current = false;
+      knownSignalIdsRef.current = new Set();
+      return;
+    }
     let cancelled = false;
     const token = localStorage.getItem('auth_token');
 
@@ -449,7 +458,9 @@ export function TradingChart({ mobileTab }) {
         if (!response.ok) throw new Error(`Global signal history request failed (${response.status})`);
         const data = await response.json();
         if (cancelled) return;
-        replaceSignalHistory(Array.isArray(data.records) ? data.records : []);
+        const normalized = replaceSignalHistory(Array.isArray(data.records) ? data.records : []);
+        knownSignalIdsRef.current = new Set(normalized.map(record => record.id));
+        signalHistoryHydratedRef.current = true;
       } catch (error) {
         console.error('Failed to initialize website signal history:', error);
       }
@@ -1053,40 +1064,26 @@ export function TradingChart({ mobileTab }) {
 
     socket.on('global_signal_history_updated', (payload) => {
       if (!Array.isArray(payload?.records)) return;
-      const previousIds = new Set(readSignalHistory().map(record => record.id));
-      const newSignals = payload.records.filter(record => record.outcome === 'running' && !previousIds.has(record.id));
-      replaceSignalHistory(payload.records);
+      const normalized = replaceSignalHistory(payload.records);
+
+      // The first authoritative snapshot hydrates the page silently. This
+      // prevents refresh/login on another device from replaying old popups.
+      if (!signalHistoryHydratedRef.current) {
+        knownSignalIdsRef.current = new Set(normalized.map(record => record.id));
+        signalHistoryHydratedRef.current = true;
+        return;
+      }
+
+      const newSignals = findNewRunningSignalRecords(normalized, knownSignalIdsRef.current);
+      normalized.forEach(record => knownSignalIdsRef.current.add(record.id));
       newSignals.forEach((record) => {
-        useTradeStore.getState().addToast({
-          ticker: record.symbol,
-          system: record.indicatorLabel,
-          interval: record.timeframe,
-          action: record.action,
-          entry: record.entry,
-          sl: record.sl,
-          tps: record.tps,
-          confidence: record.confidence,
-          timestamp: record.signalTime
-        });
+        useTradeStore.getState().addToast(toDashboardSignal(record));
       });
       if (newSignals.length > 0) playNotificationSound();
     });
 
     socket.on('signal_update', (updatedSignal) => {
       setSignals(prev => {
-        const oldSignal = prev[updatedSignal.ticker]?.[updatedSignal.interval];
-        // Only show pop-up notifications and play sound for new signals generated while online
-        // Skip pop-ups for signals that exist during the first 5 seconds of loading/refreshing
-        const isInitialLoad = (Date.now() - pageLoadTimeRef.current) < 5000;
-
-        // If it's a completely new signal, play sound and show toast
-        if (!isInitialLoad && updatedSignal.action !== 'stale' && (!oldSignal || oldSignal.timestamp !== updatedSignal.timestamp)) {
-          const sym = updatedSignal.ticker || updatedSignal.symbol;
-          if (sym === 'XAUUSD' && !isSignalLocked()) {
-            playNotificationSound();
-            useTradeStore.getState().addToast(updatedSignal);
-          }
-        }
         return {
           ...prev,
           [updatedSignal.ticker]: {
@@ -1955,79 +1952,25 @@ export function TradingChart({ mobileTab }) {
     macdChartInstance.current?.applyOptions(commonOptions);
   }, [backgroundTheme, selectedIndicatorSystem, showRsi, showMacd]);
 
-  // Sync latest signal with Zustand store so that App.jsx can read it
-  // NOTE: livePrice intentionally excluded from deps — signal should only update
-  // when a new candle CLOSES (historyCount changes), not on every live tick.
-  const currentSignal = useTradeStore(state => state.currentSignal) || { action: 'stale', entry: 0, sl: 0, tp: 0, confidence: 0 };
-  const historyCount = useTradeStore(state => state.historyCount);
+  // Card, popup and history share the same authoritative backend record.
+  // Changing the chart indicator only selects another record.
+  const selectedBackendRecord = React.useMemo(() => selectDashboardSignalRecord(
+    websiteSignalRecords,
+    {
+      symbol: selectedSymbol,
+      timeframe: selectedTimeframe,
+      indicatorSystem: selectedIndicatorSystem
+    }
+  ), [websiteSignalRecords, selectedSymbol, selectedTimeframe, selectedIndicatorSystem]);
+
+  const currentSignal = React.useMemo(
+    () => toDashboardSignal(selectedBackendRecord),
+    [selectedBackendRecord]
+  );
 
   useEffect(() => {
-    const history = candlesHistoryRef.current || [];
-    const sig = getCurrentSignal({
-      history,
-      selectedSymbol,
-      selectedIndicatorSystem,
-      zenFastPeriod,
-      zenSlowPeriod,
-      utBotKeyValue,
-      utBotAtrPeriod,
-      chandelierAtrPeriod,
-      chandelierAtrMultiplier,
-      trendlineLength,
-      trendlineSlopeMult,
-    });
-
-    // ── Signal Lock Guard ──────────────────────────────────────────────────
-    // If a signal is currently RUNNING (not yet hit SL or full TP2), do NOT
-    // overwrite it with a new signal. This prevents the signal panel from
-    // jumping to a different signal when the user switches indicators or
-    // timeframes, or when a new candle closes with a different signal.
-    const existing = useTradeStore.getState().currentSignal;
-    const isSameSystem = existing
-      && existing.symbol === selectedSymbol
-      && existing.timeframe === selectedTimeframe
-      && existing.indicatorSystem === selectedIndicatorSystem;
-
-    const isExistingActive = isSameSystem
-      && existing.action !== 'stale'
-      && existing.status !== 'closed'
-      && existing.status !== 'finished'
-      && existing.status !== 'sl';
-
-    if (isExistingActive) {
-      // Same signal (same entry + timestamp) — update hitTps & status only
-      // so the progress bar still reflects TP1 hits in real-time
-      if (sig && sig.entry === existing.entry && sig.timestamp === existing.timestamp) {
-        const displayedSignal = { ...existing, hitTps: sig.hitTps, status: sig.status };
-        useTradeStore.setState({
-          currentSignal: displayedSignal
-        });
-      }
-      // Different signal entirely — ignore it, keep the running signal
-    } else {
-      // No active signal or signal is finished or user changed indicator/timeframe/symbol — allow normal overwrite
-      const displayedSignal = sig ? {
-        ...sig,
-        symbol: selectedSymbol,
-        timeframe: selectedTimeframe,
-        indicatorSystem: selectedIndicatorSystem
-      } : null;
-      useTradeStore.setState({ currentSignal: displayedSignal });
-    }
-  }, [
-    selectedSymbol,
-    selectedTimeframe,
-    selectedIndicatorSystem,
-    zenFastPeriod,
-    zenSlowPeriod,
-    utBotKeyValue,
-    utBotAtrPeriod,
-    chandelierAtrPeriod,
-    chandelierAtrMultiplier,
-    trendlineLength,
-    trendlineSlopeMult,
-    historyCount
-  ]);
+    useTradeStore.setState({ currentSignal });
+  }, [currentSignal]);
 
   const getCardColorClass = (action) => {
     if (action === 'buy') return 'glow-amber border-amber-500/35 bg-gradient-to-b from-[#1c1408] to-[#0c0905] shadow-[0_0_30px_rgba(234,179,8,0.06)]';
@@ -2075,6 +2018,7 @@ export function TradingChart({ mobileTab }) {
         {/* 1. SELL/BUY SIGNAL DETAIL CARD - Redesigned */}
         <div
           data-signal-result={visualSignalResult}
+          data-signal-record-id={currentSignal.recordId || 'none'}
           className="static-copy-surface signal-detail-card panel-primary rounded-2xl flex flex-col relative overflow-hidden transition-all duration-500"
         >
 

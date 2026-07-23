@@ -14,6 +14,19 @@ export const INDICATOR_LABELS = {
   trendline: 'Trendlines'
 };
 
+const EMPTY_DASHBOARD_SIGNAL = Object.freeze({
+  action: 'stale',
+  entry: 0,
+  sl: 0,
+  tp: 0,
+  tps: [],
+  confidence: 0,
+  timestamp: null,
+  status: 'closed',
+  hitTps: [false, false],
+  backendAuthoritative: true
+});
+
 const normalizeRecords = (records) => [...records]
   .filter((record) => record && typeof record === 'object' && typeof record.id === 'string')
   .sort((a, b) => Number(b.signalTime) - Number(a.signalTime) || Number(b.recordedAt) - Number(a.recordedAt))
@@ -46,4 +59,71 @@ export function subscribeSignalHistory(callback) {
     window.removeEventListener(UPDATE_EVENT, handler);
     window.removeEventListener('storage', handler);
   };
+}
+
+export function selectDashboardSignalRecord(
+  records,
+  {
+    symbol = 'XAUUSD',
+    timeframe = 'M1',
+    indicatorSystem
+  } = {}
+) {
+  if (!indicatorSystem) return null;
+  const matching = normalizeRecords(Array.isArray(records) ? records : []).filter(record =>
+    record.symbol === symbol
+    && record.timeframe === timeframe
+    && record.indicatorSystem === indicatorSystem
+  );
+  return matching.find(record => record.outcome === 'running') || matching[0] || null;
+}
+
+export function toDashboardSignal(record) {
+  if (!record) return { ...EMPTY_DASHBOARD_SIGNAL };
+
+  const isWin = record.outcome === 'win';
+  const isLoss = record.outcome === 'loss';
+  const isRunning = record.outcome === 'running';
+  const hitTp1 = Boolean(record.hitTp1) || isWin;
+  const status = isWin
+    ? 'finished'
+    : isLoss
+      ? 'sl'
+      : isRunning
+        ? (hitTp1 ? 'tp1' : 'running')
+        : 'closed';
+
+  return {
+    id: record.id,
+    recordId: record.id,
+    symbol: record.symbol,
+    ticker: record.symbol,
+    timeframe: record.timeframe,
+    interval: record.timeframe,
+    indicatorSystem: record.indicatorSystem,
+    indicatorLabel: record.indicatorLabel || INDICATOR_LABELS[record.indicatorSystem],
+    system: record.indicatorLabel || INDICATOR_LABELS[record.indicatorSystem],
+    action: record.action,
+    entry: Number(record.entry) || 0,
+    sl: Number(record.sl) || 0,
+    tp: Number(record.tps?.[0]) || 0,
+    tps: Array.isArray(record.tps) ? record.tps.map(Number) : [],
+    confidence: Number(record.confidence) || 0,
+    timestamp: Number(record.signalTime) || null,
+    signalTime: Number(record.signalTime) || null,
+    closeTime: Number(record.closeTime) || null,
+    exitPrice: Number(record.exitPrice) || null,
+    outcome: record.outcome,
+    status,
+    hitTp1,
+    hitTps: [hitTp1, isWin],
+    backendAuthoritative: true
+  };
+}
+
+export function findNewRunningSignalRecords(records, knownIds) {
+  const known = knownIds instanceof Set ? knownIds : new Set(knownIds || []);
+  return normalizeRecords(Array.isArray(records) ? records : []).filter(record =>
+    record.outcome === 'running' && !known.has(record.id)
+  );
 }
