@@ -14,6 +14,13 @@ const { rateLimit } = require('express-rate-limit');
 const slowDown = require('express-slow-down');
 const vpsManager = require('./vpsManager');
 const net = require('net');
+const {
+  createActiveM1Candle,
+  mergeClosedM1Candles,
+  minuteBucket,
+  normalizeYahooM1Candles,
+  sanitizeCheckpoint
+} = require('./marketDataContinuity');
 
 
 // Load .env file for local development
@@ -373,12 +380,14 @@ const sourceOffsets = { XAUUSD: 0, XAGUSD: 0 };
 
 // Track timestamp of last received real price tick per symbol
 const lastTickTimestamp = {
-  'XAUUSD': Date.now(),
-  'WTIUSD': Date.now(),
-  'XAGUSD': Date.now(),
-  'BTCUSD': Date.now(),
-  'ETHUSD': Date.now()
+  'XAUUSD': 0,
+  'WTIUSD': 0,
+  'XAGUSD': 0,
+  'BTCUSD': 0,
+  'ETHUSD': 0
 };
+const FEED_STALE_AFTER_MS = 30 * 1000;
+const recoveringM1Symbols = new Set();
 
 // Check if market is closed (either weekend or inactivity holiday/early close)
 function isSymbolClosedDynamic(sym) {
@@ -388,9 +397,9 @@ function isSymbolClosedDynamic(sym) {
   // 1. Hardcoded weekend hours
   if (isMarketClosed()) return true;
 
-  // 2. Inactivity holiday/early close timeout (no trades received for > 5 minutes)
-  const INACTIVITY_LIMIT = 5 * 60 * 1000;
-  if (Date.now() - lastTickTimestamp[sym] > INACTIVITY_LIMIT) {
+  // 2. Freeze immediately when the backend feed is stale. Missing minutes are
+  // backfilled before realtime candle construction resumes.
+  if (!lastTickTimestamp[sym] || Date.now() - lastTickTimestamp[sym] > FEED_STALE_AFTER_MS) {
     return true;
   }
   return false;
@@ -508,6 +517,7 @@ function initializeCandles() {
 // ==========================================
 function applyRealPrice(sym, newPrice) {
   if (!newPrice || typeof newPrice !== 'number' || isNaN(newPrice)) return;
+  const previousTickAt = lastTickTimestamp[sym] || 0;
   lastTickTimestamp[sym] = Date.now();
   const price = parseFloat(newPrice.toFixed(sym.includes('BTC') ? 2 : 4));
 
@@ -548,6 +558,18 @@ function applyRealPrice(sym, newPrice) {
 
   currentPrices[sym] = price;
   lastRealPrices[sym] = price;
+
+  // If XAUUSD resumes after a stale period, pause candle construction until the
+  // missing M1 bars have been recovered. This prevents one giant bridge candle.
+  if (
+    sym === 'XAUUSD'
+    && historyInitialized
+    && marketStateReady
+    && previousTickAt > 0
+    && Date.now() - previousTickAt > FEED_STALE_AFTER_MS
+  ) {
+    requestXauM1Recovery('feed_resumed', true);
+  }
 }
 
 // ==========================================
@@ -921,6 +943,91 @@ function fetchYahooSeed(sym, callback, apply = true) {
   req.end();
 }
 
+async function fetchYahooM1Candles(sym) {
+  const ticker = YAHOO_TICKERS[sym];
+  if (!ticker) return [];
+  const url = `https://query2.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(ticker)}?interval=1m&range=1d`;
+  const response = await fetchJson(url, {
+    headers: {
+      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36'
+    }
+  });
+  if (!response.ok) throw new Error(`Yahoo chart returned HTTP ${response.status}`);
+  const payload = await response.json();
+  const result = payload?.chart?.result?.[0];
+  if (!result) throw new Error('Yahoo chart returned no candle data');
+  return normalizeYahooM1Candles(result, currentPrices[sym]);
+}
+
+let xauM1RecoveryPromise = null;
+function requestXauM1Recovery(reason, processEngine = false) {
+  if (xauM1RecoveryPromise) return xauM1RecoveryPromise;
+
+  recoveringM1Symbols.add('XAUUSD');
+  xauM1RecoveryPromise = (async () => {
+    const currentMinute = minuteBucket();
+    const previousHistory = candleHistory.XAUUSD?.M1 || [];
+    const previousLatestTime = Number(previousHistory[previousHistory.length - 1]?.time) || 0;
+
+    try {
+      const remoteCandles = await fetchYahooM1Candles('XAUUSD');
+      const merged = mergeClosedM1Candles(
+        previousHistory,
+        remoteCandles,
+        currentMinute,
+        CHART_HISTORY_LIMIT
+      );
+      const recovered = merged.filter(candle => candle.time > previousLatestTime);
+      candleHistory.XAUUSD.M1 = merged;
+      const rebuiltActive = createActiveM1Candle(merged, currentPrices.XAUUSD);
+      const previousActive = activeCandles.XAUUSD.M1;
+      activeCandles.XAUUSD.M1 = processEngine
+        && rebuiltActive
+        && previousActive?.time === rebuiltActive.time
+        ? {
+            ...rebuiltActive,
+            high: Math.max(rebuiltActive.high, Number(previousActive.high) || rebuiltActive.high),
+            low: Math.min(rebuiltActive.low, Number(previousActive.low) || rebuiltActive.low)
+          }
+        : rebuiltActive;
+
+      // During a live outage, replay recovered closed bars through the backend
+      // engine in chronological order. Startup restoration establishes a fresh
+      // baseline instead and therefore sets processEngine=false.
+      if (processEngine && backendM1Engine && recovered.length > 0) {
+        recovered.forEach((closedCandle) => {
+          const historyThroughCandle = merged.filter(candle => candle.time <= closedCandle.time);
+          const nextMinute = closedCandle.time + INTERVAL_SECONDS.M1;
+          const syntheticActive = {
+            time: nextMinute,
+            open: closedCandle.close,
+            high: closedCandle.close,
+            low: closedCandle.close,
+            close: closedCandle.close
+          };
+          backendM1Engine.onClosedCandle([...historyThroughCandle, syntheticActive], closedCandle);
+        });
+      }
+
+      scheduleXauM1CheckpointSave();
+      console.log(`[Market Data] XAUUSD M1 ${reason}: recovered ${recovered.length} closed candles.`);
+      return recovered.length;
+    } catch (error) {
+      // Do not bridge an old candle to a new price if the recovery provider is
+      // temporarily unavailable. Realtime resumes in a fresh minute and the
+      // missing interval will be retried by the continuity watchdog.
+      activeCandles.XAUUSD.M1 = createActiveM1Candle(previousHistory, currentPrices.XAUUSD);
+      console.error(`[Market Data] XAUUSD M1 ${reason} backfill failed:`, error.message);
+      return 0;
+    } finally {
+      recoveringM1Symbols.delete('XAUUSD');
+      xauM1RecoveryPromise = null;
+    }
+  })();
+
+  return xauM1RecoveryPromise;
+}
+
 let lastPaxgPrice = null;
 function fallbackToPaxgIfNeeded(sym, callback) {
   if (sym !== 'XAUUSD') {
@@ -1074,6 +1181,7 @@ function fetchKrakenMulti(symbols, callback) {
 // ==========================================
 const seedsNeeded = new Set(SYMBOLS);
 let historyInitialized = false;
+let marketStateReady = false;
 
 function onSeedReceived(sym) {
   seedsNeeded.delete(sym);
@@ -1137,16 +1245,10 @@ setTimeout(() => {
 let yahooFallbackInterval = null;
 function startYahooFallback() {
   if (yahooFallbackInterval) return;
-  console.log('[Spot/Yahoo/Kraken] Fallback activated — polling every 3s when clients are active...');
+  console.log('[Spot/Yahoo/Kraken] Backend fallback activated — polling every 3s independently of browser clients...');
   yahooFallbackInterval = setInterval(() => {
     if (isMarketClosed()) return;
     
-    // Check if there are active connected web clients
-    const activeClients = io && io.engine ? io.engine.clientsCount : 0;
-    
-    // If no clients are connected, skip polling to avoid IP bans/rate limits
-    if (activeClients === 0) return;
-
     const krakenActive = krakenConnected;
     const binanceActive = binanceWs && binanceWs.readyState === 1;
 
@@ -1328,12 +1430,13 @@ let backendM1Engine = null;
 
 setInterval(() => {
   // Guard: candles aren't ready yet (waiting on seed prices / init timeout).
-  if (!historyInitialized) return;
+  if (!historyInitialized || !marketStateReady) return;
 
   const now = Math.floor(Date.now() / 1000);
   const marketClosed = isMarketClosed();
 
   SYMBOLS.forEach((sym) => {
+    if (sym === 'XAUUSD' && recoveringM1Symbols.has(sym)) return;
     const isCrypto = sym.includes('BTC') || sym.includes('ETH');
     const isCommodity = !isCrypto;
 
@@ -1383,6 +1486,7 @@ setInterval(() => {
             { ...activeCandles.XAUUSD.M1 }
           ];
           backendM1Engine.onClosedCandle(engineHistory, closedCandle);
+          scheduleXauM1CheckpointSave();
         }
       } else {
         active.close = price;
@@ -1424,6 +1528,20 @@ setInterval(() => {
     }
   });
 }, 1000);
+
+// Detect holes independently of browser connections. A fresh price with a
+// missing closed minute means candle recovery must complete before charting.
+setInterval(() => {
+  if (!historyInitialized || !marketStateReady || isMarketClosed()) return;
+  const lastTickAt = lastTickTimestamp.XAUUSD || 0;
+  if (!lastTickAt || Date.now() - lastTickAt > FEED_STALE_AFTER_MS) return;
+  const currentMinute = minuteBucket();
+  const history = candleHistory.XAUUSD?.M1 || [];
+  const latestClosedMinute = Number(history[history.length - 1]?.time) || 0;
+  if (latestClosedMinute < currentMinute - INTERVAL_SECONDS.M1) {
+    requestXauM1Recovery('continuity_watchdog', true);
+  }
+}, 15000);
 
 // ==========================================
 // Authentication & User DB (MongoDB + Local Fallback)
@@ -1616,6 +1734,100 @@ async function connectDB() {
 }
 const dbReadyPromise = connectDB();
 
+const marketCheckpointFilePath = path.join(__dirname, 'xauusd_m1_checkpoint.json');
+let marketCheckpointSaveTimer = null;
+
+async function loadXauM1Checkpoint() {
+  await dbReadyPromise;
+  try {
+    let raw = null;
+    if (useMongoDB) {
+      raw = await db.collection('market_candle_checkpoints').findOne({ _id: 'XAUUSD:M1' });
+    } else if (fs.existsSync(marketCheckpointFilePath)) {
+      raw = JSON.parse(fs.readFileSync(marketCheckpointFilePath, 'utf8'));
+    }
+    return sanitizeCheckpoint(raw, minuteBucket(), CHART_HISTORY_LIMIT);
+  } catch (error) {
+    console.error('[Market Data] Failed to load XAUUSD M1 checkpoint:', error.message);
+    return null;
+  }
+}
+
+async function saveXauM1Checkpoint() {
+  if (!historyInitialized) return;
+  await dbReadyPromise;
+  const checkpoint = {
+    history: (candleHistory.XAUUSD?.M1 || []).slice(-CHART_HISTORY_LIMIT),
+    active: activeCandles.XAUUSD?.M1 || null,
+    lastPrice: currentPrices.XAUUSD,
+    updatedAt: Date.now()
+  };
+
+  try {
+    if (useMongoDB) {
+      await db.collection('market_candle_checkpoints').updateOne(
+        { _id: 'XAUUSD:M1' },
+        { $set: checkpoint },
+        { upsert: true }
+      );
+    } else {
+      fs.writeFileSync(marketCheckpointFilePath, JSON.stringify(checkpoint), 'utf8');
+    }
+  } catch (error) {
+    console.error('[Market Data] Failed to save XAUUSD M1 checkpoint:', error.message);
+  }
+}
+
+function scheduleXauM1CheckpointSave() {
+  if (marketCheckpointSaveTimer) clearTimeout(marketCheckpointSaveTimer);
+  marketCheckpointSaveTimer = setTimeout(() => {
+    marketCheckpointSaveTimer = null;
+    saveXauM1Checkpoint().catch((error) => {
+      console.error('[Market Data] Checkpoint save failed:', error.message);
+    });
+  }, 250);
+  marketCheckpointSaveTimer.unref?.();
+}
+
+function waitForHistoryInitialization() {
+  if (historyInitialized) return Promise.resolve();
+  return new Promise((resolve) => {
+    const timer = setInterval(() => {
+      if (!historyInitialized) return;
+      clearInterval(timer);
+      resolve();
+    }, 100);
+    timer.unref?.();
+  });
+}
+
+async function bootstrapMarketState() {
+  try {
+    await dbReadyPromise;
+    await waitForHistoryInitialization();
+    const checkpoint = await loadXauM1Checkpoint();
+    if (checkpoint) {
+      candleHistory.XAUUSD.M1 = mergeClosedM1Candles(
+        [],
+        checkpoint.history,
+        minuteBucket(),
+        CHART_HISTORY_LIMIT
+      );
+      activeCandles.XAUUSD.M1 = checkpoint.active
+        || createActiveM1Candle(candleHistory.XAUUSD.M1, currentPrices.XAUUSD);
+      console.log(`[Market Data] Restored ${candleHistory.XAUUSD.M1.length} XAUUSD M1 candles from checkpoint.`);
+    }
+
+    await requestXauM1Recovery('startup_backfill', false);
+  } catch (error) {
+    console.error('[Market Data] Startup recovery failed:', error.message);
+  } finally {
+    marketStateReady = true;
+    scheduleXauM1CheckpointSave();
+    console.log('[Market Data] XAUUSD M1 market state is ready.');
+  }
+}
+
 backendM1Engine = createM1SignalEngine({
   loadRecords: loadGlobalSignalHistory,
   saveRecords: saveGlobalSignalHistory,
@@ -1625,6 +1837,7 @@ backendM1Engine = createM1SignalEngine({
 backendM1Engine.initialize().catch((error) => {
   console.error('[M1 Engine] Initialization failed:', error.message);
 });
+bootstrapMarketState();
 
 async function loadUsers() {
   if (useMongoDB) {
@@ -2175,6 +2388,16 @@ app.get('/api/debug-ws', (req, res) => {
   const wsState = binanceWs ? binanceWs.readyState : 'NOT_INITIALIZED';
   const krakenWsState = krakenWs ? krakenWs.readyState : 'NOT_INITIALIZED';
   const wsStates = { 0: 'CONNECTING', 1: 'OPEN', 2: 'CLOSING', 3: 'CLOSED' };
+  const xauTickAgeMs = lastTickTimestamp.XAUUSD ? Date.now() - lastTickTimestamp.XAUUSD : null;
+  const marketData = {
+    ready: marketStateReady,
+    xauFeedStatus: xauTickAgeMs !== null && xauTickAgeMs <= FEED_STALE_AFTER_MS ? 'live' : 'stale',
+    xauTickAgeMs,
+    xauM1Recovering: recoveringM1Symbols.has('XAUUSD'),
+    xauM1ClosedCandles: candleHistory.XAUUSD?.M1?.length || 0,
+    xauM1LastClosedTime: candleHistory.XAUUSD?.M1?.at(-1)?.time || null,
+    connectedBrowserClients: io.engine?.clientsCount || 0
+  };
   
   const https = require('https');
   https.get('https://api.binance.com/api/v3/ticker/price?symbol=PAXGUSDT', (binanceRes) => {
@@ -2188,6 +2411,7 @@ app.get('/api/debug-ws', (req, res) => {
         binanceApiData: data,
         currentPrices,
         m1Engine: backendM1Engine?.getStatus(),
+        marketData,
         lastTickTimestamp,
         historyInitialized,
         isMarketClosed: isMarketClosed(),
@@ -2202,6 +2426,7 @@ app.get('/api/debug-ws', (req, res) => {
       binanceApiError: err.message,
       currentPrices,
       m1Engine: backendM1Engine?.getStatus(),
+      marketData,
       lastTickTimestamp,
       historyInitialized,
       isMarketClosed: isMarketClosed(),
