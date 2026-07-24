@@ -1589,6 +1589,13 @@ function sanitizeGlobalSignalRecord(raw) {
   const entry = optionalFiniteNumber(raw.entry);
   const sl = optionalFiniteNumber(raw.sl);
   const outcome = GLOBAL_SIGNAL_OUTCOMES.has(raw.outcome) ? raw.outcome : 'running';
+  const recordedAt = optionalFiniteNumber(raw.recordedAt) || signalTime;
+  const closeTime = optionalFiniteNumber(raw.closeTime);
+  const settledImmediatelyAfterRecording = outcome !== 'running'
+    && closeTime !== null
+    && recordedAt !== null
+    && closeTime >= recordedAt
+    && closeTime - recordedAt <= 5000;
   const tps = Array.isArray(raw.tps)
     ? raw.tps.slice(0, 2).map(optionalFiniteNumber).filter(value => value !== null)
     : [];
@@ -1611,15 +1618,16 @@ function sanitizeGlobalSignalRecord(raw) {
     sourceTimestamp: optionalFiniteNumber(raw.sourceTimestamp) || signalTime,
     signalTime,
     expiresAt: optionalFiniteNumber(raw.expiresAt),
-    recordedAt: optionalFiniteNumber(raw.recordedAt) || signalTime,
+    recordedAt,
     outcome,
     status: String(raw.status || (outcome === 'running' ? 'running' : outcome)).slice(0, 30),
     hitTp1: Boolean(raw.hitTp1),
-    closeTime: optionalFiniteNumber(raw.closeTime),
+    closeTime,
     exitPrice: optionalFiniteNumber(raw.exitPrice),
     closeReason: raw.closeReason ? String(raw.closeReason).slice(0, 30) : null,
     expiryReason: raw.expiryReason ? String(raw.expiryReason).slice(0, 30) : null,
-    actionableAtPublication: raw.actionableAtPublication !== false
+    actionableAtPublication: !settledImmediatelyAfterRecording
+      && raw.actionableAtPublication !== false
   };
 }
 
