@@ -160,69 +160,150 @@ class M1SignalEngine {
     });
   }
 
-  onClosedCandle(history, closedCandle) {
+  processClosedCandle(history, closedCandle, getCurrentSignal, publicationPrice = null) {
+    let changed = false;
+
+    this.records = this.records.map((record) => {
+      const next = evaluateCandle(record, closedCandle);
+      if (JSON.stringify(next) !== JSON.stringify(record)) changed = true;
+      return next;
+    });
+
+    for (const system of SYSTEMS) {
+      const signal = this.calculateSignal(getCurrentSignal, system, history);
+      const identity = signalIdentity(signal);
+      const previousIdentity = this.baselines[system];
+      this.baselines[system] = identity;
+      if (!identity || identity === previousIdentity) continue;
+
+      const publicationTime = Number(history[history.length - 1]?.time) * 1000 || Date.now();
+      const activeRecord = this.records.find(record =>
+        record.indicatorSystem === system && record.outcome === 'running'
+      );
+      if (activeRecord) {
+        this.logger.log(
+          `[M1 Engine] ${LABELS[system]} ignored ${signal.action.toUpperCase()} `
+          + `because ${activeRecord.id} is still running.`
+        );
+        continue;
+      }
+
+      const id = `XAUUSD:M1:${system}:${publicationTime}`;
+      if (this.records.some(record => record.id === id)) continue;
+
+      let record = {
+        id,
+        symbol: 'XAUUSD',
+        timeframe: 'M1',
+        indicatorSystem: system,
+        indicatorLabel: LABELS[system],
+        action: signal.action,
+        entry: Number(signal.entry),
+        sl: Number(signal.sl),
+        tps: Array.isArray(signal.tps) ? signal.tps.map(Number) : [],
+        confidence: Number(signal.confidence) || 0,
+        sourceTimestamp: Number(signal.timestamp),
+        signalTime: publicationTime,
+        expiresAt: null,
+        recordedAt: Date.now(),
+        outcome: 'running',
+        status: 'running',
+        hitTp1: false,
+        closeTime: null,
+        exitPrice: null,
+        closeReason: null,
+        expiryReason: null,
+        actionableAtPublication: true
+      };
+
+      // A recalculated historical trigger may already contain its full result.
+      // It belongs in history, but it must never flash as a fresh live order.
+      const isHistoricalTrigger = Number(signal.timestamp) < Number(closedCandle?.time) * 1000;
+      if (isHistoricalTrigger && signal.status === 'finished') {
+        record = {
+          ...record,
+          outcome: 'win',
+          status: 'finished',
+          hitTp1: true,
+          closeTime: publicationTime,
+          exitPrice: Number(record.tps[1] ?? record.tps[0])
+        };
+      } else if (isHistoricalTrigger && signal.status === 'sl') {
+        record = {
+          ...record,
+          outcome: 'loss',
+          status: 'sl',
+          closeTime: publicationTime,
+          exitPrice: Number(record.sl)
+        };
+      } else if (isHistoricalTrigger && signal.status === 'tp1') {
+        record = {
+          ...record,
+          status: 'tp1',
+          hitTp1: true
+        };
+      } else if (Number.isFinite(Number(publicationPrice)) && Number(publicationPrice) > 0) {
+        record = evaluatePrice(record, Number(publicationPrice), publicationTime);
+      }
+
+      record.actionableAtPublication = record.outcome === 'running';
+      this.records.push(record);
+      changed = true;
+      this.logger.log(
+        `[M1 Engine] ${LABELS[system]} recorded ${signal.action.toUpperCase()} at ${signal.entry}`
+        + `${record.actionableAtPublication ? '.' : ' as already settled before publication.'}`
+      );
+    }
+
+    return changed;
+  }
+
+  onClosedCandle(history, closedCandle, publicationPrice = null) {
     if (!Array.isArray(history) || history.length < 21) return;
     this.ensureBaseline(history);
     return this.enqueue(async () => {
       await this.initialize();
       if (!this.baselineReady) return;
       const { getCurrentSignal } = await this.loadIndicatorModule();
+      const changed = this.processClosedCandle(
+        history,
+        closedCandle,
+        getCurrentSignal,
+        publicationPrice
+      );
+      if (changed) await this.persist();
+    });
+  }
+
+  onRecoveredCandles(items, settlementPrice, timestamp = Date.now()) {
+    const recoveryItems = Array.isArray(items)
+      ? items.filter(item => Array.isArray(item?.history) && item.history.length >= 21 && item.closedCandle)
+      : [];
+    if (recoveryItems.length === 0) return;
+
+    this.ensureBaseline(recoveryItems[0].history);
+    return this.enqueue(async () => {
+      await this.initialize();
+      if (!this.baselineReady) return;
+      const { getCurrentSignal } = await this.loadIndicatorModule();
       let changed = false;
 
-      this.records = this.records.map((record) => {
-        const next = evaluateCandle(record, closedCandle);
-        if (JSON.stringify(next) !== JSON.stringify(record)) changed = true;
-        return next;
+      recoveryItems.forEach(({ history, closedCandle }) => {
+        if (this.processClosedCandle(history, closedCandle, getCurrentSignal, closedCandle.close)) {
+          changed = true;
+        }
       });
 
-      for (const system of SYSTEMS) {
-        const signal = this.calculateSignal(getCurrentSignal, system, history);
-        const identity = signalIdentity(signal);
-        const previousIdentity = this.baselines[system];
-        this.baselines[system] = identity;
-        if (!identity || identity === previousIdentity) continue;
-
-        const publicationTime = Number(history[history.length - 1]?.time) * 1000 || Date.now();
-        const activeRecord = this.records.find(record =>
-          record.indicatorSystem === system && record.outcome === 'running'
-        );
-        if (activeRecord) {
-          this.logger.log(
-            `[M1 Engine] ${LABELS[system]} ignored ${signal.action.toUpperCase()} `
-            + `because ${activeRecord.id} is still running.`
-          );
-          continue;
-        }
-
-        const id = `XAUUSD:M1:${system}:${publicationTime}`;
-        if (this.records.some(record => record.id === id)) continue;
-        this.records.push({
-          id,
-          symbol: 'XAUUSD',
-          timeframe: 'M1',
-          indicatorSystem: system,
-          indicatorLabel: LABELS[system],
-          action: signal.action,
-          entry: Number(signal.entry),
-          sl: Number(signal.sl),
-          tps: Array.isArray(signal.tps) ? signal.tps.map(Number) : [],
-          confidence: Number(signal.confidence) || 0,
-          sourceTimestamp: Number(signal.timestamp),
-          signalTime: publicationTime,
-          expiresAt: null,
-          recordedAt: Date.now(),
-          outcome: 'running',
-          status: 'running',
-          hitTp1: false,
-          closeTime: null,
-          exitPrice: null,
-          closeReason: null,
-          expiryReason: null
+      if (Number.isFinite(Number(settlementPrice)) && Number(settlementPrice) > 0) {
+        this.records = this.records.map((record) => {
+          const next = evaluatePrice(record, Number(settlementPrice), Number(timestamp));
+          if (JSON.stringify(next) !== JSON.stringify(record)) changed = true;
+          return next;
         });
-        changed = true;
-        this.logger.log(`[M1 Engine] ${LABELS[system]} published ${signal.action.toUpperCase()} at ${signal.entry}.`);
       }
 
+      // Persist and broadcast exactly once, after the complete recovered range
+      // and current market price have been applied.
       if (changed) await this.persist();
     });
   }

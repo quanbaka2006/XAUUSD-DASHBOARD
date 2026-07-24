@@ -995,7 +995,7 @@ function requestXauM1Recovery(reason, processEngine = false) {
       // engine in chronological order. Startup restoration establishes a fresh
       // baseline instead and therefore sets processEngine=false.
       if (processEngine && backendM1Engine && recovered.length > 0) {
-        recovered.forEach((closedCandle) => {
+        const recoveryItems = recovered.map((closedCandle) => {
           const historyThroughCandle = merged.filter(candle => candle.time <= closedCandle.time);
           const nextMinute = closedCandle.time + INTERVAL_SECONDS.M1;
           const syntheticActive = {
@@ -1005,8 +1005,16 @@ function requestXauM1Recovery(reason, processEngine = false) {
             low: closedCandle.close,
             close: closedCandle.close
           };
-          backendM1Engine.onClosedCandle([...historyThroughCandle, syntheticActive], closedCandle);
+          return {
+            history: [...historyThroughCandle, syntheticActive],
+            closedCandle
+          };
         });
+        await backendM1Engine.onRecoveredCandles(
+          recoveryItems,
+          currentPrices.XAUUSD,
+          Date.now()
+        );
       }
 
       scheduleXauM1CheckpointSave();
@@ -1494,7 +1502,7 @@ setInterval(() => {
             ...candleHistory.XAUUSD.M1.map(candle => ({ ...candle })),
             { ...activeCandles.XAUUSD.M1 }
           ];
-          backendM1Engine.onClosedCandle(engineHistory, closedCandle);
+          backendM1Engine.onClosedCandle(engineHistory, closedCandle, currentPrices.XAUUSD);
           scheduleXauM1CheckpointSave();
         }
       } else {
@@ -1610,7 +1618,8 @@ function sanitizeGlobalSignalRecord(raw) {
     closeTime: optionalFiniteNumber(raw.closeTime),
     exitPrice: optionalFiniteNumber(raw.exitPrice),
     closeReason: raw.closeReason ? String(raw.closeReason).slice(0, 30) : null,
-    expiryReason: raw.expiryReason ? String(raw.expiryReason).slice(0, 30) : null
+    expiryReason: raw.expiryReason ? String(raw.expiryReason).slice(0, 30) : null,
+    actionableAtPublication: raw.actionableAtPublication !== false
   };
 }
 

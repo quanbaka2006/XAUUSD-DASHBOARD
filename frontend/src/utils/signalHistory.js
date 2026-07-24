@@ -74,6 +74,7 @@ export function selectDashboardSignalRecord(
     record.symbol === symbol
     && record.timeframe === timeframe
     && record.indicatorSystem === indicatorSystem
+    && record.actionableAtPublication !== false
   );
   return matching.find(record => record.outcome === 'running') || matching[0] || null;
 }
@@ -124,6 +125,8 @@ export function toDashboardSignal(record) {
 export function findNewRunningSignalRecords(records, knownIds) {
   const known = knownIds instanceof Set ? knownIds : new Set(knownIds || []);
   return normalizeRecords(Array.isArray(records) ? records : []).filter(record =>
-    record.outcome === 'running' && !known.has(record.id)
+    record.outcome === 'running'
+    && record.actionableAtPublication !== false
+    && !known.has(record.id)
   );
 }

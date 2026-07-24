@@ -135,6 +135,64 @@ test('opens the next signal only after the previous signal reaches TP2', async (
   assert.equal(zenRecords.find(record => record.outcome === 'running').action, 'sell');
 });
 
+test('never broadcasts a fresh running signal when publication price already passed TP2', async () => {
+  const { engine, currentSignals, broadcasts } = createHarness();
+  const history = buildHistory(2000);
+  await establishBaseline(engine, history);
+
+  currentSignals.zen = signal('buy', 1);
+  await engine.onClosedCandle(history, history.at(-2), 111);
+
+  const record = engine.records.find(item => item.indicatorSystem === 'zen');
+  assert.equal(record.outcome, 'win');
+  assert.equal(record.status, 'finished');
+  assert.equal(record.actionableAtPublication, false);
+  assert.equal(broadcasts.length, 1);
+  assert.equal(broadcasts[0].some(item => item.outcome === 'running'), false);
+});
+
+test('does not count a fresh trigger candle high that happened before its close entry', async () => {
+  const { engine, currentSignals } = createHarness();
+  const history = buildHistory(2000);
+  await establishBaseline(engine, history);
+  const closedCandle = history.at(-2);
+
+  currentSignals.zen = {
+    ...signal('buy', closedCandle.time * 1000),
+    status: 'finished'
+  };
+  await engine.onClosedCandle(history, closedCandle, 100);
+
+  const record = engine.records.find(item => item.indicatorSystem === 'zen');
+  assert.equal(record.outcome, 'running');
+  assert.equal(record.actionableAtPublication, true);
+});
+
+test('replays recovered candles atomically and broadcasts only the final result', async () => {
+  const { engine, currentSignals, broadcasts } = createHarness();
+  const firstHistory = buildHistory(2000);
+  await establishBaseline(engine, firstHistory);
+  currentSignals.zen = signal('buy', 1);
+
+  const secondHistory = buildHistory(2060);
+  await engine.onRecoveredCandles([
+    {
+      history: firstHistory,
+      closedCandle: { time: 1940, open: 100, high: 101, low: 99, close: 100 }
+    },
+    {
+      history: secondHistory,
+      closedCandle: { time: 2000, open: 100, high: 111, low: 99, close: 110 }
+    }
+  ], 110, 2_100_000);
+
+  const record = engine.records.find(item => item.indicatorSystem === 'zen');
+  assert.equal(record.outcome, 'win');
+  assert.equal(record.actionableAtPublication, true);
+  assert.equal(broadcasts.length, 1);
+  assert.equal(broadcasts[0].find(item => item.id === record.id).outcome, 'win');
+});
+
 test('does not expire a running signal based on elapsed time', () => {
   const record = {
     id: 'XAUUSD:M1:zen:1',

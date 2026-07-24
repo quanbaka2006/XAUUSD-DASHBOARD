@@ -62,3 +62,37 @@ test('returns only unseen running records for popup notifications', () => {
   const unseen = findNewRunningSignalRecords(records, new Set(['known-running']));
   assert.deepEqual(unseen.map(item => item.id), ['new-running']);
 });
+
+test('hides a signal that had already settled before publication from live surfaces', () => {
+  const stalePublication = {
+    id: 'XAUUSD:M1:zen:3',
+    symbol: 'XAUUSD',
+    timeframe: 'M1',
+    indicatorSystem: 'zen',
+    action: 'buy',
+    entry: 100,
+    sl: 90,
+    tps: [105, 110],
+    signalTime: 3000,
+    recordedAt: 3000,
+    outcome: 'win',
+    actionableAtPublication: false
+  };
+  const previousActionable = {
+    ...stalePublication,
+    id: 'XAUUSD:M1:zen:2',
+    signalTime: 2000,
+    recordedAt: 2000,
+    actionableAtPublication: true
+  };
+
+  assert.equal(
+    selectDashboardSignalRecord([stalePublication, previousActionable], {
+      indicatorSystem: 'zen'
+    }).id,
+    previousActionable.id
+  );
+  assert.deepEqual(findNewRunningSignalRecords([
+    { ...stalePublication, outcome: 'running' }
+  ], new Set()), []);
+});
