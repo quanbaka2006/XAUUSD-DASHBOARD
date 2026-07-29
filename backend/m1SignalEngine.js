@@ -36,6 +36,13 @@ function signalIdentity(signal) {
   return Number.isFinite(timestamp) && timestamp > 0 ? `${signal.action}:${timestamp}` : null;
 }
 
+function isLegacyZenWindowReplay(record) {
+  return record?.indicatorSystem === 'zen'
+    && Number.isFinite(Number(record.sourceTimestamp))
+    && Number.isFinite(Number(record.signalTime))
+    && Number(record.signalTime) - Number(record.sourceTimestamp) > 2 * 60 * 1000;
+}
+
 function normalizeRecords(records) {
   const seenIds = new Set();
   return [...records]
@@ -382,6 +389,7 @@ module.exports = {
   createM1SignalEngine,
   evaluateCandle,
   evaluatePrice,
+  isLegacyZenWindowReplay,
   marketSettlement,
   signalIdentity
 };

@@ -2,7 +2,8 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const {
   createM1SignalEngine,
-  evaluatePrice
+  evaluatePrice,
+  isLegacyZenWindowReplay
 } = require('./m1SignalEngine');
 
 const SYSTEMS = ['zen', 'utbot', 'chandelier', 'trendline'];
@@ -94,12 +95,34 @@ test('removes and persists duplicate/stale publication records during initializa
     id: 'XAUUSD:M1:zen:2',
     actionableAtPublication: false
   };
-  const { engine, getSaved } = createHarness([duplicate, { ...duplicate }, stale]);
+  const { engine, getSaved } = createHarness([
+    duplicate,
+    { ...duplicate },
+    stale
+  ]);
 
   await engine.initialize();
 
   assert.deepEqual(engine.records.map(record => record.id), [duplicate.id]);
   assert.deepEqual(getSaved().map(record => record.id), [duplicate.id]);
+});
+
+test('identifies legacy MTF window replays without matching valid realtime signals', () => {
+  assert.equal(isLegacyZenWindowReplay({
+    indicatorSystem: 'zen',
+    sourceTimestamp: 1_000_000,
+    signalTime: 1_600_000
+  }), true);
+  assert.equal(isLegacyZenWindowReplay({
+    indicatorSystem: 'zen',
+    sourceTimestamp: 1_000_000,
+    signalTime: 1_060_000
+  }), false);
+  assert.equal(isLegacyZenWindowReplay({
+    indicatorSystem: 'utbot',
+    sourceTimestamp: 1_000_000,
+    signalTime: 1_600_000
+  }), false);
 });
 
 test('allows all four indicator systems to run one signal in parallel', async () => {

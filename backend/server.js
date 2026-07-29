@@ -9,7 +9,7 @@ const WebSocket = require('ws');
 const crypto = require('crypto');
 const helmet = require('helmet');
 const hpp = require('hpp');
-const { createM1SignalEngine } = require('./m1SignalEngine');
+const { createM1SignalEngine, isLegacyZenWindowReplay } = require('./m1SignalEngine');
 const { rateLimit } = require('express-rate-limit');
 const slowDown = require('express-slow-down');
 const vpsManager = require('./vpsManager');
@@ -1595,6 +1595,7 @@ function sanitizeGlobalSignalRecord(raw) {
   const indicatorSystem = String(raw.indicatorSystem || '').toLowerCase();
   const action = String(raw.action || '').toLowerCase();
   const signalTime = optionalFiniteNumber(raw.signalTime);
+  const sourceTimestamp = optionalFiniteNumber(raw.sourceTimestamp) || signalTime;
   const entry = optionalFiniteNumber(raw.entry);
   const sl = optionalFiniteNumber(raw.sl);
   const outcome = GLOBAL_SIGNAL_OUTCOMES.has(raw.outcome) ? raw.outcome : 'running';
@@ -1605,6 +1606,11 @@ function sanitizeGlobalSignalRecord(raw) {
     && recordedAt !== null
     && closeTime >= recordedAt
     && closeTime - recordedAt <= 5000;
+  const legacyZenWindowReplay = isLegacyZenWindowReplay({
+    indicatorSystem,
+    sourceTimestamp,
+    signalTime
+  });
   const tps = Array.isArray(raw.tps)
     ? raw.tps.slice(0, 2).map(optionalFiniteNumber).filter(value => value !== null)
     : [];
@@ -1624,7 +1630,7 @@ function sanitizeGlobalSignalRecord(raw) {
     sl,
     tps,
     confidence: optionalFiniteNumber(raw.confidence) || 0,
-    sourceTimestamp: optionalFiniteNumber(raw.sourceTimestamp) || signalTime,
+    sourceTimestamp,
     signalTime,
     expiresAt: optionalFiniteNumber(raw.expiresAt),
     recordedAt,
@@ -1635,7 +1641,8 @@ function sanitizeGlobalSignalRecord(raw) {
     exitPrice: optionalFiniteNumber(raw.exitPrice),
     closeReason: raw.closeReason ? String(raw.closeReason).slice(0, 30) : null,
     expiryReason: raw.expiryReason ? String(raw.expiryReason).slice(0, 30) : null,
-    actionableAtPublication: !settledImmediatelyAfterRecording
+    actionableAtPublication: !legacyZenWindowReplay
+      && !settledImmediatelyAfterRecording
       && raw.actionableAtPublication !== false
   };
 }
