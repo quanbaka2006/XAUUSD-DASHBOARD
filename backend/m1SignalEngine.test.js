@@ -80,6 +80,28 @@ test('keeps a running signal when the same indicator emits a newer identity', as
   assert.equal(zenRecords[0].action, 'buy');
 });
 
+test('removes and persists duplicate/stale publication records during initialization', async () => {
+  const duplicate = {
+    id: 'XAUUSD:M1:zen:1',
+    indicatorSystem: 'zen',
+    outcome: 'win',
+    actionableAtPublication: true,
+    signalTime: 1,
+    recordedAt: 1
+  };
+  const stale = {
+    ...duplicate,
+    id: 'XAUUSD:M1:zen:2',
+    actionableAtPublication: false
+  };
+  const { engine, getSaved } = createHarness([duplicate, { ...duplicate }, stale]);
+
+  await engine.initialize();
+
+  assert.deepEqual(engine.records.map(record => record.id), [duplicate.id]);
+  assert.deepEqual(getSaved().map(record => record.id), [duplicate.id]);
+});
+
 test('allows all four indicator systems to run one signal in parallel', async () => {
   const { engine, currentSignals } = createHarness();
   const history = buildHistory();
@@ -144,11 +166,8 @@ test('never broadcasts a fresh running signal when publication price already pas
   await engine.onClosedCandle(history, history.at(-2), 111);
 
   const record = engine.records.find(item => item.indicatorSystem === 'zen');
-  assert.equal(record.outcome, 'win');
-  assert.equal(record.status, 'finished');
-  assert.equal(record.actionableAtPublication, false);
-  assert.equal(broadcasts.length, 1);
-  assert.equal(broadcasts[0].some(item => item.outcome === 'running'), false);
+  assert.equal(record, undefined);
+  assert.equal(broadcasts.length, 0);
 });
 
 test('does not count a fresh trigger candle high that happened before its close entry', async () => {

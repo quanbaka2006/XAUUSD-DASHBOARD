@@ -37,8 +37,15 @@ function signalIdentity(signal) {
 }
 
 function normalizeRecords(records) {
+  const seenIds = new Set();
   return [...records]
+    .filter(record => record?.actionableAtPublication !== false)
     .sort((a, b) => Number(b.signalTime) - Number(a.signalTime) || Number(b.recordedAt) - Number(a.recordedAt))
+    .filter((record) => {
+      if (!record?.id || seenIds.has(record.id)) return false;
+      seenIds.add(record.id);
+      return true;
+    })
     .slice(0, MAX_RECORDS);
 }
 
@@ -132,7 +139,14 @@ class M1SignalEngine {
   async initialize() {
     if (this.initialized) return;
     const records = await this.loadRecords();
-    this.records = normalizeRecords(Array.isArray(records) ? records : []);
+    const loadedRecords = Array.isArray(records) ? records : [];
+    this.records = normalizeRecords(loadedRecords);
+    if (this.records.length !== loadedRecords.length) {
+      this.records = await this.saveRecords(this.records);
+      this.logger.log(
+        `[M1 Engine] Cleaned ${loadedRecords.length - this.records.length} duplicate/stale website records.`
+      );
+    }
     this.initialized = true;
     this.logger.log(`[M1 Engine] Initialized with ${this.records.length} website records.`);
   }
@@ -247,12 +261,17 @@ class M1SignalEngine {
       }
 
       record.actionableAtPublication = record.outcome === 'running';
+      if (!record.actionableAtPublication) {
+        this.logger.log(
+          `[M1 Engine] ${LABELS[system]} skipped stale ${signal.action.toUpperCase()} at ${signal.entry}`
+          + ' because SL/TP was already reached before publication.'
+        );
+        continue;
+      }
+
       this.records.push(record);
       changed = true;
-      this.logger.log(
-        `[M1 Engine] ${LABELS[system]} recorded ${signal.action.toUpperCase()} at ${signal.entry}`
-        + `${record.actionableAtPublication ? '.' : ' as already settled before publication.'}`
-      );
+      this.logger.log(`[M1 Engine] ${LABELS[system]} published ${signal.action.toUpperCase()} at ${signal.entry}.`);
     }
 
     return changed;

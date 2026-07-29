@@ -466,20 +466,13 @@ export function getCurrentSignal({
 
   if (selectedIndicatorSystem === 'zen') {
     const zenData = calculateZenTrendLines(closedHistory, zenFastPeriod, zenSlowPeriod);
-    if (zenData.length === 0) return { action: 'stale', entry: 0, sl: 0, tp: 0, confidence: 0, timestamp: Date.now() };
+    if (zenData.length < 2) return { action: 'stale', entry: 0, sl: 0, tp: 0, confidence: 0, timestamp: Date.now() };
     const last = zenData[zenData.length - 1];
+    const previous = zenData[zenData.length - 2];
     const action = last.trend === 'bullish' ? 'buy' : 'sell';
-
-    let crossoverIdx = zenData.length - 1;
-    const currentTrend = last.trend;
-    for (let i = zenData.length - 2; i >= 0; i--) {
-      if (zenData[i].trend !== currentTrend) {
-        crossoverIdx = i + 1;
-        break;
-      }
-    }
-    crossoverIdx = Math.min(crossoverIdx, closedHistory.length - 1);
-    const entry = closedHistory[crossoverIdx].close;
+    const crossedNow = previous.trend !== last.trend;
+    const entryCandle = closedHistory.find(candle => candle.time === last.time);
+    const entry = Number(entryCandle?.close ?? closedHistory[closedHistory.length - 1].close);
 
     const diffPercent = Math.abs(last.fast - last.slow) / last.slow * 100;
     const confidence = Math.min(95, Math.max(65, Math.round(65 + diffPercent * 50)));
@@ -488,8 +481,8 @@ export function getCurrentSignal({
       action,
       entry,
       confidence,
-      timestamp: zenData[crossoverIdx].time * 1000,
-      triggered: true
+      timestamp: last.time * 1000,
+      triggered: crossedNow
     };
   }
 

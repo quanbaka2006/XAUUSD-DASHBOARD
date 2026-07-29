@@ -63,6 +63,12 @@ test('returns only unseen running records for popup notifications', () => {
   assert.deepEqual(unseen.map(item => item.id), ['new-running']);
 });
 
+test('deduplicates the same backend record before rendering or notifying', () => {
+  const duplicate = record({ id: 'same-id', indicatorSystem: 'utbot' });
+  const unseen = findNewRunningSignalRecords([duplicate, { ...duplicate }], new Set());
+  assert.deepEqual(unseen.map(item => item.id), ['same-id']);
+});
+
 test('hides a signal that had already settled before publication from live surfaces', () => {
   const stalePublication = {
     id: 'XAUUSD:M1:zen:3',

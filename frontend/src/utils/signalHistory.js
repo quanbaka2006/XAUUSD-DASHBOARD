@@ -27,10 +27,18 @@ const EMPTY_DASHBOARD_SIGNAL = Object.freeze({
   backendAuthoritative: true
 });
 
-const normalizeRecords = (records) => [...records]
-  .filter((record) => record && typeof record === 'object' && typeof record.id === 'string')
-  .sort((a, b) => Number(b.signalTime) - Number(a.signalTime) || Number(b.recordedAt) - Number(a.recordedAt))
-  .slice(0, MAX_RECORDS);
+const normalizeRecords = (records) => {
+  const seenIds = new Set();
+  return [...records]
+    .filter((record) => record && typeof record === 'object' && typeof record.id === 'string')
+    .sort((a, b) => Number(b.signalTime) - Number(a.signalTime) || Number(b.recordedAt) - Number(a.recordedAt))
+    .filter((record) => {
+      if (seenIds.has(record.id)) return false;
+      seenIds.add(record.id);
+      return true;
+    })
+    .slice(0, MAX_RECORDS);
+};
 
 export function readSignalHistory() {
   try {

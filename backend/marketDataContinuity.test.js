@@ -5,7 +5,8 @@ const {
   mergeClosedM1Candles,
   minuteBucket,
   normalizeYahooM1Candles,
-  sanitizeCheckpoint
+  sanitizeCheckpoint,
+  validateRecoveredM1Candles
 } = require('./marketDataContinuity');
 
 test('normalizes and spot-aligns Yahoo M1 candles', () => {
@@ -63,4 +64,49 @@ test('drops stale active candle while restoring a checkpoint', () => {
   assert.equal(restored.active, null);
   assert.equal(restored.lastPrice, 100);
   assert.equal(restored.history.length, 1);
+});
+
+test('rejects a large one-minute spike before recovery reaches the signal engine', () => {
+  const recovery = [
+    { time: 60, open: 4000, high: 4002, low: 3999, close: 4001 },
+    { time: 120, open: 4001, high: 4002, low: 3920, close: 3922 }
+  ];
+  const result = validateRecoveredM1Candles([], recovery);
+  assert.equal(result.valid, false);
+  assert.equal(result.reason, 'abnormal_minute_move');
+});
+
+test('rejects a recovery series that has drifted far from trusted overlap', () => {
+  const existing = [60, 120, 180].map((time, index) => ({
+    time,
+    open: 4000 + index,
+    high: 4002 + index,
+    low: 3999 + index,
+    close: 4001 + index
+  }));
+  const recovery = existing.map(candle => ({
+    ...candle,
+    open: candle.open - 40,
+    high: candle.high - 40,
+    low: candle.low - 40,
+    close: candle.close - 40
+  }));
+  const result = validateRecoveredM1Candles(existing, recovery);
+  assert.equal(result.valid, false);
+  assert.equal(result.reason, 'recovery_drifted_from_checkpoint');
+});
+
+test('accepts a continuous recovery close to the trusted checkpoint', () => {
+  const existing = [60, 120, 180].map((time, index) => ({
+    time,
+    open: 4000 + index,
+    high: 4002 + index,
+    low: 3999 + index,
+    close: 4001 + index
+  }));
+  const recovery = [
+    ...existing,
+    { time: 240, open: 4003, high: 4005, low: 4002, close: 4004 }
+  ];
+  assert.equal(validateRecoveredM1Candles(existing, recovery).valid, true);
 });

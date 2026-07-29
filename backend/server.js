@@ -19,7 +19,8 @@ const {
   mergeClosedM1Candles,
   minuteBucket,
   normalizeYahooM1Candles,
-  sanitizeCheckpoint
+  sanitizeCheckpoint,
+  validateRecoveredM1Candles
 } = require('./marketDataContinuity');
 
 
@@ -971,6 +972,14 @@ function requestXauM1Recovery(reason, processEngine = false) {
 
     try {
       const remoteCandles = await fetchYahooM1Candles('XAUUSD');
+      const recoveryValidation = validateRecoveredM1Candles(previousHistory, remoteCandles, {
+        compareOverlap: processEngine
+      });
+      if (!recoveryValidation.valid) {
+        throw new Error(
+          `Rejected unsafe Yahoo recovery (${recoveryValidation.reason})`
+        );
+      }
       const merged = mergeClosedM1Candles(
         previousHistory,
         remoteCandles,
@@ -1631,11 +1640,25 @@ function sanitizeGlobalSignalRecord(raw) {
   };
 }
 
+function normalizeGlobalSignalRecords(records) {
+  const seenIds = new Set();
+  return (Array.isArray(records) ? records : [])
+    .map(sanitizeGlobalSignalRecord)
+    .filter(record => record && record.actionableAtPublication !== false)
+    .sort((a, b) => Number(b.signalTime) - Number(a.signalTime) || Number(b.recordedAt) - Number(a.recordedAt))
+    .filter((record) => {
+      if (seenIds.has(record.id)) return false;
+      seenIds.add(record.id);
+      return true;
+    })
+    .slice(0, GLOBAL_SIGNAL_HISTORY_LIMIT);
+}
+
 function loadGlobalSignalHistoryFromFile() {
   try {
     if (!fs.existsSync(globalSignalHistoryFilePath)) return [];
     const records = JSON.parse(fs.readFileSync(globalSignalHistoryFilePath, 'utf8'));
-    return Array.isArray(records) ? records.map(sanitizeGlobalSignalRecord).filter(Boolean) : [];
+    return normalizeGlobalSignalRecords(records);
   } catch (error) {
     console.error('[Global Signal History] Local load failed:', error.message);
     return [];
@@ -1655,9 +1678,7 @@ async function loadGlobalSignalHistory() {
   if (useMongoDB) {
     try {
       const document = await db.collection('global_signal_history').findOne({ _id: 'website' });
-      return Array.isArray(document?.records)
-        ? document.records.map(sanitizeGlobalSignalRecord).filter(Boolean)
-        : [];
+      return normalizeGlobalSignalRecords(document?.records);
     } catch (error) {
       console.error('[Global Signal History] MongoDB load failed:', error.message);
     }
@@ -1667,11 +1688,7 @@ async function loadGlobalSignalHistory() {
 
 async function saveGlobalSignalHistory(records) {
   await dbReadyPromise;
-  const normalized = records
-    .map(sanitizeGlobalSignalRecord)
-    .filter(Boolean)
-    .sort((a, b) => Number(b.signalTime) - Number(a.signalTime) || Number(b.recordedAt) - Number(a.recordedAt))
-    .slice(0, GLOBAL_SIGNAL_HISTORY_LIMIT);
+  const normalized = normalizeGlobalSignalRecords(records);
 
   if (useMongoDB) {
     try {
