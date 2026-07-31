@@ -1,0 +1,25 @@
+# ScreenClone
+
+Rootless jailbreak tweak for Dopamine on iOS 15 and 16.
+
+## Gestures
+
+- Hold the invisible 50 x 50 pt top-left hot zone for 0.7 seconds.
+- Drag to select a region. A borderless clone is placed at the same coordinates.
+- Tap the hot zone to hide/show every clone.
+- Respring to clear all clones in this initial version.
+
+The border is visible only while selecting; the resulting clone has no border.
+Secure/DRM content may be black because iOS prevents it from being captured.
+
+## Build
+
+Install Theos and an iOS SDK, then run:
+
+```sh
+make package THEOS_PACKAGE_SCHEME=rootless FINALPACKAGE=1
+```
+
+The package is written to `packages/` and can be installed with Sileo, Filza,
+or `dpkg`.
+
