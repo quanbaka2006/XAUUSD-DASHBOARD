@@ -1,6 +1,7 @@
 #import "SCOverlayManager.h"
 #import <QuartzCore/QuartzCore.h>
 #import <dlfcn.h>
+#import <objc/runtime.h>
 
 typedef CGImageRef (*SCGetScreenImageFunction)(void);
 typedef UIImage *(*SCCreateScreenUIImageFunction)(void);
@@ -53,6 +54,32 @@ static void SCLog(NSString *message) {
     [handle closeFile];
 }
 
+static void SCDumpScreenshotMethods(void) {
+    NSMutableString *dump = [NSMutableString string];
+    int count = objc_getClassList(NULL, 0);
+    Class *classes = (__unsafe_unretained Class *)calloc(count, sizeof(Class));
+    count = objc_getClassList(classes, count);
+    for (int index = 0; index < count; index++) {
+        NSString *name = NSStringFromClass(classes[index]);
+        if ([name rangeOfString:@"screenshot" options:NSCaseInsensitiveSearch].location == NSNotFound &&
+            [name rangeOfString:@"shotter" options:NSCaseInsensitiveSearch].location == NSNotFound) {
+            continue;
+        }
+        [dump appendFormat:@"\n[%@]\n", name];
+        unsigned int methodCount = 0;
+        Method *methods = class_copyMethodList(classes[index], &methodCount);
+        for (unsigned int methodIndex = 0; methodIndex < methodCount; methodIndex++) {
+            [dump appendFormat:@"%@\n", NSStringFromSelector(method_getName(methods[methodIndex]))];
+        }
+        free(methods);
+    }
+    free(classes);
+    [dump writeToFile:@"/var/mobile/ScreenCloneScreenshotMethods.txt"
+           atomically:YES
+             encoding:NSUTF8StringEncoding
+                error:nil];
+}
+
 + (instancetype)sharedManager {
     static SCOverlayManager *manager;
     static dispatch_once_t onceToken;
@@ -84,6 +111,7 @@ static void SCLog(NSString *message) {
                                    userInfo:nil
                                     repeats:YES];
     SCLog(@"manager started");
+    SCDumpScreenshotMethods();
 }
 
 - (void)checkDebugTrigger {
