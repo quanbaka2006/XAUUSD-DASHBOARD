@@ -188,6 +188,18 @@ function createStore({ getMongoDatabase, databaseReady, localFile }) {
       });
     },
 
+    async deleteAccount(username) {
+      const database = await mongoDatabase();
+      if (database) {
+        return database.collection('screenclone_license_accounts').deleteOne({ username });
+      }
+      return mutateLocal((state) => {
+        const existed = Boolean(state.accounts[username]);
+        delete state.accounts[username];
+        return { deletedCount: existed ? 1 : 0 };
+      });
+    },
+
     async getDevice(deviceId) {
       const database = await mongoDatabase();
       if (database) {

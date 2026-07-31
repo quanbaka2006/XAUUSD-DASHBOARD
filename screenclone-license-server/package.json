@@ -1,0 +1,24 @@
+{
+  "name": "screenclone-license-server",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Isolated account and device licensing service for ScreenClone",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "test": "node --test",
+    "generate:key": "node scripts/generateScreenCloneLicenseKey.js",
+    "generate:admin": "node scripts/generateAdminCredentials.js"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "dependencies": {
+    "dotenv": "^17.4.2",
+    "express": "^4.21.2",
+    "express-rate-limit": "^8.5.2",
+    "express-slow-down": "^3.1.0",
+    "helmet": "^8.2.0",
+    "mongodb": "^6.21.0"
+  }
+}

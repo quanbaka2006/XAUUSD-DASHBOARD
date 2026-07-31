@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="vi">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="robots" content="noindex,nofollow,noarchive" />
+    <title>ScreenClone License</title>
+    <link rel="stylesheet" href="/assets/styles.css" />
+  </head>
+  <body>
+    <main class="shell">
+      <section id="login-view" class="login-card">
+        <div class="brand-mark">SC</div>
+        <p class="eyebrow">PRIVATE LICENSE CONTROL</p>
+        <h1>ScreenClone</h1>
+        <p class="muted">Hệ thống này độc lập với tài khoản AlphaGold.</p>
+        <form id="login-form" class="stack">
+          <label>Tài khoản chủ<input id="login-username" autocomplete="username" required /></label>
+          <label>Mật khẩu<input id="login-password" type="password" autocomplete="current-password" minlength="12" required /></label>
+          <button type="submit" class="primary">Đăng nhập quản trị</button>
+        </form>
+        <p id="login-message" class="message hidden"></p>
+      </section>
+
+      <section id="dashboard-view" class="hidden">
+        <header class="topbar">
+          <div>
+            <p class="eyebrow">OWNER CONSOLE</p>
+            <h1>ScreenClone License</h1>
+            <p class="muted">Database và tài khoản riêng biệt hoàn toàn.</p>
+          </div>
+          <div class="toolbar">
+            <button id="refresh-button" class="secondary">Làm mới</button>
+            <button id="logout-button" class="danger-ghost">Đăng xuất</button>
+          </div>
+        </header>
+
+        <div id="system-message" class="message hidden"></div>
+
+        <section class="stats">
+          <article><span>Tài khoản</span><strong id="stat-customers">0</strong></article>
+          <article><span>Máy đã duyệt</span><strong id="stat-approved">0</strong></article>
+          <article><span>Đang chờ</span><strong id="stat-pending">0</strong></article>
+          <article><span>Khóa ký</span><strong id="stat-key">—</strong></article>
+        </section>
+
+        <section class="panel">
+          <div class="panel-heading">
+            <div><p class="eyebrow">NEW CUSTOMER</p><h2>Tạo tài khoản ScreenClone</h2></div>
+          </div>
+          <form id="create-form" class="form-grid">
+            <label>Tên hiển thị<input id="create-name" maxlength="80" required /></label>
+            <label>Tên đăng nhập<input id="create-username" pattern="[a-zA-Z0-9._-]{3,32}" required /></label>
+            <label>Mật khẩu ban đầu<input id="create-password" type="password" minlength="12" maxlength="128" required /></label>
+            <label>Số máy tối đa<input id="create-max-devices" type="number" value="1" min="1" max="20" required /></label>
+            <label>Offline tối đa
+              <select id="create-offline-hours">
+                <option value="1">1 giờ</option><option value="3">3 giờ</option>
+                <option value="6">6 giờ</option><option value="12" selected>12 giờ</option>
+                <option value="24">24 giờ</option>
+              </select>
+            </label>
+            <label>Ngày hết hạn<input id="create-expiry" type="date" /></label>
+            <button type="submit" class="primary form-submit">Tạo và cấp phép</button>
+          </form>
+        </section>
+
+        <section class="panel">
+          <div class="panel-heading split">
+            <div><p class="eyebrow">CUSTOMERS & DEVICES</p><h2>Quản lý giấy phép</h2></div>
+            <input id="search-input" class="search" placeholder="Tìm tài khoản hoặc iPhone…" />
+          </div>
+          <div id="customer-list" class="customer-list"></div>
+        </section>
+      </section>
+    </main>
+    <script src="/assets/admin.js" defer></script>
+  </body>
+</html>

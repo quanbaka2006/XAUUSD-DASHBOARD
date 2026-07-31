@@ -14,7 +14,6 @@ import {
 } from 'lucide-react';
 import { useTradeStore, SOCKET_URL } from '../store/useTradeStore';
 import { useTranslation } from '../utils/translations';
-import { ScreenCloneLicensePanel } from './ScreenCloneLicensePanel';
 
 export function AdminPanel() {
   const { t } = useTranslation();
@@ -232,10 +231,6 @@ export function AdminPanel() {
           Quản lý tài khoản thành viên, phân quyền và bảo mật hệ thống.
         </p>
       </div>
-
-      {(user?.role === 'SuperAdmin' || user?.role === 'Administrator') && (
-        <ScreenCloneLicensePanel />
-      )}
 
     <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-stretch text-left">
       {/* LEFT COLUMN: CREATE USER FORM */}

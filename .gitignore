@@ -19,12 +19,12 @@ backend/users.json
 users.json
 backend/audit_logs.json
 backend/xauusd_m1_checkpoint.json
-backend/screenclone_licenses.json
-backend/screenclone_licenses.json.*.tmp
-
 # ScreenClone signing secrets (the public verification key is safe to commit)
 .tools/screenclone-license-private.pem
 .tools/screenclone-license-env.txt
+.tools/screenclone-admin-env.txt
+.tools/screenclone-owner-login.txt
+screenclone-license-server/data/
 
 # ── MongoDB Local Backups (chứa dữ liệu người dùng thật) ────
 backups/

@@ -1,0 +1,29 @@
+name: Test ScreenClone license service
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - "screenclone-license-server/**"
+      - ".github/workflows/screenclone-license.yml"
+  pull_request:
+    paths:
+      - "screenclone-license-server/**"
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: screenclone-license-server
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: screenclone-license-server/package-lock.json
+      - run: npm ci
+      - run: npm test
+      - run: node --check server.js
+      - run: node --check public/admin.js

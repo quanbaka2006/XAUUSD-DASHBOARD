@@ -12,7 +12,7 @@ const {
   createScreenCloneLicenseRouter,
   normalizeDeviceId,
   tokenDigest
-} = require('./screenCloneLicense');
+} = require('./licenseCore');
 
 test('P-256 license token is signed in a format the client can verify', () => {
   const { privateKey } = crypto.generateKeyPairSync('ec', { namedCurve: 'prime256v1' });

@@ -1,6 +1,8 @@
 # ScreenClone
 
-Version 1.0 introduces account and device licensing. A new device must sign in,
+Version 1.1 introduces an isolated account and device licensing service. It
+does not use AlphaGold website users, sessions, JWT secrets, or collections.
+A new device must sign in,
 appear in the web administration panel, and be approved before capture is
 enabled. Entitlements are signed by the server with P-256; only the public key
 is included in the tweak. Refresh credentials rotate after every successful
@@ -8,9 +10,14 @@ check and an administrator can revoke a device remotely.
 
 Required server environment variables:
 
+- `SCREENCLONE_MONGODB_URI` (a dedicated database/service account)
+- `SCREENCLONE_DB_NAME=screenclone_license`
 - `SCREENCLONE_LICENSE_PRIVATE_KEY_B64`
 - `SCREENCLONE_TOKEN_PEPPER` (at least 32 characters)
-- `SCREENCLONE_MIN_CLIENT_VERSION=1.0.0`
+- `SCREENCLONE_ADMIN_USERNAME`
+- `SCREENCLONE_ADMIN_PASSWORD_HASH`
+- `SCREENCLONE_ADMIN_SESSION_SECRET`
+- `SCREENCLONE_MIN_CLIENT_VERSION=1.1.0`
 - `SCREENCLONE_OFFLINE_HOURS=12` (1-24)
 
 The private signing key must never be committed or placed in the `.deb`.
