@@ -556,10 +556,11 @@ function createScreenCloneLicenseRouter(options) {
     const offlineHours = clampInteger(req.body.offlineHours, 1, 24, previous.offlineHours);
     let expiresAt = previous.expiresAt;
     if (req.body.expiresAt !== undefined) {
-      expiresAt = req.body.expiresAt ? new Date(req.body.expiresAt).toISOString() : null;
-      if (expiresAt && Number.isNaN(new Date(expiresAt).getTime())) {
+      const parsedExpiry = req.body.expiresAt ? new Date(req.body.expiresAt) : null;
+      if (parsedExpiry && Number.isNaN(parsedExpiry.getTime())) {
         return res.status(400).json({ success: false, error: 'Ngày hết hạn không hợp lệ.' });
       }
+      expiresAt = parsedExpiry ? parsedExpiry.toISOString() : null;
     }
 
     const entitlementChanged = previous.enabled !== enabled

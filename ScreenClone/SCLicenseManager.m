@@ -8,7 +8,7 @@
 #import <sys/sysctl.h>
 
 static NSString * const SCClientVersion = @"1.0.0";
-static NSString * const SCLicenseBaseURL = @"https://alphagoldhub.com/api/screenclone";
+static NSString * const SCLicenseBaseURL = @"https://www.alphagoldhub.com/api/screenclone";
 static NSString * const SCKeychainService = @"com.quanhandsome.screenclone.license.v1";
 
 typedef CFTypeRef (*SCMGCopyAnswerFunction)(CFStringRef key);
