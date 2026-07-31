@@ -4,4 +4,5 @@
 + (instancetype)sharedManager;
 - (void)start;
 - (void)activateCapture;
+- (void)applyClonesVisible:(BOOL)visible;
 @end

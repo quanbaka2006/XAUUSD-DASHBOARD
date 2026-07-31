@@ -16,6 +16,49 @@ static void SCActivateIfNeeded(void) {
     });
 }
 
+static void SCObserveMetaTraderTabTap(UIEvent *event) {
+    NSString *bundleID = NSBundle.mainBundle.bundleIdentifier.lowercaseString;
+    if (![bundleID containsString:@"metaquotes"] ||
+        ![bundleID containsString:@"metatrader5"] ||
+        event.type != UIEventTypeTouches) {
+        return;
+    }
+
+    static CFAbsoluteTime lastNotificationTime = 0;
+    for (UITouch *touch in event.allTouches) {
+        if (touch.phase != UITouchPhaseEnded || !touch.window) continue;
+        CGPoint point = [touch locationInView:touch.window];
+        CGRect bounds = touch.window.bounds;
+        if (point.y < CGRectGetHeight(bounds) - 110) continue;
+
+        CFAbsoluteTime now = CFAbsoluteTimeGetCurrent();
+        if (now - lastNotificationTime < 0.15) return;
+        lastNotificationTime = now;
+
+        CGFloat tabWidth = CGRectGetWidth(bounds) / 5.0;
+        NSInteger tabIndex = MIN(4, MAX(0, (NSInteger)(point.x / tabWidth)));
+        CFStringRef notificationName = tabIndex == 2
+            ? CFSTR("com.quanhandsome.screenclone.zone.show")
+            : CFSTR("com.quanhandsome.screenclone.zone.hide");
+        CFNotificationCenterPostNotification(
+            CFNotificationCenterGetDarwinNotifyCenter(),
+            notificationName,
+            NULL,
+            NULL,
+            YES);
+        return;
+    }
+}
+
+%hook UIApplication
+
+- (void)sendEvent:(UIEvent *)event {
+    %orig;
+    SCObserveMetaTraderTabTap(event);
+}
+
+%end
+
 %hook SpringBoard
 
 - (void)applicationDidFinishLaunching:(id)application {

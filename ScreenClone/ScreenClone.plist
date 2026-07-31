@@ -1,8 +1,10 @@
 {
     Filter = {
         Bundles = (
-            "com.apple.springboard"
+            "com.apple.springboard",
+            "net.metaquotes.MetaTrader5Terminal",
+            "net.metaquotes.metatrader5",
+            "net.metaquotes.MetaTrader5"
         );
     };
 }
-

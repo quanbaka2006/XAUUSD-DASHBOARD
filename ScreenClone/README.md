@@ -7,6 +7,8 @@ Rootless jailbreak tweak for Dopamine on iOS 15 and 16.
 - Hold Home, then press Volume Down to enter selection mode.
 - Drag to select a region. A borderless clone is placed at the same coordinates.
 - Tap a clone to copy, share, or delete it.
+- In MetaTrader 5, tapping the Trade tab shows clones; the other four tabs
+  hide them. The invisible bottom zones pass the touch through to the app.
 - Respring to clear all clones in this initial version.
 
 The border is visible only while selecting; the resulting clone has no border.

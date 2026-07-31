@@ -15,9 +15,13 @@ typedef UIImage *(*SCCreateScreenUIImageFunction)(void);
     if (self.selecting || self.rootViewController.presentedViewController) {
         return [super hitTest:point withEvent:event];
     }
+    if (point.y >= CGRectGetHeight(self.bounds) - 110) {
+        return nil;
+    }
     UIView *rootView = self.rootViewController.view;
     for (UIView *view in rootView.subviews.reverseObjectEnumerator) {
-        if (view.tag == 7303 && CGRectContainsPoint(view.frame, point)) {
+        if (view.tag == 7303 && !view.hidden && view.alpha > 0.01 &&
+            CGRectContainsPoint(view.frame, point)) {
             return view;
         }
     }
@@ -58,6 +62,17 @@ static void SCLog(NSString *message) {
     [handle closeFile];
 }
 
+static void SCZoneNotification(CFNotificationCenterRef center,
+                               void *observer,
+                               CFStringRef name,
+                               const void *object,
+                               CFDictionaryRef userInfo) {
+    BOOL visible = CFEqual(name, CFSTR("com.quanhandsome.screenclone.zone.show"));
+    dispatch_async(dispatch_get_main_queue(), ^{
+        [[SCOverlayManager sharedManager] applyClonesVisible:visible];
+    });
+}
+
 + (instancetype)sharedManager {
     static SCOverlayManager *manager;
     static dispatch_once_t onceToken;
@@ -83,7 +98,26 @@ static void SCLog(NSString *message) {
     self.window.rootViewController = controller;
 
     self.window.hidden = NO;
+    CFNotificationCenterAddObserver(CFNotificationCenterGetDarwinNotifyCenter(),
+                                    NULL,
+                                    SCZoneNotification,
+                                    CFSTR("com.quanhandsome.screenclone.zone.show"),
+                                    NULL,
+                                    CFNotificationSuspensionBehaviorDeliverImmediately);
+    CFNotificationCenterAddObserver(CFNotificationCenterGetDarwinNotifyCenter(),
+                                    NULL,
+                                    SCZoneNotification,
+                                    CFSTR("com.quanhandsome.screenclone.zone.hide"),
+                                    NULL,
+                                    CFNotificationSuspensionBehaviorDeliverImmediately);
     SCLog(@"manager started");
+}
+
+- (void)applyClonesVisible:(BOOL)visible {
+    self.clonesVisible = visible;
+    for (UIImageView *clone in self.clones) {
+        clone.hidden = !visible;
+    }
 }
 
 - (void)activateCapture {
@@ -386,6 +420,7 @@ static void SCLog(NSString *message) {
     clone.layer.borderWidth = 0;
     clone.layer.cornerRadius = 0;
     clone.clipsToBounds = YES;
+    clone.hidden = !self.clonesVisible;
     UITapGestureRecognizer *tap = [[UITapGestureRecognizer alloc]
         initWithTarget:self action:@selector(cloneTapped:)];
     [clone addGestureRecognizer:tap];
