@@ -62,13 +62,6 @@ typedef CGImageRef (*SCGetScreenImageFunction)(void);
     tap.delegate = self;
     [self.rootView addGestureRecognizer:tap];
 
-    UILongPressGestureRecognizer *hold = [[UILongPressGestureRecognizer alloc]
-        initWithTarget:self action:@selector(hotZoneHeld:)];
-    hold.minimumPressDuration = 0.7;
-    hold.delegate = self;
-    [self.rootView addGestureRecognizer:hold];
-    [tap requireGestureRecognizerToFail:hold];
-
     self.window.hidden = NO;
 }
 
@@ -86,8 +79,8 @@ typedef CGImageRef (*SCGetScreenImageFunction)(void);
     }
 }
 
-- (void)hotZoneHeld:(UILongPressGestureRecognizer *)gesture {
-    if (gesture.state != UIGestureRecognizerStateBegan) return;
+- (void)activateCapture {
+    if (self.window.selecting) return;
     [self beginSelection];
 }
 

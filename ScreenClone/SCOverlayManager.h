@@ -3,5 +3,5 @@
 @interface SCOverlayManager : NSObject
 + (instancetype)sharedManager;
 - (void)start;
+- (void)activateCapture;
 @end
-

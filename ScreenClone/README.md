@@ -4,7 +4,7 @@ Rootless jailbreak tweak for Dopamine on iOS 15 and 16.
 
 ## Gestures
 
-- Hold the invisible 50 x 50 pt top-left hot zone for 0.7 seconds.
+- Press Power + Volume Down together to enter selection mode.
 - Drag to select a region. A borderless clone is placed at the same coordinates.
 - Tap the hot zone to hide/show every clone.
 - Respring to clear all clones in this initial version.
@@ -22,4 +22,3 @@ make package THEOS_PACKAGE_SCHEME=rootless FINALPACKAGE=1
 
 The package is written to `packages/` and can be installed with Sileo, Filza,
 or `dpkg`.
-
