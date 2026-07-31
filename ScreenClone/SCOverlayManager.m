@@ -33,6 +33,7 @@ typedef UIImage *(*SCCreateScreenUIImageFunction)(void);
 @property (nonatomic, assign) CGPoint dragStart;
 @property (nonatomic, assign) BOOL clonesVisible;
 @property (nonatomic, assign) BOOL started;
+@property (nonatomic, assign) BOOL capturePending;
 @end
 
 @implementation SCOverlayManager
@@ -95,7 +96,7 @@ static void SCLog(NSString *message) {
 
 - (void)activateCapture {
     SCLog(@"activateCapture called");
-    if (self.window.selecting) return;
+    if (self.window.selecting || self.capturePending) return;
     [self beginSelection];
 }
 
@@ -125,10 +126,19 @@ static void SCLog(NSString *message) {
 
 - (void)beginSelection {
     SCLog(@"beginSelection");
-    BOOL wasHidden = self.window.hidden;
+    self.capturePending = YES;
     self.window.hidden = YES;
+    [CATransaction flush];
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 100 * NSEC_PER_MSEC),
+                   dispatch_get_main_queue(), ^{
+        [self finishBeginningSelection];
+    });
+}
+
+- (void)finishBeginningSelection {
     self.screenImage = [self captureScreen];
-    self.window.hidden = wasHidden;
+    self.window.hidden = NO;
+    self.capturePending = NO;
     if (!self.screenImage) {
         SCLog(@"capture failed: image is nil");
         return;
