@@ -3,6 +3,7 @@
 #import <dlfcn.h>
 
 typedef CGImageRef (*SCGetScreenImageFunction)(void);
+typedef UIImage *(*SCCreateScreenUIImageFunction)(void);
 
 @interface SCPassthroughWindow : UIWindow
 @property (nonatomic, assign) CGRect hotZone;
@@ -85,6 +86,13 @@ typedef CGImageRef (*SCGetScreenImageFunction)(void);
 }
 
 - (UIImage *)captureScreen {
+    SCCreateScreenUIImageFunction createScreenUIImage =
+        (SCCreateScreenUIImageFunction)dlsym(RTLD_DEFAULT, "_UICreateScreenUIImage");
+    if (createScreenUIImage) {
+        UIImage *image = createScreenUIImage();
+        if (image) return image;
+    }
+
     SCGetScreenImageFunction getScreenImage =
         (SCGetScreenImageFunction)dlsym(RTLD_DEFAULT, "UIGetScreenImage");
     if (!getScreenImage) return nil;
@@ -105,6 +113,10 @@ typedef CGImageRef (*SCGetScreenImageFunction)(void);
     if (!self.screenImage) return;
 
     self.window.selecting = YES;
+    self.rootView.backgroundColor = [UIColor colorWithWhite:0 alpha:0.08];
+    UIImpactFeedbackGenerator *feedback =
+        [[UIImpactFeedbackGenerator alloc] initWithStyle:UIImpactFeedbackStyleMedium];
+    [feedback impactOccurred];
     self.clonesVisible = YES;
     for (UIImageView *clone in self.clones) clone.hidden = NO;
 
@@ -130,6 +142,7 @@ typedef CGImageRef (*SCGetScreenImageFunction)(void);
         self.selectionView = nil;
         [self.rootView removeGestureRecognizer:gesture];
         self.window.selecting = NO;
+        self.rootView.backgroundColor = UIColor.clearColor;
         if (rect.size.width >= 4 && rect.size.height >= 4) {
             [self addCloneForRect:rect];
         }
@@ -140,6 +153,7 @@ typedef CGImageRef (*SCGetScreenImageFunction)(void);
         self.selectionView = nil;
         [self.rootView removeGestureRecognizer:gesture];
         self.window.selecting = NO;
+        self.rootView.backgroundColor = UIColor.clearColor;
         self.screenImage = nil;
     }
 }
