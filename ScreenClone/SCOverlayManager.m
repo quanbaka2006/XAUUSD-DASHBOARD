@@ -1,7 +1,7 @@
 #import "SCOverlayManager.h"
 #import <QuartzCore/QuartzCore.h>
 #import <dlfcn.h>
-#import <objc/runtime.h>
+#import <objc/message.h>
 
 typedef CGImageRef (*SCGetScreenImageFunction)(void);
 typedef UIImage *(*SCCreateScreenUIImageFunction)(void);
@@ -54,32 +54,6 @@ static void SCLog(NSString *message) {
     [handle closeFile];
 }
 
-static void SCDumpScreenshotMethods(void) {
-    NSMutableString *dump = [NSMutableString string];
-    int count = objc_getClassList(NULL, 0);
-    Class *classes = (__unsafe_unretained Class *)calloc(count, sizeof(Class));
-    count = objc_getClassList(classes, count);
-    for (int index = 0; index < count; index++) {
-        NSString *name = NSStringFromClass(classes[index]);
-        if ([name rangeOfString:@"screenshot" options:NSCaseInsensitiveSearch].location == NSNotFound &&
-            [name rangeOfString:@"shotter" options:NSCaseInsensitiveSearch].location == NSNotFound) {
-            continue;
-        }
-        [dump appendFormat:@"\n[%@]\n", name];
-        unsigned int methodCount = 0;
-        Method *methods = class_copyMethodList(classes[index], &methodCount);
-        for (unsigned int methodIndex = 0; methodIndex < methodCount; methodIndex++) {
-            [dump appendFormat:@"%@\n", NSStringFromSelector(method_getName(methods[methodIndex]))];
-        }
-        free(methods);
-    }
-    free(classes);
-    [dump writeToFile:@"/var/mobile/ScreenCloneScreenshotMethods.txt"
-           atomically:YES
-             encoding:NSUTF8StringEncoding
-                error:nil];
-}
-
 + (instancetype)sharedManager {
     static SCOverlayManager *manager;
     static dispatch_once_t onceToken;
@@ -111,7 +85,6 @@ static void SCDumpScreenshotMethods(void) {
                                    userInfo:nil
                                     repeats:YES];
     SCLog(@"manager started");
-    SCDumpScreenshotMethods();
 }
 
 - (void)checkDebugTrigger {
@@ -129,6 +102,40 @@ static void SCDumpScreenshotMethods(void) {
 }
 
 - (UIImage *)captureScreen {
+    id springBoard = UIApplication.sharedApplication;
+    SEL managerSelector = NSSelectorFromString(@"screenshotManager");
+    if ([springBoard respondsToSelector:managerSelector]) {
+        id screenshotManager = ((id (*)(id, SEL))objc_msgSend)(springBoard, managerSelector);
+        SEL providerSelector = NSSelectorFromString(@"_providerForScreen:");
+        if ([screenshotManager respondsToSelector:providerSelector]) {
+            id provider = ((id (*)(id, SEL, id))objc_msgSend)(
+                screenshotManager, providerSelector, UIScreen.mainScreen);
+            SEL captureSelector = NSSelectorFromString(@"captureScreenshot");
+            if ([provider respondsToSelector:captureSelector]) {
+                id result = ((id (*)(id, SEL))objc_msgSend)(provider, captureSelector);
+                SCLog([NSString stringWithFormat:@"system provider=%@ result=%@",
+                       provider, result]);
+                if ([result isKindOfClass:UIImage.class]) return result;
+                SEL imageSelector = NSSelectorFromString(@"image");
+                if ([result respondsToSelector:imageSelector]) {
+                    id image = ((id (*)(id, SEL))objc_msgSend)(result, imageSelector);
+                    if ([image isKindOfClass:UIImage.class]) return image;
+                }
+            }
+        }
+    }
+
+    Class snapshotterClass = NSClassFromString(@"SSMainScreenSnapshotter");
+    SEL initSelector = NSSelectorFromString(@"initWithScreen:");
+    id snapshotter = ((id (*)(id, SEL, id))objc_msgSend)(
+        [snapshotterClass alloc], initSelector, UIScreen.mainScreen);
+    SEL takeSelector = NSSelectorFromString(@"takeScreenshot");
+    if ([snapshotter respondsToSelector:takeSelector]) {
+        id result = ((id (*)(id, SEL))objc_msgSend)(snapshotter, takeSelector);
+        SCLog([NSString stringWithFormat:@"snapshotter result=%@", result]);
+        if ([result isKindOfClass:UIImage.class]) return result;
+    }
+
     SCCreateScreenUIImageFunction createScreenUIImage =
         (SCCreateScreenUIImageFunction)dlsym(RTLD_DEFAULT, "_UICreateScreenUIImage");
     SCLog([NSString stringWithFormat:@"_UICreateScreenUIImage=%p", createScreenUIImage]);
