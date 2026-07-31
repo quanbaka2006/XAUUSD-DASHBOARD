@@ -6,7 +6,7 @@ Rootless jailbreak tweak for Dopamine on iOS 15 and 16.
 
 - Press Power + Volume Down together to enter selection mode.
 - Drag to select a region. A borderless clone is placed at the same coordinates.
-- Tap the hot zone to hide/show every clone.
+- Tap a clone to copy, share, or delete it.
 - Respring to clear all clones in this initial version.
 
 The border is visible only while selecting; the resulting clone has no border.

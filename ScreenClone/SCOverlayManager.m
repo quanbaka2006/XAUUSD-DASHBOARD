@@ -6,14 +6,19 @@ typedef CGImageRef (*SCGetScreenImageFunction)(void);
 typedef UIImage *(*SCCreateScreenUIImageFunction)(void);
 
 @interface SCPassthroughWindow : UIWindow
-@property (nonatomic, assign) CGRect hotZone;
 @property (nonatomic, assign) BOOL selecting;
 @end
 
 @implementation SCPassthroughWindow
 - (UIView *)hitTest:(CGPoint)point withEvent:(UIEvent *)event {
-    if (self.selecting || CGRectContainsPoint(self.hotZone, point)) {
+    if (self.selecting || self.rootViewController.presentedViewController) {
         return [super hitTest:point withEvent:event];
+    }
+    UIView *rootView = self.rootViewController.view;
+    for (UIView *view in rootView.subviews.reverseObjectEnumerator) {
+        if (view.tag == 7303 && CGRectContainsPoint(view.frame, point)) {
+            return view;
+        }
     }
     return nil;
 }
@@ -23,7 +28,6 @@ typedef UIImage *(*SCCreateScreenUIImageFunction)(void);
 @property (nonatomic, strong) SCPassthroughWindow *window;
 @property (nonatomic, strong) UIView *rootView;
 @property (nonatomic, strong) UIView *selectionView;
-@property (nonatomic, strong) UIButton *toggleButton;
 @property (nonatomic, strong) NSMutableArray<UIImageView *> *clones;
 @property (nonatomic, strong) UIImage *screenImage;
 @property (nonatomic, assign) CGPoint dragStart;
@@ -67,21 +71,10 @@ static void SCLog(NSString *message) {
     self.window = [[SCPassthroughWindow alloc] initWithFrame:bounds];
     self.window.windowLevel = UIWindowLevelAlert + 1000.0;
     self.window.backgroundColor = UIColor.clearColor;
-    self.window.hotZone = CGRectMake(0, 0, 50, 50);
-
     UIViewController *controller = [UIViewController new];
     controller.view.backgroundColor = UIColor.clearColor;
     self.rootView = controller.view;
     self.window.rootViewController = controller;
-
-    self.toggleButton = [UIButton buttonWithType:UIButtonTypeCustom];
-    self.toggleButton.frame = self.window.hotZone;
-    self.toggleButton.backgroundColor = UIColor.clearColor;
-    self.toggleButton.accessibilityLabel = @"Toggle ScreenClone overlays";
-    [self.toggleButton addTarget:self
-                          action:@selector(toggleClones)
-                forControlEvents:UIControlEventTouchUpInside];
-    [self.rootView addSubview:self.toggleButton];
 
     self.window.hidden = NO;
     [NSTimer scheduledTimerWithTimeInterval:0.5
@@ -98,21 +91,6 @@ static void SCLog(NSString *message) {
     [NSFileManager.defaultManager removeItemAtPath:path error:nil];
     SCLog(@"debug trigger received");
     [self activateCapture];
-}
-
-- (BOOL)gestureRecognizer:(UIGestureRecognizer *)gesture
-       shouldReceiveTouch:(UITouch *)touch {
-    if (self.window.selecting) return NO;
-    CGPoint point = [touch locationInView:self.rootView];
-    return CGRectContainsPoint(self.window.hotZone, point);
-}
-
-- (void)toggleClones {
-    SCLog(@"toggle button tapped");
-    self.clonesVisible = !self.clonesVisible;
-    for (UIImageView *clone in self.clones) {
-        clone.hidden = !self.clonesVisible;
-    }
 }
 
 - (void)activateCapture {
@@ -230,15 +208,60 @@ static void SCLog(NSString *message) {
     CGImageRelease(croppedRef);
 
     UIImageView *clone = [[UIImageView alloc] initWithFrame:rect];
+    clone.tag = 7303;
     clone.image = cropped;
     clone.contentMode = UIViewContentModeScaleToFill;
-    clone.userInteractionEnabled = NO;
+    clone.userInteractionEnabled = YES;
     clone.layer.borderWidth = 0;
     clone.layer.cornerRadius = 0;
     clone.clipsToBounds = YES;
+    UITapGestureRecognizer *tap = [[UITapGestureRecognizer alloc]
+        initWithTarget:self action:@selector(cloneTapped:)];
+    [clone addGestureRecognizer:tap];
     [self.rootView addSubview:clone];
     [self.clones addObject:clone];
-    [self.rootView bringSubviewToFront:self.toggleButton];
+}
+
+- (void)cloneTapped:(UITapGestureRecognizer *)gesture {
+    if (gesture.state != UIGestureRecognizerStateEnded) return;
+    UIImageView *clone = (UIImageView *)gesture.view;
+    if (![clone isKindOfClass:UIImageView.class]) return;
+
+    UIAlertController *menu = [UIAlertController
+        alertControllerWithTitle:@"Ảnh clone"
+                         message:nil
+                  preferredStyle:UIAlertControllerStyleActionSheet];
+    [menu addAction:[UIAlertAction actionWithTitle:@"Sao chép"
+                                             style:UIAlertActionStyleDefault
+                                           handler:^(__unused UIAlertAction *action) {
+        UIPasteboard.generalPasteboard.image = clone.image;
+    }]];
+    [menu addAction:[UIAlertAction actionWithTitle:@"Chia sẻ"
+                                             style:UIAlertActionStyleDefault
+                                           handler:^(__unused UIAlertAction *action) {
+        UIActivityViewController *share = [[UIActivityViewController alloc]
+            initWithActivityItems:@[clone.image]
+            applicationActivities:nil];
+        share.popoverPresentationController.sourceView = clone;
+        share.popoverPresentationController.sourceRect = clone.bounds;
+        [self.window.rootViewController presentViewController:share
+                                                     animated:YES
+                                                   completion:nil];
+    }]];
+    [menu addAction:[UIAlertAction actionWithTitle:@"Xóa ảnh"
+                                             style:UIAlertActionStyleDestructive
+                                           handler:^(__unused UIAlertAction *action) {
+        [self.clones removeObject:clone];
+        [clone removeFromSuperview];
+    }]];
+    [menu addAction:[UIAlertAction actionWithTitle:@"Hủy"
+                                             style:UIAlertActionStyleCancel
+                                           handler:nil]];
+    menu.popoverPresentationController.sourceView = clone;
+    menu.popoverPresentationController.sourceRect = clone.bounds;
+    [self.window.rootViewController presentViewController:menu
+                                                 animated:YES
+                                               completion:nil];
 }
 
 @end
