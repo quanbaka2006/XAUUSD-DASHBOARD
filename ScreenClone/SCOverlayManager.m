@@ -32,6 +32,21 @@ typedef UIImage *(*SCCreateScreenUIImageFunction)(void);
 
 @implementation SCOverlayManager
 
+static void SCLog(NSString *message) {
+    NSString *line = [NSString stringWithFormat:@"%@ %@\n", [NSDate date], message];
+    NSFileHandle *handle = [NSFileHandle fileHandleForWritingAtPath:@"/var/mobile/ScreenClone.log"];
+    if (!handle) {
+        [line writeToFile:@"/var/mobile/ScreenClone.log"
+               atomically:YES
+                 encoding:NSUTF8StringEncoding
+                    error:nil];
+        return;
+    }
+    [handle seekToEndOfFile];
+    [handle writeData:[line dataUsingEncoding:NSUTF8StringEncoding]];
+    [handle closeFile];
+}
+
 + (instancetype)sharedManager {
     static SCOverlayManager *manager;
     static dispatch_once_t onceToken;
@@ -64,6 +79,20 @@ typedef UIImage *(*SCCreateScreenUIImageFunction)(void);
     [self.rootView addGestureRecognizer:tap];
 
     self.window.hidden = NO;
+    [NSTimer scheduledTimerWithTimeInterval:0.5
+                                     target:self
+                                   selector:@selector(checkDebugTrigger)
+                                   userInfo:nil
+                                    repeats:YES];
+    SCLog(@"manager started");
+}
+
+- (void)checkDebugTrigger {
+    NSString *path = @"/var/mobile/ScreenClone.trigger";
+    if (![NSFileManager.defaultManager fileExistsAtPath:path]) return;
+    [NSFileManager.defaultManager removeItemAtPath:path error:nil];
+    SCLog(@"debug trigger received");
+    [self activateCapture];
 }
 
 - (BOOL)gestureRecognizer:(UIGestureRecognizer *)gesture
@@ -81,6 +110,7 @@ typedef UIImage *(*SCCreateScreenUIImageFunction)(void);
 }
 
 - (void)activateCapture {
+    SCLog(@"activateCapture called");
     if (self.window.selecting) return;
     [self beginSelection];
 }
@@ -88,13 +118,17 @@ typedef UIImage *(*SCCreateScreenUIImageFunction)(void);
 - (UIImage *)captureScreen {
     SCCreateScreenUIImageFunction createScreenUIImage =
         (SCCreateScreenUIImageFunction)dlsym(RTLD_DEFAULT, "_UICreateScreenUIImage");
+    SCLog([NSString stringWithFormat:@"_UICreateScreenUIImage=%p", createScreenUIImage]);
     if (createScreenUIImage) {
         UIImage *image = createScreenUIImage();
+        SCLog([NSString stringWithFormat:@"created UIImage=%@ size=%@",
+              image, NSStringFromCGSize(image.size)]);
         if (image) return image;
     }
 
     SCGetScreenImageFunction getScreenImage =
         (SCGetScreenImageFunction)dlsym(RTLD_DEFAULT, "UIGetScreenImage");
+    SCLog([NSString stringWithFormat:@"UIGetScreenImage=%p", getScreenImage]);
     if (!getScreenImage) return nil;
     CGImageRef imageRef = getScreenImage();
     if (!imageRef) return nil;
@@ -106,13 +140,18 @@ typedef UIImage *(*SCCreateScreenUIImageFunction)(void);
 }
 
 - (void)beginSelection {
+    SCLog(@"beginSelection");
     BOOL wasHidden = self.window.hidden;
     self.window.hidden = YES;
     self.screenImage = [self captureScreen];
     self.window.hidden = wasHidden;
-    if (!self.screenImage) return;
+    if (!self.screenImage) {
+        SCLog(@"capture failed: image is nil");
+        return;
+    }
 
     self.window.selecting = YES;
+    SCLog(@"selection active");
     self.rootView.backgroundColor = [UIColor colorWithWhite:0 alpha:0.08];
     UIImpactFeedbackGenerator *feedback =
         [[UIImpactFeedbackGenerator alloc] initWithStyle:UIImpactFeedbackStyleMedium];
@@ -128,6 +167,7 @@ typedef UIImage *(*SCCreateScreenUIImageFunction)(void);
 - (void)selectionPanned:(UIPanGestureRecognizer *)gesture {
     CGPoint point = [gesture locationInView:self.rootView];
     if (gesture.state == UIGestureRecognizerStateBegan) {
+        SCLog(@"selection pan began");
         self.dragStart = point;
         self.selectionView = [[UIView alloc] initWithFrame:CGRectMake(point.x, point.y, 1, 1)];
         self.selectionView.backgroundColor = [UIColor colorWithWhite:1 alpha:0.12];
@@ -137,6 +177,7 @@ typedef UIImage *(*SCCreateScreenUIImageFunction)(void);
     } else if (gesture.state == UIGestureRecognizerStateChanged) {
         self.selectionView.frame = [self normalizedRectFrom:self.dragStart to:point];
     } else if (gesture.state == UIGestureRecognizerStateEnded) {
+        SCLog(@"selection pan ended");
         CGRect rect = self.selectionView.frame;
         [self.selectionView removeFromSuperview];
         self.selectionView = nil;
