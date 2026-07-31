@@ -29,9 +29,13 @@ typedef UIImage *(*SCCreateScreenUIImageFunction)(void);
 @property (nonatomic, strong) SCPassthroughWindow *window;
 @property (nonatomic, strong) UIView *rootView;
 @property (nonatomic, strong) UIView *selectionView;
+@property (nonatomic, strong) NSMutableArray<UIView *> *cropHandles;
+@property (nonatomic, strong) UIButton *confirmCropButton;
+@property (nonatomic, strong) UIButton *cancelCropButton;
 @property (nonatomic, strong) NSMutableArray<UIImageView *> *clones;
 @property (nonatomic, strong) UIImage *screenImage;
 @property (nonatomic, assign) CGPoint dragStart;
+@property (nonatomic, assign) CGRect cropGestureStartFrame;
 @property (nonatomic, assign) BOOL clonesVisible;
 @property (nonatomic, assign) BOOL started;
 @property (nonatomic, assign) BOOL capturePending;
@@ -79,20 +83,7 @@ static void SCLog(NSString *message) {
     self.window.rootViewController = controller;
 
     self.window.hidden = NO;
-    [NSTimer scheduledTimerWithTimeInterval:0.5
-                                     target:self
-                                   selector:@selector(checkDebugTrigger)
-                                   userInfo:nil
-                                    repeats:YES];
     SCLog(@"manager started");
-}
-
-- (void)checkDebugTrigger {
-    NSString *path = @"/var/mobile/ScreenClone.trigger";
-    if (![NSFileManager.defaultManager fileExistsAtPath:path]) return;
-    [NSFileManager.defaultManager removeItemAtPath:path error:nil];
-    SCLog(@"debug trigger received");
-    [self activateCapture];
 }
 
 - (void)activateCapture {
@@ -208,29 +199,156 @@ static void SCLog(NSString *message) {
     } else if (gesture.state == UIGestureRecognizerStateEnded) {
         SCLog(@"selection pan ended");
         CGRect rect = self.selectionView.frame;
-        [self.selectionView removeFromSuperview];
-        self.selectionView = nil;
         [self.rootView removeGestureRecognizer:gesture];
-        self.window.selecting = NO;
-        self.rootView.backgroundColor = UIColor.clearColor;
-        if (rect.size.width >= 4 && rect.size.height >= 4) {
-            [self addCloneForRect:rect];
+        if (rect.size.width >= 20 && rect.size.height >= 20) {
+            [self beginCropEditing];
+        } else {
+            [self cancelCrop];
         }
-        self.screenImage = nil;
     } else if (gesture.state == UIGestureRecognizerStateCancelled ||
                gesture.state == UIGestureRecognizerStateFailed) {
-        [self.selectionView removeFromSuperview];
-        self.selectionView = nil;
         [self.rootView removeGestureRecognizer:gesture];
-        self.window.selecting = NO;
-        self.rootView.backgroundColor = UIColor.clearColor;
-        self.screenImage = nil;
+        [self cancelCrop];
     }
 }
 
 - (CGRect)normalizedRectFrom:(CGPoint)a to:(CGPoint)b {
     return CGRectMake(MIN(a.x, b.x), MIN(a.y, b.y),
                       fabs(b.x - a.x), fabs(b.y - a.y));
+}
+
+- (void)beginCropEditing {
+    self.selectionView.backgroundColor = [UIColor colorWithWhite:1 alpha:0.06];
+    self.selectionView.layer.borderColor = [UIColor colorWithRed:0.15 green:0.65 blue:1 alpha:1].CGColor;
+    self.selectionView.layer.borderWidth = 2.0;
+    self.selectionView.userInteractionEnabled = YES;
+    [self.selectionView addGestureRecognizer:[[UIPanGestureRecognizer alloc]
+        initWithTarget:self action:@selector(cropMoved:)]];
+
+    self.cropHandles = [NSMutableArray array];
+    for (NSInteger index = 0; index < 4; index++) {
+        UIView *handle = [[UIView alloc] initWithFrame:CGRectMake(0, 0, 26, 26)];
+        handle.tag = index;
+        handle.backgroundColor = UIColor.whiteColor;
+        handle.layer.cornerRadius = 13;
+        handle.layer.borderWidth = 2;
+        handle.layer.borderColor = [UIColor colorWithRed:0.15 green:0.65 blue:1 alpha:1].CGColor;
+        [handle addGestureRecognizer:[[UIPanGestureRecognizer alloc]
+            initWithTarget:self action:@selector(cropHandlePanned:)]];
+        [self.rootView addSubview:handle];
+        [self.cropHandles addObject:handle];
+    }
+
+    self.confirmCropButton = [self cropButtonWithTitle:@"Xong"
+                                                 color:[UIColor colorWithRed:0.10 green:0.55 blue:0.95 alpha:1]
+                                                action:@selector(confirmCrop)];
+    self.cancelCropButton = [self cropButtonWithTitle:@"Hủy"
+                                                color:[UIColor colorWithWhite:0.22 alpha:0.95]
+                                               action:@selector(cancelCrop)];
+    [self updateCropControls];
+}
+
+- (UIButton *)cropButtonWithTitle:(NSString *)title
+                            color:(UIColor *)color
+                           action:(SEL)action {
+    UIButton *button = [UIButton buttonWithType:UIButtonTypeSystem];
+    button.frame = CGRectMake(0, 0, 68, 36);
+    button.backgroundColor = color;
+    button.layer.cornerRadius = 9;
+    [button setTitle:title forState:UIControlStateNormal];
+    [button setTitleColor:UIColor.whiteColor forState:UIControlStateNormal];
+    button.titleLabel.font = [UIFont boldSystemFontOfSize:15];
+    [button addTarget:self action:action forControlEvents:UIControlEventTouchUpInside];
+    [self.rootView addSubview:button];
+    return button;
+}
+
+- (void)updateCropControls {
+    CGRect frame = self.selectionView.frame;
+    NSArray<NSValue *> *points = @[
+        [NSValue valueWithCGPoint:CGPointMake(CGRectGetMinX(frame), CGRectGetMinY(frame))],
+        [NSValue valueWithCGPoint:CGPointMake(CGRectGetMaxX(frame), CGRectGetMinY(frame))],
+        [NSValue valueWithCGPoint:CGPointMake(CGRectGetMinX(frame), CGRectGetMaxY(frame))],
+        [NSValue valueWithCGPoint:CGPointMake(CGRectGetMaxX(frame), CGRectGetMaxY(frame))]
+    ];
+    [self.cropHandles enumerateObjectsUsingBlock:^(UIView *handle, NSUInteger index, BOOL *stop) {
+        handle.center = points[index].CGPointValue;
+    }];
+
+    CGFloat controlsY = CGRectGetMaxY(frame) + 12;
+    if (controlsY + 36 > CGRectGetHeight(self.rootView.bounds)) {
+        controlsY = CGRectGetMinY(frame) - 48;
+    }
+    controlsY = MAX(8, controlsY);
+    CGFloat startX = MIN(MAX(8, CGRectGetMidX(frame) - 73), CGRectGetWidth(self.rootView.bounds) - 154);
+    self.cancelCropButton.frame = CGRectMake(startX, controlsY, 68, 36);
+    self.confirmCropButton.frame = CGRectMake(startX + 78, controlsY, 68, 36);
+}
+
+- (void)cropMoved:(UIPanGestureRecognizer *)gesture {
+    if (gesture.state == UIGestureRecognizerStateBegan) {
+        self.cropGestureStartFrame = self.selectionView.frame;
+    }
+    CGPoint translation = [gesture translationInView:self.rootView];
+    CGRect frame = self.cropGestureStartFrame;
+    frame.origin.x += translation.x;
+    frame.origin.y += translation.y;
+    CGRect bounds = self.rootView.bounds;
+    frame.origin.x = MIN(MAX(CGRectGetMinX(bounds), frame.origin.x), CGRectGetMaxX(bounds) - frame.size.width);
+    frame.origin.y = MIN(MAX(CGRectGetMinY(bounds), frame.origin.y), CGRectGetMaxY(bounds) - frame.size.height);
+    self.selectionView.frame = frame;
+    [self updateCropControls];
+}
+
+- (void)cropHandlePanned:(UIPanGestureRecognizer *)gesture {
+    if (gesture.state == UIGestureRecognizerStateBegan) {
+        self.cropGestureStartFrame = self.selectionView.frame;
+    }
+    CGPoint delta = [gesture translationInView:self.rootView];
+    CGRect start = self.cropGestureStartFrame;
+    CGFloat left = CGRectGetMinX(start);
+    CGFloat right = CGRectGetMaxX(start);
+    CGFloat top = CGRectGetMinY(start);
+    CGFloat bottom = CGRectGetMaxY(start);
+    NSInteger corner = gesture.view.tag;
+    if (corner == 0 || corner == 2) left += delta.x; else right += delta.x;
+    if (corner == 0 || corner == 1) top += delta.y; else bottom += delta.y;
+
+    CGRect bounds = self.rootView.bounds;
+    left = MAX(CGRectGetMinX(bounds), MIN(left, right - 32));
+    right = MIN(CGRectGetMaxX(bounds), MAX(right, left + 32));
+    top = MAX(CGRectGetMinY(bounds), MIN(top, bottom - 32));
+    bottom = MIN(CGRectGetMaxY(bounds), MAX(bottom, top + 32));
+    self.selectionView.frame = CGRectMake(left, top, right - left, bottom - top);
+    [self updateCropControls];
+}
+
+- (void)confirmCrop {
+    CGRect rect = self.selectionView.frame;
+    [self removeCropControls];
+    self.window.selecting = NO;
+    self.rootView.backgroundColor = UIColor.clearColor;
+    [self addCloneForRect:rect];
+    self.screenImage = nil;
+}
+
+- (void)cancelCrop {
+    [self removeCropControls];
+    self.window.selecting = NO;
+    self.rootView.backgroundColor = UIColor.clearColor;
+    self.screenImage = nil;
+}
+
+- (void)removeCropControls {
+    [self.selectionView removeFromSuperview];
+    self.selectionView = nil;
+    for (UIView *handle in self.cropHandles) [handle removeFromSuperview];
+    [self.cropHandles removeAllObjects];
+    self.cropHandles = nil;
+    [self.confirmCropButton removeFromSuperview];
+    [self.cancelCropButton removeFromSuperview];
+    self.confirmCropButton = nil;
+    self.cancelCropButton = nil;
 }
 
 - (void)addCloneForRect:(CGRect)rect {
