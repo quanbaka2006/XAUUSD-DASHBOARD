@@ -23,6 +23,7 @@ typedef UIImage *(*SCCreateScreenUIImageFunction)(void);
 @property (nonatomic, strong) SCPassthroughWindow *window;
 @property (nonatomic, strong) UIView *rootView;
 @property (nonatomic, strong) UIView *selectionView;
+@property (nonatomic, strong) UIButton *toggleButton;
 @property (nonatomic, strong) NSMutableArray<UIImageView *> *clones;
 @property (nonatomic, strong) UIImage *screenImage;
 @property (nonatomic, assign) CGPoint dragStart;
@@ -73,10 +74,14 @@ static void SCLog(NSString *message) {
     self.rootView = controller.view;
     self.window.rootViewController = controller;
 
-    UITapGestureRecognizer *tap = [[UITapGestureRecognizer alloc]
-        initWithTarget:self action:@selector(toggleClones)];
-    tap.delegate = self;
-    [self.rootView addGestureRecognizer:tap];
+    self.toggleButton = [UIButton buttonWithType:UIButtonTypeCustom];
+    self.toggleButton.frame = self.window.hotZone;
+    self.toggleButton.backgroundColor = UIColor.clearColor;
+    self.toggleButton.accessibilityLabel = @"Toggle ScreenClone overlays";
+    [self.toggleButton addTarget:self
+                          action:@selector(toggleClones)
+                forControlEvents:UIControlEventTouchUpInside];
+    [self.rootView addSubview:self.toggleButton];
 
     self.window.hidden = NO;
     [NSTimer scheduledTimerWithTimeInterval:0.5
@@ -103,6 +108,7 @@ static void SCLog(NSString *message) {
 }
 
 - (void)toggleClones {
+    SCLog(@"toggle button tapped");
     self.clonesVisible = !self.clonesVisible;
     for (UIImageView *clone in self.clones) {
         clone.hidden = !self.clonesVisible;
@@ -232,6 +238,7 @@ static void SCLog(NSString *message) {
     clone.clipsToBounds = YES;
     [self.rootView addSubview:clone];
     [self.clones addObject:clone];
+    [self.rootView bringSubviewToFront:self.toggleButton];
 }
 
 @end

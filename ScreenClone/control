@@ -1,6 +1,6 @@
 Package: com.quanhandsome.screenclone
 Name: ScreenClone
-Version: 0.3.2
+Version: 0.3.3
 Architecture: iphoneos-arm64
 Description: Crop any screen region into a borderless overlay at the exact same position.
 Maintainer: QuanHandsome
