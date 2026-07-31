@@ -13,6 +13,7 @@ const { createM1SignalEngine, isLegacyZenWindowReplay } = require('./m1SignalEng
 const { rateLimit } = require('express-rate-limit');
 const slowDown = require('express-slow-down');
 const vpsManager = require('./vpsManager');
+const { createScreenCloneLicenseRouter } = require('./screenCloneLicense');
 const net = require('net');
 const {
   createActiveM1Candle,
@@ -113,9 +114,17 @@ function corsOriginCheck(origin, callback) {
 // ==========================================
 // Password Hashing (PBKDF2) & Token JWT Utils
 // ==========================================
+const PASSWORD_HASH_ITERATIONS = 210000;
+
+function timingSafeBufferEqual(left, right) {
+  const a = Buffer.isBuffer(left) ? left : Buffer.from(String(left || ''), 'utf8');
+  const b = Buffer.isBuffer(right) ? right : Buffer.from(String(right || ''), 'utf8');
+  return a.length === b.length && crypto.timingSafeEqual(a, b);
+}
+
 function hashPassword(password) {
   const salt = crypto.randomBytes(16).toString('hex');
-  const iterations = 100000; // raised from 10000; verifyPassword reads iterations from each stored hash so old hashes still work
+  const iterations = PASSWORD_HASH_ITERATIONS;
   const keylen = 64;
   const digest = 'sha512';
   const hash = crypto.pbkdf2Sync(password, salt, iterations, keylen, digest).toString('hex');
@@ -123,17 +132,29 @@ function hashPassword(password) {
 }
 
 function verifyPassword(password, storedHash) {
+  if (typeof storedHash !== 'string') return false;
   if (!storedHash.startsWith('pbkdf2$')) {
-    return password === storedHash; // legacy plain-text fallback
+    return timingSafeBufferEqual(password, storedHash); // legacy fallback; migrated after a successful login
   }
   const parts = storedHash.split('$');
+  if (parts.length !== 4) return false;
   const iterations = parseInt(parts[1], 10);
   const salt = parts[2];
   const originalHash = parts[3];
+  if (!Number.isInteger(iterations) || iterations < 10000 || iterations > 2000000
+      || !/^[a-f0-9]{32}$/i.test(salt) || !/^[a-f0-9]{128}$/i.test(originalHash)) {
+    return false;
+  }
   const keylen = 64;
   const digest = 'sha512';
   const hash = crypto.pbkdf2Sync(password, salt, iterations, keylen, digest).toString('hex');
-  return hash === originalHash;
+  return timingSafeBufferEqual(Buffer.from(hash, 'hex'), Buffer.from(originalHash, 'hex'));
+}
+
+function passwordHashNeedsUpgrade(storedHash) {
+  if (typeof storedHash !== 'string' || !storedHash.startsWith('pbkdf2$')) return true;
+  const iterations = Number.parseInt(storedHash.split('$')[1], 10);
+  return !Number.isInteger(iterations) || iterations < PASSWORD_HASH_ITERATIONS;
 }
 
 function generateToken(payload) {
@@ -162,7 +183,7 @@ function verifyToken(token) {
     .update(`${header}.${body}`)
     .digest('base64url');
     
-  if (signature !== expectedSignature) return null;
+  if (!timingSafeBufferEqual(signature, expectedSignature)) return null;
   
   try {
     const payload = JSON.parse(Buffer.from(body, 'base64url').toString('utf8'));
@@ -2024,6 +2045,19 @@ async function checkAdminGuard(req, res, next) {
   return res.status(403).json({ success: false, error: 'Forbidden: Bạn không có quyền thực hiện thao tác này.' });
 }
 
+const screenCloneLicense = createScreenCloneLicenseRouter({
+  loadUsers,
+  verifyPassword,
+  requireAdmin,
+  checkAdminGuard,
+  logActivity,
+  authLimiter,
+  speedLimiter,
+  databaseReady: dbReadyPromise,
+  getMongoDatabase: () => (useMongoDB ? db : null)
+});
+app.use('/api/screenclone', screenCloneLicense.router);
+
 // Telegram Bot Integration & Auto-Execution Logic
 // ==========================================
 
@@ -2270,9 +2304,9 @@ app.post('/api/login', authLimiter, speedLimiter, async (req, res) => {
   const isMatch = verifyPassword(password, found.password);
   
   if (isMatch) {
-    // Migrate plaintext password to hash on-the-fly
-    if (!found.password.startsWith('pbkdf2$')) {
-      console.log(`[Security] Migrating plaintext password to secure pbkdf2 hash for: ${found.username}`);
+    // Migrate plaintext and older low-cost PBKDF2 hashes on successful login.
+    if (passwordHashNeedsUpgrade(found.password)) {
+      console.log(`[Security] Upgrading password hash for: ${found.username}`);
       found.password = hashPassword(password);
       users[foundIdx] = found;
       await saveUsers(users);

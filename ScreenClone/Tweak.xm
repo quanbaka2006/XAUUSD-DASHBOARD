@@ -1,6 +1,7 @@
 #import <UIKit/UIKit.h>
 #import <objc/message.h>
 #import "SCOverlayManager.h"
+#import "SCLicenseManager.h"
 
 static BOOL scHomePressed = NO;
 static BOOL scVolumeDownPressed = NO;
@@ -44,7 +45,9 @@ static void SCActivateIfNeeded(void) {
     scChordActive = YES;
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 120 * NSEC_PER_MSEC),
                    dispatch_get_main_queue(), ^{
-        [[SCOverlayManager sharedManager] activateCapture];
+        [[SCLicenseManager sharedManager] authorizeCapture:^(BOOL allowed) {
+            if (allowed) [[SCOverlayManager sharedManager] activateCapture];
+        }];
     });
 }
 
@@ -97,6 +100,7 @@ static void SCObserveMetaTraderTabTap(UIEvent *event) {
     %orig;
     dispatch_async(dispatch_get_main_queue(), ^{
         [[SCOverlayManager sharedManager] start];
+        [[SCLicenseManager sharedManager] start];
     });
 }
 

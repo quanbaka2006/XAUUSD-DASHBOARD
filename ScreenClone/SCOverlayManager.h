@@ -5,4 +5,5 @@
 - (void)start;
 - (void)activateCapture;
 - (void)applyClonesVisible:(BOOL)visible;
+- (UIViewController *)presentationViewController;
 @end

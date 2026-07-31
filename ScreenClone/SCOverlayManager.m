@@ -1,4 +1,5 @@
 #import "SCOverlayManager.h"
+#import "SCLicenseManager.h"
 #import <QuartzCore/QuartzCore.h>
 #import <dlfcn.h>
 #import <objc/message.h>
@@ -120,8 +121,13 @@ static void SCZoneNotification(CFNotificationCenterRef center,
     }
 }
 
+- (UIViewController *)presentationViewController {
+    return self.window.rootViewController;
+}
+
 - (void)activateCapture {
     SCLog(@"activateCapture called");
+    if (![[SCLicenseManager sharedManager] isLicenseActive]) return;
     if (self.window.selecting || self.capturePending) return;
     [self beginSelection];
 }
@@ -453,6 +459,11 @@ static void SCZoneNotification(CFNotificationCenterRef center,
         [self.window.rootViewController presentViewController:share
                                                      animated:YES
                                                    completion:nil];
+    }]];
+    [menu addAction:[UIAlertAction actionWithTitle:@"Tài khoản ScreenClone"
+                                             style:UIAlertActionStyleDefault
+                                           handler:^(__unused UIAlertAction *action) {
+        [[SCLicenseManager sharedManager] presentAccountPanel];
     }]];
     [menu addAction:[UIAlertAction actionWithTitle:@"Xóa ảnh"
                                              style:UIAlertActionStyleDestructive
