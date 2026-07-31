@@ -21,6 +21,7 @@ jobs:
 
       - name: Install iOS SDK
         run: |
+          rm -f "$THEOS/sdks/.keep"
           git clone --depth 1 https://github.com/theos/sdks.git "$THEOS/sdks"
 
       - name: Build rootless package
@@ -32,4 +33,3 @@ jobs:
         with:
           name: ScreenClone-rootless
           path: ScreenClone/packages/*.deb
-
