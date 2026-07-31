@@ -1,10 +1,10 @@
 #import <UIKit/UIKit.h>
 #import "SCOverlayManager.h"
 
-static BOOL scPowerPressed = NO;
+static BOOL scHomePressed = NO;
 static BOOL scVolumeDownPressed = NO;
 static BOOL scChordActive = NO;
-static CFAbsoluteTime scLastPowerPress = 0;
+static CFAbsoluteTime scLastHomePress = 0;
 static CFAbsoluteTime scLastVolumeDown = 0;
 
 static void SCActivateIfNeeded(void) {
@@ -25,56 +25,42 @@ static void SCActivateIfNeeded(void) {
     });
 }
 
-- (BOOL)_handlePhysicalButtonEvent:(UIPressesEvent *)event {
-    UIPress *press = event.allPresses.anyObject;
-    NSInteger type = press.type;
-    BOOL pressed = press.force > 0;
-
-    if (type == 104) scPowerPressed = pressed;
-    if (type == 103) scVolumeDownPressed = pressed;
-
-    if (pressed && scPowerPressed && scVolumeDownPressed && !scChordActive) {
-        SCActivateIfNeeded();
-        return YES;
-    }
-
-    if (!scPowerPressed && !scVolumeDownPressed) {
-        scChordActive = NO;
-    }
-
-    if (scChordActive && (type == 103 || type == 104)) {
-        return YES;
-    }
-    return %orig;
-}
-
 %end
 
-%hook SBLockHardwareButton
+%hook SBHomeHardwareButton
 
-- (void)buttonDown:(id)gesture {
-    scPowerPressed = YES;
-    scLastPowerPress = CFAbsoluteTimeGetCurrent();
+- (void)initialButtonDown:(id)gesture {
+    scHomePressed = YES;
+    scLastHomePress = CFAbsoluteTimeGetCurrent();
     if (scVolumeDownPressed ||
-        (scLastVolumeDown > 0 && scLastPowerPress - scLastVolumeDown < 0.65)) {
+        (scLastVolumeDown > 0 && scLastHomePress - scLastVolumeDown < 0.65)) {
         SCActivateIfNeeded();
     }
     %orig;
 }
 
-- (void)singlePress:(id)press {
+- (void)singlePressUp:(id)press {
+    scHomePressed = NO;
     if (scChordActive) {
         dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 350 * NSEC_PER_MSEC),
                        dispatch_get_main_queue(), ^{
             scChordActive = NO;
-            scPowerPressed = NO;
+            scHomePressed = NO;
             scVolumeDownPressed = NO;
-            scLastPowerPress = 0;
+            scLastHomePress = 0;
             scLastVolumeDown = 0;
         });
         return;
     }
-    scPowerPressed = NO;
+    %orig;
+}
+
+%end
+
+%hook SBHomeHardwareButtonActions
+
+- (void)performSinglePressUpActions {
+    if (scChordActive) return;
     %orig;
 }
 
@@ -85,8 +71,8 @@ static void SCActivateIfNeeded(void) {
 - (void)volumeDecreasePress:(id)gesture {
     scVolumeDownPressed = YES;
     scLastVolumeDown = CFAbsoluteTimeGetCurrent();
-    if (scPowerPressed ||
-        (scLastPowerPress > 0 && scLastVolumeDown - scLastPowerPress < 0.65)) {
+    if (scHomePressed ||
+        (scLastHomePress > 0 && scLastVolumeDown - scLastHomePress < 0.65)) {
         SCActivateIfNeeded();
         return;
     }
