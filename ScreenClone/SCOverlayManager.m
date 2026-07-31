@@ -252,9 +252,17 @@ static void SCLog(NSString *message) {
                                      orientation:UIImageOrientationUp];
     CGImageRelease(croppedRef);
 
+    // System screenshots can be backed by a protected IOSurface. A sub-image
+    // keeps that backing store and Core Animation renders it black when it is
+    // placed back on screen. PNG round-tripping creates an independent bitmap.
+    NSData *bitmapData = UIImagePNGRepresentation(cropped);
+    UIImage *displayImage = bitmapData
+        ? [UIImage imageWithData:bitmapData scale:scale]
+        : cropped;
+
     UIImageView *clone = [[UIImageView alloc] initWithFrame:rect];
     clone.tag = 7303;
-    clone.image = cropped;
+    clone.image = displayImage;
     clone.contentMode = UIViewContentModeScaleToFill;
     clone.userInteractionEnabled = YES;
     clone.layer.borderWidth = 0;
