@@ -10,8 +10,11 @@ static CFAbsoluteTime scLastVolumeDown = 0;
 static CFAbsoluteTime scLastVolumeUp = 0;
 
 static BOOL SCUsesHomeGestureDevice(void) {
-    for (UIWindow *window in UIApplication.sharedApplication.windows) {
-        if (window.safeAreaInsets.bottom > 0) return YES;
+    for (UIScene *scene in UIApplication.sharedApplication.connectedScenes) {
+        if (![scene isKindOfClass:UIWindowScene.class]) continue;
+        for (UIWindow *window in ((UIWindowScene *)scene).windows) {
+            if (window.safeAreaInsets.bottom > 0) return YES;
+        }
     }
     return NO;
 }
