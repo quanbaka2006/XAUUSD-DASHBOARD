@@ -5,6 +5,7 @@ Rootless jailbreak tweak for Dopamine on iOS 15 and 16.
 ## Gestures
 
 - Hold Home, then press Volume Down to enter selection mode.
+- On Face ID devices, quickly press Volume Up and then Volume Down instead.
 - Drag to select a region. A borderless clone is placed at the same coordinates.
 - Tap a clone to copy, share, or delete it.
 - In MetaTrader 5, tapping the Trade tab shows clones; the other four tabs

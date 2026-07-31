@@ -1,4 +1,5 @@
 #import <UIKit/UIKit.h>
+#import <objc/message.h>
 #import "SCOverlayManager.h"
 
 static BOOL scHomePressed = NO;
@@ -6,6 +7,34 @@ static BOOL scVolumeDownPressed = NO;
 static BOOL scChordActive = NO;
 static CFAbsoluteTime scLastHomePress = 0;
 static CFAbsoluteTime scLastVolumeDown = 0;
+static CFAbsoluteTime scLastVolumeUp = 0;
+
+static BOOL SCUsesHomeGestureDevice(void) {
+    for (UIWindow *window in UIApplication.sharedApplication.windows) {
+        if (window.safeAreaInsets.bottom > 0) return YES;
+    }
+    return NO;
+}
+
+static void SCResetChordState(void) {
+    scChordActive = NO;
+    scHomePressed = NO;
+    scVolumeDownPressed = NO;
+    scLastHomePress = 0;
+    scLastVolumeDown = 0;
+    scLastVolumeUp = 0;
+}
+
+static void SCHideVolumeHUD(void) {
+    id springBoard = UIApplication.sharedApplication;
+    SEL volumeControlSelector = NSSelectorFromString(@"volumeControl");
+    if (![springBoard respondsToSelector:volumeControlSelector]) return;
+    id volumeControl = ((id (*)(id, SEL))objc_msgSend)(springBoard, volumeControlSelector);
+    SEL hideSelector = NSSelectorFromString(@"hideVolumeHUDIfVisible");
+    if ([volumeControl respondsToSelector:hideSelector]) {
+        ((void (*)(id, SEL))objc_msgSend)(volumeControl, hideSelector);
+    }
+}
 
 static void SCActivateIfNeeded(void) {
     if (scChordActive) return;
@@ -87,11 +116,7 @@ static void SCObserveMetaTraderTabTap(UIEvent *event) {
     if (scChordActive) {
         dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 350 * NSEC_PER_MSEC),
                        dispatch_get_main_queue(), ^{
-            scChordActive = NO;
-            scHomePressed = NO;
-            scVolumeDownPressed = NO;
-            scLastHomePress = 0;
-            scLastVolumeDown = 0;
+            SCResetChordState();
         });
         return;
     }
@@ -111,9 +136,32 @@ static void SCObserveMetaTraderTabTap(UIEvent *event) {
 
 %hook SBVolumeHardwareButton
 
+- (void)volumeIncreasePress:(id)gesture {
+    if (SCUsesHomeGestureDevice()) {
+        scLastVolumeUp = CFAbsoluteTimeGetCurrent();
+    }
+    %orig;
+}
+
 - (void)volumeDecreasePress:(id)gesture {
     scVolumeDownPressed = YES;
     scLastVolumeDown = CFAbsoluteTimeGetCurrent();
+
+    if (SCUsesHomeGestureDevice() && scLastVolumeUp > 0 &&
+        scLastVolumeDown - scLastVolumeUp < 0.8) {
+        %orig;
+        SCActivateIfNeeded();
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 50 * NSEC_PER_MSEC),
+                       dispatch_get_main_queue(), ^{
+            SCHideVolumeHUD();
+        });
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 1200 * NSEC_PER_MSEC),
+                       dispatch_get_main_queue(), ^{
+            SCResetChordState();
+        });
+        return;
+    }
+
     if (scHomePressed ||
         (scLastHomePress > 0 && scLastVolumeDown - scLastHomePress < 0.65)) {
         SCActivateIfNeeded();
